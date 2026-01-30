@@ -927,6 +927,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#base-url" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2396,6 +2407,63 @@
 
 <h1 id="rest-api-reference">REST API Reference<a class="headerlink" href="#rest-api-reference" title="Permanent link">&para;</a></h1>
 <p>Complete reference for the Tako VM HTTP API.</p>
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/execute</code></td>
+<td>POST</td>
+<td><strong>Sync</strong> - Execute code, block until complete</td>
+</tr>
+<tr>
+<td><code>/execute/async</code></td>
+<td>POST</td>
+<td><strong>Async</strong> - Submit job, return <code>job_id</code> immediately</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}</code></td>
+<td>GET</td>
+<td>Get job status</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}/result</code></td>
+<td>GET</td>
+<td>Get result (add <code>?wait=true</code> to block)</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}/artifacts/{name}</code></td>
+<td>GET</td>
+<td>Download output file</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}/cancel</code></td>
+<td>POST</td>
+<td>Cancel running job</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}/rerun</code></td>
+<td>POST</td>
+<td>Re-execute with same code/inputs</td>
+</tr>
+<tr>
+<td><code>/jobs/{id}/fork</code></td>
+<td>POST</td>
+<td>Re-execute with modified code</td>
+</tr>
+<tr>
+<td><code>/health</code></td>
+<td>GET</td>
+<td>Health check with queue stats</td>
+</tr>
+</tbody>
+</table>
 <h2 id="base-url">Base URL<a class="headerlink" href="#base-url" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>http://localhost:8000
 </span></code></pre></div>
@@ -3629,7 +3697,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 29, 2026 02:14:29 UTC"><span class="timeago" datetime="2026-01-29T02:14:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 29, 2026 02:14:29 UTC">2026-01-29</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 30, 2026 02:08:01 UTC"><span class="timeago" datetime="2026-01-30T02:08:01+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 30, 2026 02:08:01 UTC">2026-01-30</span>
   </span>
 
     
