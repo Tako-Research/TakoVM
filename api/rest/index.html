@@ -1054,17 +1054,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#timing-object" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Timing Object
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2603,54 +2592,13 @@
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">&quot;exit_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">&quot;execution_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.35</span><span class="p">,</span>
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;job_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="nt">&quot;timing&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="nt">&quot;startup_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1200</span><span class="p">,</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="nt">&quot;dep_install_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">850</span><span class="p">,</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nt">&quot;execution_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">350</span><span class="p">,</span>
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">    </span><span class="nt">&quot;total_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2400</span><span class="p">,</span>
-</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="nt">&quot;phase_at_exit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span>
-</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="p">}</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;job_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">}</span>
 </span></code></pre></div>
-<h3 id="timing-object">Timing Object<a class="headerlink" href="#timing-object" title="Permanent link">&para;</a></h3>
-<p>The <code>timing</code> field provides detailed breakdown of execution phases:</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>startup_ms</code></td>
-<td>integer</td>
-<td>Time spent starting the container (milliseconds)</td>
-</tr>
-<tr>
-<td><code>dep_install_ms</code></td>
-<td>integer</td>
-<td>Time spent installing dependencies (milliseconds, 0 if no requirements)</td>
-</tr>
-<tr>
-<td><code>execution_ms</code></td>
-<td>integer</td>
-<td>Time spent executing the user code (milliseconds)</td>
-</tr>
-<tr>
-<td><code>total_ms</code></td>
-<td>integer</td>
-<td>Total wall-clock time from submission to completion</td>
-</tr>
-<tr>
-<td><code>phase_at_exit</code></td>
-<td>string</td>
-<td>The phase that was active when execution ended (<code>startup</code>, <code>dep_install</code>, or <code>execution</code>)</td>
-</tr>
-</tbody>
-</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The sync <code>/execute</code> endpoint returns a simpler response without detailed timing. For detailed timing breakdowns, use the async endpoint and fetch results with <code>?view=full</code>.</p>
+</div>
 <hr />
 <h2 id="execute-code-async">Execute Code (Async)<a class="headerlink" href="#execute-code-async" title="Permanent link">&para;</a></h2>
 <p>Submit code for execution and return immediately.</p>
@@ -2726,13 +2674,13 @@
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="p">}</span>
 </span></code></pre></div>
 <h3 id="response-idempotent-duplicate">Response (Idempotent Duplicate)<a class="headerlink" href="#response-idempotent-duplicate" title="Permanent link">&para;</a></h3>
-<p>If the same <code>idempotency_key</code> and payload are submitted again:</p>
+<p>If the same <code>idempotency_key</code> and payload are submitted again, the existing job is returned:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span><span class="p">,</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;succeeded&quot;</span><span class="p">,</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Existing job returned (idempotent)&quot;</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">}</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;succeeded&quot;</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">}</span>
 </span></code></pre></div>
+<p>The status will reflect the current state of the existing job (e.g., <code>queued</code>, <code>running</code>, <code>succeeded</code>).</p>
 <hr />
 <h2 id="get-job-status">Get Job Status<a class="headerlink" href="#get-job-status" title="Permanent link">&para;</a></h2>
 <p>Get the current status of a job.</p>
@@ -2874,19 +2822,19 @@
 </span><span id="__span-13-21"><a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a><span class="w">  </span><span class="p">},</span>
 </span><span id="__span-13-22"><a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a><span class="w">  </span><span class="nt">&quot;job_ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default@sha256:a1b2c3d4e5f6&quot;</span><span class="p">,</span>
 </span><span id="__span-13-23"><a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a><span class="w">  </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-13-24"><a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;result.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/json&quot;</span><span class="p">}</span>
+</span><span id="__span-13-24"><a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;result.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sha256&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/json&quot;</span><span class="p">}</span>
 </span><span id="__span-13-25"><a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a><span class="w">  </span><span class="p">],</span>
 </span><span id="__span-13-26"><a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a><span class="w">  </span><span class="nt">&quot;input_artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-13-27"><a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;data.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/json&quot;</span><span class="p">}</span>
-</span><span id="__span-13-28"><a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a><span class="w">  </span><span class="p">],</span>
-</span><span id="__span-13-29"><a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a><span class="w">  </span><span class="nt">&quot;resource_usage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-13-30"><a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a><span class="w">    </span><span class="nt">&quot;cpu_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">250</span><span class="p">,</span>
-</span><span id="__span-13-31"><a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a><span class="w">    </span><span class="nt">&quot;memory_peak_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span>
-</span><span id="__span-13-32"><a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a><span class="w">    </span><span class="nt">&quot;io_read_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
-</span><span id="__span-13-33"><a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a><span class="w">    </span><span class="nt">&quot;io_write_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span>
+</span><span id="__span-13-27"><a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;_code.py&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">256</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sha256&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;def456...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text/x-python&quot;</span><span class="p">},</span>
+</span><span id="__span-13-28"><a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;_input.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sha256&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ghi789...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/json&quot;</span><span class="p">}</span>
+</span><span id="__span-13-29"><a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-13-30"><a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a><span class="w">  </span><span class="nt">&quot;resource_usage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-31"><a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a><span class="w">    </span><span class="nt">&quot;max_rss_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">64.5</span><span class="p">,</span>
+</span><span id="__span-13-32"><a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a><span class="w">    </span><span class="nt">&quot;cpu_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">250</span><span class="p">,</span>
+</span><span id="__span-13-33"><a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a><span class="w">    </span><span class="nt">&quot;wall_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">350</span>
 </span><span id="__span-13-34"><a id="__codelineno-13-34" name="__codelineno-13-34" href="#__codelineno-13-34"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-13-35"><a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a><span class="w">  </span><span class="nt">&quot;code_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:abc123...&quot;</span><span class="p">,</span>
-</span><span id="__span-13-36"><a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a><span class="w">  </span><span class="nt">&quot;input_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:def456...&quot;</span><span class="p">,</span>
+</span><span id="__span-13-35"><a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a><span class="w">  </span><span class="nt">&quot;code_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span><span class="p">,</span>
+</span><span id="__span-13-36"><a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a><span class="w">  </span><span class="nt">&quot;input_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;def456...&quot;</span><span class="p">,</span>
 </span><span id="__span-13-37"><a id="__codelineno-13-37" name="__codelineno-13-37" href="#__codelineno-13-37"></a><span class="w">  </span><span class="nt">&quot;parent_execution_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
 </span><span id="__span-13-38"><a id="__codelineno-13-38" name="__codelineno-13-38" href="#__codelineno-13-38"></a><span class="w">  </span><span class="nt">&quot;relationship&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
 </span><span id="__span-13-39"><a id="__codelineno-13-39" name="__codelineno-13-39" href="#__codelineno-13-39"></a><span class="w">  </span><span class="nt">&quot;stdout_truncated&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
@@ -2907,7 +2855,7 @@
 <tr>
 <td><code>timing</code></td>
 <td>object</td>
-<td>Detailed timing breakdown (see <a href="#timing-object">Timing Object</a>)</td>
+<td>Detailed timing breakdown (see below)</td>
 </tr>
 <tr>
 <td><code>job_ref</code></td>
@@ -2917,17 +2865,17 @@
 <tr>
 <td><code>artifacts</code></td>
 <td>array</td>
-<td>Output artifact metadata list</td>
+<td>Output artifact metadata (name, size_bytes, sha256, content_type)</td>
 </tr>
 <tr>
 <td><code>input_artifacts</code></td>
 <td>array</td>
-<td>Input artifact metadata list</td>
+<td>Input artifact metadata (includes internal <code>_code.py</code>, <code>_input.json</code>)</td>
 </tr>
 <tr>
 <td><code>resource_usage</code></td>
 <td>object</td>
-<td>Resource consumption metrics</td>
+<td>Resource metrics: <code>max_rss_mb</code>, <code>cpu_time_ms</code>, <code>wall_time_ms</code></td>
 </tr>
 <tr>
 <td><code>code_hash</code></td>
@@ -2966,6 +2914,43 @@
 </tr>
 </tbody>
 </table>
+<h4 id="timing-object">Timing Object<a class="headerlink" href="#timing-object" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>startup_ms</code></td>
+<td>integer</td>
+<td>Time spent in startup phase (container init + dep install)</td>
+</tr>
+<tr>
+<td><code>dep_install_ms</code></td>
+<td>integer</td>
+<td>Time spent installing dependencies (subset of startup)</td>
+</tr>
+<tr>
+<td><code>execution_ms</code></td>
+<td>integer</td>
+<td>Time spent executing user code</td>
+</tr>
+<tr>
+<td><code>total_ms</code></td>
+<td>integer</td>
+<td>Total container runtime</td>
+</tr>
+<tr>
+<td><code>phase_at_exit</code></td>
+<td>string</td>
+<td>Phase when container exited: <code>startup</code>, <code>execution</code>, <code>completed</code>, or <code>failed</code></td>
+</tr>
+</tbody>
+</table>
 <h3 id="response-job-in-progress">Response (Job In Progress)<a class="headerlink" href="#response-job-in-progress" title="Permanent link">&para;</a></h3>
 <p>If <code>wait=false</code> and the job is still running:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p">{</span>
@@ -2983,16 +2968,14 @@
 <h3 id="response_3">Response<a class="headerlink" href="#response_3" title="Permanent link">&para;</a></h3>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="p">{</span>
 </span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;661f9511-f30c-52e5-b827-557766551111&quot;</span><span class="p">,</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;queued&quot;</span><span class="p">,</span>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span><span class="nt">&quot;parent_execution_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span><span class="p">,</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="nt">&quot;relationship&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rerun&quot;</span>
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="p">}</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;queued&quot;</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>The new job will have:
 - Same code as the original
 - Same input data as the original
 - Same job type and timeout settings
-- Lineage tracking back to the original execution</p>
+- Lineage tracking back to the original execution (visible in <code>?view=full</code> response)</p>
 <hr />
 <h2 id="fork-job">Fork Job<a class="headerlink" href="#fork-job" title="Permanent link">&para;</a></h2>
 <p>Fork a job with new code but the same inputs.</p>
@@ -3027,16 +3010,14 @@
 <h3 id="response_4">Response<a class="headerlink" href="#response_4" title="Permanent link">&para;</a></h3>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p">{</span>
 </span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;772fa622-g41d-63f6-c938-668877662222&quot;</span><span class="p">,</span>
-</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;queued&quot;</span><span class="p">,</span>
-</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="nt">&quot;parent_execution_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span><span class="p">,</span>
-</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="nt">&quot;relationship&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fork&quot;</span>
-</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="p">}</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;queued&quot;</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>The new job will have:
 - The new code provided in the request
 - Same input data as the original
 - Same job type and timeout settings
-- Lineage tracking back to the original execution</p>
+- Lineage tracking back to the original execution (visible in <code>?view=full</code> response)</p>
 <hr />
 <h2 id="cancel-job">Cancel Job<a class="headerlink" href="#cancel-job" title="Permanent link">&para;</a></h2>
 <p>Cancel a pending or running job.</p>
@@ -3540,11 +3521,12 @@
 <tr>
 <td><code>phase</code></td>
 <td>string</td>
-<td>The execution phase where the error occurred (<code>startup</code>, <code>dep_install</code>, or <code>execution</code>)</td>
+<td>The execution phase where the error occurred (<code>startup</code> or <code>execution</code>)</td>
 </tr>
 </tbody>
 </table>
 <h3 id="error-types">Error Types<a class="headerlink" href="#error-types" title="Permanent link">&para;</a></h3>
+<h4 id="timeout-errors">Timeout Errors<a class="headerlink" href="#timeout-errors" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
 <tr>
@@ -3554,74 +3536,235 @@
 </thead>
 <tbody>
 <tr>
+<td><code>timeout</code></td>
+<td>Generic execution exceeded time limit (legacy)</td>
+</tr>
+<tr>
 <td><code>startup_timeout</code></td>
-<td>Container failed to start within the <code>startup_timeout</code> limit</td>
+<td>Startup phase (dep install) exceeded time limit</td>
 </tr>
 <tr>
 <td><code>execution_timeout</code></td>
-<td>Code execution exceeded the <code>timeout</code> limit</td>
+<td>Code execution phase exceeded time limit</td>
 </tr>
+</tbody>
+</table>
+<h4 id="signal-based-errors">Signal-Based Errors<a class="headerlink" href="#signal-based-errors" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>oom</code></td>
-<td>Process was killed due to memory limit</td>
+<td>Out of memory (SIGKILL/137)</td>
 </tr>
 <tr>
-<td><code>internal_error</code></td>
-<td>Internal server error during execution</td>
+<td><code>cancelled</code></td>
+<td>Cancelled by user (SIGTERM/143)</td>
+</tr>
+<tr>
+<td><code>segfault</code></td>
+<td>Segmentation fault (SIGSEGV/139)</td>
+</tr>
+<tr>
+<td><code>abort</code></td>
+<td>Process aborted (SIGABRT/134)</td>
+</tr>
+<tr>
+<td><code>arithmetic_error</code></td>
+<td>Floating point exception (SIGFPE/136)</td>
+</tr>
+<tr>
+<td><code>bus_error</code></td>
+<td>Bus error (SIGBUS/135)</td>
+</tr>
+<tr>
+<td><code>pipe_error</code></td>
+<td>Broken pipe (SIGPIPE/141)</td>
+</tr>
+<tr>
+<td><code>killed</code></td>
+<td>Process killed by system</td>
+</tr>
+</tbody>
+</table>
+<h4 id="python-errors">Python Errors<a class="headerlink" href="#python-errors" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>syntax_error</code></td>
+<td>SyntaxError, IndentationError</td>
+</tr>
+<tr>
+<td><code>import_error</code></td>
+<td>ImportError, ModuleNotFoundError</td>
+</tr>
+<tr>
+<td><code>type_error</code></td>
+<td>TypeError</td>
+</tr>
+<tr>
+<td><code>value_error</code></td>
+<td>ValueError</td>
+</tr>
+<tr>
+<td><code>key_error</code></td>
+<td>KeyError</td>
+</tr>
+<tr>
+<td><code>index_error</code></td>
+<td>IndexError</td>
+</tr>
+<tr>
+<td><code>attribute_error</code></td>
+<td>AttributeError</td>
+</tr>
+<tr>
+<td><code>name_error</code></td>
+<td>NameError (undefined variable)</td>
+</tr>
+<tr>
+<td><code>file_not_found</code></td>
+<td>FileNotFoundError</td>
+</tr>
+<tr>
+<td><code>file_error</code></td>
+<td>IsADirectoryError, NotADirectoryError</td>
+</tr>
+<tr>
+<td><code>os_error</code></td>
+<td>OSError, IOError</td>
+</tr>
+<tr>
+<td><code>recursion_error</code></td>
+<td>RecursionError</td>
+</tr>
+<tr>
+<td><code>assertion_error</code></td>
+<td>AssertionError</td>
+</tr>
+<tr>
+<td><code>division_error</code></td>
+<td>ZeroDivisionError</td>
+</tr>
+<tr>
+<td><code>overflow_error</code></td>
+<td>OverflowError</td>
+</tr>
+<tr>
+<td><code>encoding_error</code></td>
+<td>UnicodeError</td>
+</tr>
+<tr>
+<td><code>json_error</code></td>
+<td>JSONDecodeError</td>
+</tr>
+</tbody>
+</table>
+<h4 id="other-errors">Other Errors<a class="headerlink" href="#other-errors" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>permission</code></td>
+<td>Permission denied</td>
+</tr>
+<tr>
+<td><code>dependency_error</code></td>
+<td>Package installation failure (uv/pip)</td>
+</tr>
+<tr>
+<td><code>network_error</code></td>
+<td>ConnectionError</td>
+</tr>
+<tr>
+<td><code>network_timeout</code></td>
+<td>Network request timed out</td>
 </tr>
 <tr>
 <td><code>docker_error</code></td>
-<td>Docker-related failure</td>
+<td>Docker image/command not found</td>
+</tr>
+<tr>
+<td><code>service_unavailable</code></td>
+<td>Circuit breaker open</td>
+</tr>
+<tr>
+<td><code>config_error</code></td>
+<td>Configuration error</td>
+</tr>
+<tr>
+<td><code>internal_error</code></td>
+<td>Internal Tako VM error</td>
+</tr>
+<tr>
+<td><code>runtime_error</code></td>
+<td>Generic runtime error</td>
+</tr>
+<tr>
+<td><code>unknown</code></td>
+<td>Unknown error type</td>
 </tr>
 </tbody>
 </table>
 <h3 id="example-startup-timeout-error">Example: Startup Timeout Error<a class="headerlink" href="#example-startup-timeout-error" title="Permanent link">&para;</a></h3>
-<p>When dependency installation takes too long:</p>
+<p>When dependency installation takes too long (from async job result with <code>?view=full</code>):</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="p">{</span>
-</span><span id="__span-47-2"><a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a><span class="w">  </span><span class="nt">&quot;success&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
-</span><span id="__span-47-3"><a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a><span class="w">  </span><span class="nt">&quot;output&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-47-2"><a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a><span class="w">  </span><span class="nt">&quot;execution_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span><span class="p">,</span>
+</span><span id="__span-47-3"><a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;timeout&quot;</span><span class="p">,</span>
 </span><span id="__span-47-4"><a id="__codelineno-47-4" name="__codelineno-47-4" href="#__codelineno-47-4"></a><span class="w">  </span><span class="nt">&quot;stdout&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
 </span><span id="__span-47-5"><a id="__codelineno-47-5" name="__codelineno-47-5" href="#__codelineno-47-5"></a><span class="w">  </span><span class="nt">&quot;stderr&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Installing dependencies...&quot;</span><span class="p">,</span>
 </span><span id="__span-47-6"><a id="__codelineno-47-6" name="__codelineno-47-6" href="#__codelineno-47-6"></a><span class="w">  </span><span class="nt">&quot;exit_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-</span><span id="__span-47-7"><a id="__codelineno-47-7" name="__codelineno-47-7" href="#__codelineno-47-7"></a><span class="w">  </span><span class="nt">&quot;execution_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">60.0</span><span class="p">,</span>
-</span><span id="__span-47-8"><a id="__codelineno-47-8" name="__codelineno-47-8" href="#__codelineno-47-8"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-47-9"><a id="__codelineno-47-9" name="__codelineno-47-9" href="#__codelineno-47-9"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;startup_timeout&quot;</span><span class="p">,</span>
-</span><span id="__span-47-10"><a id="__codelineno-47-10" name="__codelineno-47-10" href="#__codelineno-47-10"></a><span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Container startup timed out after 60 seconds during dependency installation&quot;</span><span class="p">,</span>
-</span><span id="__span-47-11"><a id="__codelineno-47-11" name="__codelineno-47-11" href="#__codelineno-47-11"></a><span class="w">    </span><span class="nt">&quot;phase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dep_install&quot;</span>
-</span><span id="__span-47-12"><a id="__codelineno-47-12" name="__codelineno-47-12" href="#__codelineno-47-12"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-47-13"><a id="__codelineno-47-13" name="__codelineno-47-13" href="#__codelineno-47-13"></a><span class="w">  </span><span class="nt">&quot;job_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
-</span><span id="__span-47-14"><a id="__codelineno-47-14" name="__codelineno-47-14" href="#__codelineno-47-14"></a><span class="w">  </span><span class="nt">&quot;timing&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-47-15"><a id="__codelineno-47-15" name="__codelineno-47-15" href="#__codelineno-47-15"></a><span class="w">    </span><span class="nt">&quot;startup_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1200</span><span class="p">,</span>
-</span><span id="__span-47-16"><a id="__codelineno-47-16" name="__codelineno-47-16" href="#__codelineno-47-16"></a><span class="w">    </span><span class="nt">&quot;dep_install_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">58800</span><span class="p">,</span>
-</span><span id="__span-47-17"><a id="__codelineno-47-17" name="__codelineno-47-17" href="#__codelineno-47-17"></a><span class="w">    </span><span class="nt">&quot;execution_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-47-18"><a id="__codelineno-47-18" name="__codelineno-47-18" href="#__codelineno-47-18"></a><span class="w">    </span><span class="nt">&quot;total_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">60000</span><span class="p">,</span>
-</span><span id="__span-47-19"><a id="__codelineno-47-19" name="__codelineno-47-19" href="#__codelineno-47-19"></a><span class="w">    </span><span class="nt">&quot;phase_at_exit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dep_install&quot;</span>
-</span><span id="__span-47-20"><a id="__codelineno-47-20" name="__codelineno-47-20" href="#__codelineno-47-20"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-47-21"><a id="__codelineno-47-21" name="__codelineno-47-21" href="#__codelineno-47-21"></a><span class="p">}</span>
+</span><span id="__span-47-7"><a id="__codelineno-47-7" name="__codelineno-47-7" href="#__codelineno-47-7"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-47-8"><a id="__codelineno-47-8" name="__codelineno-47-8" href="#__codelineno-47-8"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;startup_timeout&quot;</span><span class="p">,</span>
+</span><span id="__span-47-9"><a id="__codelineno-47-9" name="__codelineno-47-9" href="#__codelineno-47-9"></a><span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Container startup timed out after 60 seconds during dependency installation&quot;</span><span class="p">,</span>
+</span><span id="__span-47-10"><a id="__codelineno-47-10" name="__codelineno-47-10" href="#__codelineno-47-10"></a><span class="w">    </span><span class="nt">&quot;phase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;startup&quot;</span>
+</span><span id="__span-47-11"><a id="__codelineno-47-11" name="__codelineno-47-11" href="#__codelineno-47-11"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-47-12"><a id="__codelineno-47-12" name="__codelineno-47-12" href="#__codelineno-47-12"></a><span class="w">  </span><span class="nt">&quot;timing&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-47-13"><a id="__codelineno-47-13" name="__codelineno-47-13" href="#__codelineno-47-13"></a><span class="w">    </span><span class="nt">&quot;startup_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">60000</span><span class="p">,</span>
+</span><span id="__span-47-14"><a id="__codelineno-47-14" name="__codelineno-47-14" href="#__codelineno-47-14"></a><span class="w">    </span><span class="nt">&quot;dep_install_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">58800</span><span class="p">,</span>
+</span><span id="__span-47-15"><a id="__codelineno-47-15" name="__codelineno-47-15" href="#__codelineno-47-15"></a><span class="w">    </span><span class="nt">&quot;execution_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-47-16"><a id="__codelineno-47-16" name="__codelineno-47-16" href="#__codelineno-47-16"></a><span class="w">    </span><span class="nt">&quot;total_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">60000</span><span class="p">,</span>
+</span><span id="__span-47-17"><a id="__codelineno-47-17" name="__codelineno-47-17" href="#__codelineno-47-17"></a><span class="w">    </span><span class="nt">&quot;phase_at_exit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;startup&quot;</span>
+</span><span id="__span-47-18"><a id="__codelineno-47-18" name="__codelineno-47-18" href="#__codelineno-47-18"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-47-19"><a id="__codelineno-47-19" name="__codelineno-47-19" href="#__codelineno-47-19"></a><span class="p">}</span>
 </span></code></pre></div>
 <h3 id="example-execution-timeout-error">Example: Execution Timeout Error<a class="headerlink" href="#example-execution-timeout-error" title="Permanent link">&para;</a></h3>
 <p>When user code runs too long:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="p">{</span>
-</span><span id="__span-48-2"><a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a><span class="w">  </span><span class="nt">&quot;success&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
-</span><span id="__span-48-3"><a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a><span class="w">  </span><span class="nt">&quot;output&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-48-2"><a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a><span class="w">  </span><span class="nt">&quot;execution_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span><span class="p">,</span>
+</span><span id="__span-48-3"><a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;timeout&quot;</span><span class="p">,</span>
 </span><span id="__span-48-4"><a id="__codelineno-48-4" name="__codelineno-48-4" href="#__codelineno-48-4"></a><span class="w">  </span><span class="nt">&quot;stdout&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Processing started...\n&quot;</span><span class="p">,</span>
 </span><span id="__span-48-5"><a id="__codelineno-48-5" name="__codelineno-48-5" href="#__codelineno-48-5"></a><span class="w">  </span><span class="nt">&quot;stderr&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
 </span><span id="__span-48-6"><a id="__codelineno-48-6" name="__codelineno-48-6" href="#__codelineno-48-6"></a><span class="w">  </span><span class="nt">&quot;exit_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-</span><span id="__span-48-7"><a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a><span class="w">  </span><span class="nt">&quot;execution_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">30.0</span><span class="p">,</span>
-</span><span id="__span-48-8"><a id="__codelineno-48-8" name="__codelineno-48-8" href="#__codelineno-48-8"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-48-9"><a id="__codelineno-48-9" name="__codelineno-48-9" href="#__codelineno-48-9"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution_timeout&quot;</span><span class="p">,</span>
-</span><span id="__span-48-10"><a id="__codelineno-48-10" name="__codelineno-48-10" href="#__codelineno-48-10"></a><span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Code execution timed out after 30 seconds&quot;</span><span class="p">,</span>
-</span><span id="__span-48-11"><a id="__codelineno-48-11" name="__codelineno-48-11" href="#__codelineno-48-11"></a><span class="w">    </span><span class="nt">&quot;phase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span>
-</span><span id="__span-48-12"><a id="__codelineno-48-12" name="__codelineno-48-12" href="#__codelineno-48-12"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-48-13"><a id="__codelineno-48-13" name="__codelineno-48-13" href="#__codelineno-48-13"></a><span class="w">  </span><span class="nt">&quot;job_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
-</span><span id="__span-48-14"><a id="__codelineno-48-14" name="__codelineno-48-14" href="#__codelineno-48-14"></a><span class="w">  </span><span class="nt">&quot;timing&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-48-15"><a id="__codelineno-48-15" name="__codelineno-48-15" href="#__codelineno-48-15"></a><span class="w">    </span><span class="nt">&quot;startup_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1500</span><span class="p">,</span>
-</span><span id="__span-48-16"><a id="__codelineno-48-16" name="__codelineno-48-16" href="#__codelineno-48-16"></a><span class="w">    </span><span class="nt">&quot;dep_install_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-48-17"><a id="__codelineno-48-17" name="__codelineno-48-17" href="#__codelineno-48-17"></a><span class="w">    </span><span class="nt">&quot;execution_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30000</span><span class="p">,</span>
-</span><span id="__span-48-18"><a id="__codelineno-48-18" name="__codelineno-48-18" href="#__codelineno-48-18"></a><span class="w">    </span><span class="nt">&quot;total_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">31500</span><span class="p">,</span>
-</span><span id="__span-48-19"><a id="__codelineno-48-19" name="__codelineno-48-19" href="#__codelineno-48-19"></a><span class="w">    </span><span class="nt">&quot;phase_at_exit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span>
-</span><span id="__span-48-20"><a id="__codelineno-48-20" name="__codelineno-48-20" href="#__codelineno-48-20"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-48-21"><a id="__codelineno-48-21" name="__codelineno-48-21" href="#__codelineno-48-21"></a><span class="p">}</span>
+</span><span id="__span-48-7"><a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-48-8"><a id="__codelineno-48-8" name="__codelineno-48-8" href="#__codelineno-48-8"></a><span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution_timeout&quot;</span><span class="p">,</span>
+</span><span id="__span-48-9"><a id="__codelineno-48-9" name="__codelineno-48-9" href="#__codelineno-48-9"></a><span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Code execution timed out after 30 seconds&quot;</span><span class="p">,</span>
+</span><span id="__span-48-10"><a id="__codelineno-48-10" name="__codelineno-48-10" href="#__codelineno-48-10"></a><span class="w">    </span><span class="nt">&quot;phase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span>
+</span><span id="__span-48-11"><a id="__codelineno-48-11" name="__codelineno-48-11" href="#__codelineno-48-11"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-48-12"><a id="__codelineno-48-12" name="__codelineno-48-12" href="#__codelineno-48-12"></a><span class="w">  </span><span class="nt">&quot;timing&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-48-13"><a id="__codelineno-48-13" name="__codelineno-48-13" href="#__codelineno-48-13"></a><span class="w">    </span><span class="nt">&quot;startup_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1500</span><span class="p">,</span>
+</span><span id="__span-48-14"><a id="__codelineno-48-14" name="__codelineno-48-14" href="#__codelineno-48-14"></a><span class="w">    </span><span class="nt">&quot;dep_install_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-48-15"><a id="__codelineno-48-15" name="__codelineno-48-15" href="#__codelineno-48-15"></a><span class="w">    </span><span class="nt">&quot;execution_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30000</span><span class="p">,</span>
+</span><span id="__span-48-16"><a id="__codelineno-48-16" name="__codelineno-48-16" href="#__codelineno-48-16"></a><span class="w">    </span><span class="nt">&quot;total_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">31500</span><span class="p">,</span>
+</span><span id="__span-48-17"><a id="__codelineno-48-17" name="__codelineno-48-17" href="#__codelineno-48-17"></a><span class="w">    </span><span class="nt">&quot;phase_at_exit&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span>
+</span><span id="__span-48-18"><a id="__codelineno-48-18" name="__codelineno-48-18" href="#__codelineno-48-18"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-48-19"><a id="__codelineno-48-19" name="__codelineno-48-19" href="#__codelineno-48-19"></a><span class="p">}</span>
 </span></code></pre></div>
 <hr />
 <h2 id="http-error-responses">HTTP Error Responses<a class="headerlink" href="#http-error-responses" title="Permanent link">&para;</a></h2>
@@ -3697,7 +3840,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 30, 2026 02:08:01 UTC"><span class="timeago" datetime="2026-01-30T02:08:01+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 30, 2026 02:08:01 UTC">2026-01-30</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 30, 2026 19:33:14 UTC"><span class="timeago" datetime="2026-01-30T19:33:14+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 30, 2026 19:33:14 UTC">2026-01-30</span>
   </span>
 
     
