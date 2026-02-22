@@ -92,18 +92,47 @@ docker-compose logs -f tako-vm
 docker-compose down
 ```
 
-To customize, mount your config file:
+### Production Defaults
 
-```yaml
-services:
-  tako-vm:
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./tako_vm.yaml:/app/tako_vm.yaml:ro  # Add this line
+The `docker-compose.yaml` is configured with production-safe defaults:
+
+- **Resource limits**: CPU and memory limits to prevent resource exhaustion
+- **Security hardening**: `read_only: true`, `no-new-privileges`, `tmpfs` for /tmp
+- **Health checks**: Automatic container health monitoring
+- **Auto-restart**: Containers restart on failure
+
+### Customizing for Local Development
+
+Override settings using environment variables:
+
+```bash
+# Expose ports (default already exposes 8000)
+TAKO_VM_PORTS=8000:8000,5432:5432 docker-compose up -d
+
+# Or mount your custom config file
+docker-compose -f docker-compose.yaml -f /path/to/dev-overrides.yaml up -d
 ```
 
-!!! warning
-    Mounting the Docker socket gives Tako VM access to the Docker daemon. In high-security environments, consider using Docker-in-Docker or a separate Docker host.
+For development, create a `docker-compose.dev.yaml`:
+
+```yaml
+# docker-compose.dev.yaml
+services:
+  tako-vm:
+    environment:
+      - LOG_LEVEL=DEBUG
+    # Increase resources for development
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 2G
+```
+
+Then run:
+```bash
+docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+```
 
 ## Reverse Proxy (Nginx)
 

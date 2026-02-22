@@ -1,13 +1,13 @@
 # Tako VM Docker Compose
 #
-# Start everything:
-#   docker-compose up -d
+# Production-ready configuration. This file is designed to work
+# out-of-the-box for production deployments.
 #
-# Build and start:
-#   docker-compose up -d --build
+# For local development, override settings using environment variables:
+#   TAKO_VM_PORTS=8000:8000,5432:5432 docker-compose up -d
 #
-# View logs:
-#   docker-compose logs -f tako-vm
+# Or mount your custom config:
+#   docker-compose -f docker-compose.yaml -f /path/to/dev-compose.yaml up -d
 
 services:
   tako-vm:
@@ -17,19 +17,16 @@ services:
     image: tako-vm-server:latest
     container_name: tako-vm
     ports:
-      - "8000:8000"
+      - "${TAKO_VM_PORTS:-8000:8000}"
     volumes:
       # Docker socket for spawning executor containers
       - /var/run/docker.sock:/var/run/docker.sock
-      # Shared workspace for job files (must match host path for Docker mounts)
-      - /tmp/tako-vm-jobs:/tmp/tako-vm-jobs
-      # Config with scaled worker settings (16 workers, 500 queue)
+      # Workspace for job files (optional - comment out if not needed)
+      - "${TAKO_VM_WORKSPACE:-/tmp/tako-vm-jobs}:/tmp/tako-vm-jobs"
+      # Config file
       - ./tako_vm.yaml:/app/tako_vm.yaml:ro
-      # Optional: persist data
-      # - tako-vm-data:/root/.tako_vm
     environment:
       - PYTHONUNBUFFERED=1
-      # Use shared workspace path for job files
       - TAKO_VM_WORKSPACE=/tmp/tako-vm-jobs
       - TAKO_VM_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tako_vm
     depends_on:
@@ -41,6 +38,25 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+          pids: 100
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    # Security hardening
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m,mode=1777
+    # Production: disable ports (run behind reverse proxy)
+    # To expose ports for local dev, set environment: TAKO_VM_PORTS=8000:8000,5432:5432
 
   postgres:
     image: postgres:16-alpine
@@ -50,7 +66,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=tako_vm
     ports:
-      - "5432:5432"
+      - "${TAKO_VM_POSTGRES_PORT:-5432:5432}"
     volumes:
       - tako-vm-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -58,6 +74,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   # Build executor image (run once, then remove)
   executor-build:
