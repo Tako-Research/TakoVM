@@ -29,7 +29,7 @@ from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
 from tako_vm.execution.worker import CodeExecutor, check_gvisor_available
 from tako_vm.job_types import JobTypeRegistry
-from tako_vm.models import ExecutionRecord, sha256_content, sha256_json
+from tako_vm.models import ExecutionRecord, SessionEvent, SessionRecord, sha256_content, sha256_json
 from tako_vm.security import sanitize_error
 from tako_vm.server.correlation import (
     CorrelationIdMiddleware,
@@ -38,6 +38,7 @@ from tako_vm.server.correlation import (
 )
 from tako_vm.server.limits import ApiProtectionMiddleware
 from tako_vm.server.queue import WorkerPool
+from tako_vm.server.sessions import SessionManager, SessionManagerError
 from tako_vm.storage import ExecutionStorage
 
 # Configure logging with correlation ID support
@@ -119,6 +120,7 @@ class AppState:
     executor: CodeExecutor
     storage: ExecutionStorage
     worker_pool: WorkerPool
+    session_manager: SessionManager
     idempotency_locks: IdempotencyLockManager
 
 
@@ -180,6 +182,13 @@ async def lifespan(app: FastAPI):
         queue_wait_timeout=state.config.queue_wait_timeout,
     )
     await state.worker_pool.start()
+    state.session_manager = SessionManager(
+        config=state.config,
+        storage=state.storage,
+        registry=state.registry,
+        executor=state.executor,
+    )
+    await state.session_manager.start()
 
     # Start periodic cleanup task
     cleanup_task = asyncio.create_task(
@@ -197,6 +206,7 @@ async def lifespan(app: FastAPI):
         await cleanup_task
     except asyncio.CancelledError:
         pass
+    await state.session_manager.stop()
     await state.worker_pool.stop()
     await state.storage.close()
 
@@ -294,6 +304,7 @@ QueueStatus = Literal[
 ]
 HealthStatus = Literal["healthy", "degraded"]
 RelationshipType = Literal["rerun", "fork"]
+SessionStatusType = Literal["creating", "running", "terminated", "failed", "expired"]
 
 
 class AsyncExecuteResponse(BaseModel):
@@ -409,6 +420,9 @@ class JobTypeResponse(BaseModel):
     memory_limit: str
     cpu_limit: float
     timeout: int
+    session_enabled: bool
+    gpu_enabled: bool
+    gpu_vendor: Optional[str] = None
     image_exists: bool
 
 
@@ -478,6 +492,137 @@ class CancelResponse(BaseModel):
 
     status: Literal["cancelled"] = Field(..., description="Cancellation status")
     job_id: str = Field(..., description="ID of the cancelled job")
+
+
+class SessionCreateRequest(BaseModel):
+    """Request model for creating a long-running session."""
+
+    model_config = {"extra": "forbid"}
+
+    job_type: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_-]+(@[a-zA-Z0-9_.@:-]+)?$",
+        description="Session-enabled job type name",
+    )
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Optional session metadata")
+    idle_timeout_seconds: Optional[int] = Field(
+        default=None,
+        ge=30,
+        le=86400,
+        description="Optional idle timeout override (seconds)",
+    )
+    ttl_seconds: Optional[int] = Field(
+        default=None,
+        ge=60,
+        le=604800,
+        description="Optional max session lifetime override (seconds)",
+    )
+
+
+class SessionSendRequest(BaseModel):
+    """Request model for posting input to a session inbox."""
+
+    model_config = {"extra": "forbid"}
+
+    payload: Any = Field(..., description="JSON payload delivered to the session inbox")
+    event_type: str = Field(
+        default="input",
+        min_length=1,
+        max_length=64,
+        description="Event type label for this input payload",
+    )
+
+
+class SessionResponse(BaseModel):
+    """Response model for session status."""
+
+    model_config = {"extra": "forbid"}
+
+    session_id: str
+    status: SessionStatusType
+    job_type: str
+    created_at: str
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    runtime: str
+    gpu_enabled: bool
+    gpu_vendor: Optional[str] = None
+    idle_timeout_seconds: int
+    ttl_seconds: int
+    error_message: Optional[str] = None
+    terminated_reason: Optional[str] = None
+
+    @classmethod
+    def from_record(cls, record: SessionRecord) -> "SessionResponse":
+        return cls(
+            session_id=record.session_id,
+            status=record.status,
+            job_type=record.job_type,
+            created_at=record.created_at.isoformat(),
+            started_at=record.started_at.isoformat() if record.started_at else None,
+            ended_at=record.ended_at.isoformat() if record.ended_at else None,
+            runtime=record.runtime,
+            gpu_enabled=record.gpu_enabled,
+            gpu_vendor=record.gpu_vendor,
+            idle_timeout_seconds=record.idle_timeout_seconds,
+            ttl_seconds=record.ttl_seconds,
+            error_message=record.error_message,
+            terminated_reason=record.terminated_reason,
+        )
+
+
+class SessionEventResponse(BaseModel):
+    """Response model for a session mailbox event."""
+
+    model_config = {"extra": "forbid"}
+
+    id: Optional[int]
+    direction: Literal["in", "out", "system"]
+    event_type: str
+    payload: Any
+    created_at: str
+
+    @classmethod
+    def from_event(cls, event: SessionEvent) -> "SessionEventResponse":
+        return cls(
+            id=event.id,
+            direction=event.direction,
+            event_type=event.event_type,
+            payload=event.payload,
+            created_at=event.created_at.isoformat(),
+        )
+
+
+class SessionSendResponse(BaseModel):
+    """Response model for session inbox writes."""
+
+    model_config = {"extra": "forbid"}
+
+    session_id: str
+    event_id: Optional[int]
+    status: Literal["queued"]
+
+
+class SessionEventsResponse(BaseModel):
+    """Response model for polling session events with cursor pagination."""
+
+    model_config = {"extra": "forbid"}
+
+    session_id: str
+    status: SessionStatusType
+    events: List[SessionEventResponse]
+    next_cursor: int
+
+
+class SessionTerminateResponse(BaseModel):
+    """Response model for session termination."""
+
+    model_config = {"extra": "forbid"}
+
+    session_id: str
+    status: SessionStatusType
 
 
 class DLQStatsResponse(BaseModel):
@@ -989,6 +1134,109 @@ async def cancel_job(job_id: str):
     return CancelResponse(status="cancelled", job_id=job_id)
 
 
+@app.post("/sessions", response_model=SessionResponse)
+async def create_session(request: SessionCreateRequest):
+    """Create a long-running session container with mailbox mounts."""
+    try:
+        record = await state.session_manager.create_session(
+            job_type_name=request.job_type,
+            metadata=request.metadata,
+            idle_timeout_seconds=request.idle_timeout_seconds,
+            ttl_seconds=request.ttl_seconds,
+        )
+        return SessionResponse.from_record(record)
+    except SessionManagerError as e:
+        raise HTTPException(status_code=e.status_code, detail=sanitize_error(str(e))) from e
+    except Exception as e:
+        logger.error("Session creation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=sanitize_error(str(e))) from e
+
+
+@app.get("/sessions", response_model=PaginatedResponse)
+async def list_sessions(
+    status: Optional[str] = Query(default=None, description="Filter by session status"),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    """List long-running sessions with pagination."""
+    actual_limit = min(limit, 1000)
+    records = await state.session_manager.list_sessions(
+        status=status,
+        limit=actual_limit + 1,
+        offset=offset,
+    )
+    has_more = len(records) > actual_limit
+    if has_more:
+        records = records[:actual_limit]
+
+    return PaginatedResponse(
+        items=[SessionResponse.from_record(record) for record in records],
+        limit=actual_limit,
+        offset=offset,
+        has_more=has_more,
+        count=len(records),
+    )
+
+
+@app.get("/sessions/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str):
+    """Get current session status and runtime metadata."""
+    record = await state.session_manager.get_session(session_id, refresh=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionResponse.from_record(record)
+
+
+@app.post("/sessions/{session_id}/send", response_model=SessionSendResponse)
+async def send_session_event(session_id: str, request: SessionSendRequest):
+    """Write a message into the session inbox."""
+    try:
+        event = await state.session_manager.send_event(
+            session_id=session_id,
+            payload=request.payload,
+            event_type=request.event_type,
+        )
+        return SessionSendResponse(session_id=session_id, event_id=event.id, status="queued")
+    except SessionManagerError as e:
+        raise HTTPException(status_code=e.status_code, detail=sanitize_error(str(e))) from e
+
+
+@app.get("/sessions/{session_id}/events", response_model=SessionEventsResponse)
+async def poll_session_events(
+    session_id: str,
+    after: int = Query(default=0, ge=0, description="Event cursor ID (exclusive)"),
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum events to return"),
+):
+    """Poll session mailbox events after a cursor."""
+    try:
+        session, events = await state.session_manager.poll_events(
+            session_id=session_id,
+            after_id=after,
+            limit=limit,
+        )
+        next_cursor = after
+        if events:
+            next_cursor = max(event.id or after for event in events)
+        return SessionEventsResponse(
+            session_id=session_id,
+            status=session.status,
+            events=[SessionEventResponse.from_event(event) for event in events],
+            next_cursor=next_cursor,
+        )
+    except SessionManagerError as e:
+        raise HTTPException(status_code=e.status_code, detail=sanitize_error(str(e))) from e
+
+
+@app.post("/sessions/{session_id}/terminate", response_model=SessionTerminateResponse)
+async def terminate_session(session_id: str):
+    """Terminate a running session and remove its container."""
+    try:
+        session = await state.session_manager.terminate_session(session_id=session_id)
+        return SessionTerminateResponse(session_id=session_id, status=session.status)
+    except SessionManagerError as e:
+        raise HTTPException(status_code=e.status_code, detail=sanitize_error(str(e))) from e
+
+
 def _get_replay_data(record: ExecutionRecord) -> tuple:
     """
     Retrieve original code, input_data, and input_artifacts from stored artifacts.
@@ -1305,6 +1553,9 @@ async def list_job_types():
                 memory_limit=jt.memory_limit,
                 cpu_limit=jt.cpu_limit,
                 timeout=jt.timeout,
+                session_enabled=jt.session_enabled,
+                gpu_enabled=jt.gpu_enabled,
+                gpu_vendor=jt.gpu_vendor,
                 image_exists=builder.image_exists(jt),
             )
         )
@@ -1336,6 +1587,9 @@ async def get_job_type(name: str):
         memory_limit=jt.memory_limit,
         cpu_limit=jt.cpu_limit,
         timeout=jt.timeout,
+        session_enabled=jt.session_enabled,
+        gpu_enabled=jt.gpu_enabled,
+        gpu_vendor=jt.gpu_vendor,
         image_exists=builder.image_exists(jt),
     )
 

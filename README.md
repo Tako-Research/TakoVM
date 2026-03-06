@@ -369,6 +369,11 @@ curl http://localhost:8000/jobs/abc123/result
 | `/jobs/{id}` | GET | Get job status |
 | `/jobs/{id}/result` | GET | Wait for job result |
 | `/jobs/{id}/cancel` | POST | Cancel pending/running job |
+| `/sessions` | POST | Create long-running session |
+| `/sessions/{id}` | GET | Get session status |
+| `/sessions/{id}/send` | POST | Send message to session inbox |
+| `/sessions/{id}/events` | GET | Poll session output events |
+| `/sessions/{id}/terminate` | POST | Terminate session |
 | `/job-types` | GET | List available job types |
 | `/health` | GET | Health check |
 
@@ -543,6 +548,10 @@ Or via environment variable for testing:
 ```bash
 TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
 ```
+
+**GPU policy:**
+- GPU workloads (NVIDIA/AMD) run with `runc` and do not use gVisor.
+- In `security_mode: strict`, GPU sessions/jobs are rejected.
 
 **Additional isolation options:**
 - **AppArmor/SELinux** (Linux only) - Can block `/proc` reads if needed

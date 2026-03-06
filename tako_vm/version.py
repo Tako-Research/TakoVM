@@ -57,6 +57,11 @@ class VersionManager:
                 "base_image": job_type.base_image,
                 "environment": dict(sorted(job_type.environment.items())),
                 "shared_code": sorted(job_type.shared_code),
+                "session_enabled": job_type.session_enabled,
+                "gpu_enabled": job_type.gpu_enabled,
+                "gpu_vendor": job_type.gpu_vendor,
+                "gpu_count": job_type.gpu_count,
+                "gpu_device_ids": sorted(job_type.gpu_device_ids),
             },
             sort_keys=True,
         )

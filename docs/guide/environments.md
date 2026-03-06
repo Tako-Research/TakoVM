@@ -88,8 +88,32 @@ print(response.json()["output"])
 | `cpu_limit` | CPU cores | `1.0` |
 | `timeout` | Default timeout (seconds) | `30` |
 | `network_enabled` | Allow outbound network | `false` |
+| `session_enabled` | Allow long-running session API usage | `false` |
+| `gpu.enabled` | Enable GPU access for this job type | `false` |
+| `gpu.vendor` | GPU vendor (`nvidia` or `amd`) | `null` |
+| `gpu.count` | Number of GPUs (NVIDIA only) | `null` |
+| `gpu.device_ids` | Specific GPU IDs/UUIDs | `[]` |
 | `environment` | Environment variables | `{}` |
 | `shared_code` | Python files to include | `[]` |
+
+### GPU + Sessions Example
+
+```yaml
+job_types:
+  - name: openclaw-nvidia
+    base_image: "tako-openclaw:latest"
+    network_enabled: true
+    memory_limit: "8g"
+    cpu_limit: 4.0
+    timeout: 3600
+    session_enabled: true
+    gpu:
+      enabled: true
+      vendor: nvidia
+      # count: 1
+```
+
+GPU workloads run with `runc` (gVisor disabled). If `security_mode: strict` is enabled, GPU sessions are rejected.
 
 ## Network Access
 

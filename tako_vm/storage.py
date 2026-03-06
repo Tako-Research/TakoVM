@@ -22,6 +22,8 @@ from .models import (
     InputArtifact,
     JobVersion,
     ResourceUsage,
+    SessionEvent,
+    SessionRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,7 +132,61 @@ MIGRATIONS: list[tuple[str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_dlq_error_type ON dead_letter_queue(error_type);
         CREATE INDEX IF NOT EXISTS idx_dlq_job_id ON dead_letter_queue(job_id);
         """,
-    )
+    ),
+    (
+        "0002_sessions",
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            job_type TEXT NOT NULL,
+
+            created_at TIMESTAMPTZ NOT NULL,
+            started_at TIMESTAMPTZ,
+            ended_at TIMESTAMPTZ,
+            last_activity_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ,
+
+            idle_timeout_seconds INTEGER NOT NULL,
+            ttl_seconds INTEGER NOT NULL,
+
+            container_name TEXT NOT NULL,
+            container_id TEXT,
+            image_name TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+
+            gpu_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            gpu_vendor TEXT,
+
+            workspace_dir TEXT NOT NULL,
+            metadata_json JSONB,
+
+            error_message TEXT,
+            terminated_reason TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+        CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
+
+        CREATE TABLE IF NOT EXISTS session_events (
+            id BIGSERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+            direction TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json JSONB,
+            file_name TEXT,
+            created_at TIMESTAMPTZ NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_events_unique_file
+            ON session_events(session_id, file_name);
+        CREATE INDEX IF NOT EXISTS idx_session_events_session_id_id
+            ON session_events(session_id, id);
+        CREATE INDEX IF NOT EXISTS idx_session_events_created_at
+            ON session_events(created_at DESC);
+        """,
+    ),
 ]
 
 
@@ -483,6 +539,189 @@ class ExecutionStorage:
             relationship=row.get("relationship"),
         )
 
+    async def save_session(self, session: SessionRecord) -> None:
+        """Insert or update a session record."""
+        metadata_json = Jsonb(session.metadata) if session.metadata is not None else None
+
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO sessions (
+                    session_id, status, job_type,
+                    created_at, started_at, ended_at, last_activity_at, expires_at,
+                    idle_timeout_seconds, ttl_seconds,
+                    container_name, container_id, image_name, runtime,
+                    gpu_enabled, gpu_vendor,
+                    workspace_dir, metadata_json,
+                    error_message, terminated_reason
+                ) VALUES (
+                    %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s,
+                    %s, %s
+                )
+                ON CONFLICT (session_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    job_type = EXCLUDED.job_type,
+                    created_at = EXCLUDED.created_at,
+                    started_at = EXCLUDED.started_at,
+                    ended_at = EXCLUDED.ended_at,
+                    last_activity_at = EXCLUDED.last_activity_at,
+                    expires_at = EXCLUDED.expires_at,
+                    idle_timeout_seconds = EXCLUDED.idle_timeout_seconds,
+                    ttl_seconds = EXCLUDED.ttl_seconds,
+                    container_name = EXCLUDED.container_name,
+                    container_id = EXCLUDED.container_id,
+                    image_name = EXCLUDED.image_name,
+                    runtime = EXCLUDED.runtime,
+                    gpu_enabled = EXCLUDED.gpu_enabled,
+                    gpu_vendor = EXCLUDED.gpu_vendor,
+                    workspace_dir = EXCLUDED.workspace_dir,
+                    metadata_json = EXCLUDED.metadata_json,
+                    error_message = EXCLUDED.error_message,
+                    terminated_reason = EXCLUDED.terminated_reason
+                """,
+                (
+                    session.session_id,
+                    session.status,
+                    session.job_type,
+                    session.created_at,
+                    session.started_at,
+                    session.ended_at,
+                    session.last_activity_at,
+                    session.expires_at,
+                    session.idle_timeout_seconds,
+                    session.ttl_seconds,
+                    session.container_name,
+                    session.container_id,
+                    session.image_name,
+                    session.runtime,
+                    session.gpu_enabled,
+                    session.gpu_vendor,
+                    session.workspace_dir,
+                    metadata_json,
+                    session.error_message,
+                    session.terminated_reason,
+                ),
+            )
+
+    async def get_session(self, session_id: str) -> Optional[SessionRecord]:
+        """Retrieve a session by ID."""
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM sessions WHERE session_id = %s", (session_id,)
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            return None
+        return self._row_to_session(cast(RowMapping, row))
+
+    async def list_sessions(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[SessionRecord]:
+        """List sessions with optional status filter."""
+        query = "SELECT * FROM sessions WHERE 1=1"
+        params: List[Any] = []
+
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+
+        query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
+
+        return [self._row_to_session(cast(RowMapping, row)) for row in rows]
+
+    async def touch_session(self, session_id: str, touched_at: Optional[datetime] = None) -> None:
+        """Update last activity timestamp for a session."""
+        now = touched_at or datetime.now(timezone.utc)
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            await conn.execute(
+                "UPDATE sessions SET last_activity_at = %s WHERE session_id = %s",
+                (now, session_id),
+            )
+
+    async def save_session_event(self, event: SessionEvent) -> SessionEvent:
+        """Insert a session event and return persisted row (dedupes by file_name)."""
+        payload_json = Jsonb(event.payload) if event.payload is not None else None
+
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO session_events (
+                    session_id, direction, event_type, payload_json, file_name, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, file_name) DO NOTHING
+                RETURNING *
+                """,
+                (
+                    event.session_id,
+                    event.direction,
+                    event.event_type,
+                    payload_json,
+                    event.file_name,
+                    event.created_at,
+                ),
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                return self._row_to_session_event(cast(RowMapping, row))
+
+            if event.file_name:
+                existing_cursor = await conn.execute(
+                    """
+                    SELECT * FROM session_events
+                    WHERE session_id = %s AND file_name = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (event.session_id, event.file_name),
+                )
+                existing = await existing_cursor.fetchone()
+                if existing:
+                    return self._row_to_session_event(cast(RowMapping, existing))
+
+        return event
+
+    async def list_session_events(
+        self,
+        session_id: str,
+        after_id: int = 0,
+        limit: int = 100,
+    ) -> List[SessionEvent]:
+        """List session events after a cursor ID."""
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM session_events
+                WHERE session_id = %s AND id > %s
+                ORDER BY id ASC
+                LIMIT %s
+                """,
+                (session_id, after_id, limit),
+            )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_session_event(cast(RowMapping, row)) for row in rows]
+
     async def save_version(self, version: JobVersion) -> None:
         """Save job version record."""
         pool = self._get_pool()
@@ -602,6 +841,45 @@ class ExecutionStorage:
             dockerfile_hash=row["dockerfile_hash"],
             requirements_hash=row["requirements_hash"],
             image_ref=row["image_ref"],
+        )
+
+    def _row_to_session(self, row: RowMapping) -> SessionRecord:
+        """Convert database row to SessionRecord."""
+        metadata = _decode_json_field(row.get("metadata_json")) or {}
+        return SessionRecord(
+            session_id=row["session_id"],
+            status=row["status"],
+            job_type=row["job_type"],
+            created_at=row["created_at"],
+            started_at=row.get("started_at"),
+            ended_at=row.get("ended_at"),
+            last_activity_at=row["last_activity_at"],
+            expires_at=row.get("expires_at"),
+            idle_timeout_seconds=row["idle_timeout_seconds"],
+            ttl_seconds=row["ttl_seconds"],
+            container_name=row["container_name"],
+            container_id=row.get("container_id"),
+            image_name=row["image_name"],
+            runtime=row["runtime"],
+            gpu_enabled=bool(row.get("gpu_enabled", False)),
+            gpu_vendor=row.get("gpu_vendor"),
+            workspace_dir=row["workspace_dir"],
+            metadata=metadata,
+            error_message=row.get("error_message"),
+            terminated_reason=row.get("terminated_reason"),
+        )
+
+    def _row_to_session_event(self, row: RowMapping) -> SessionEvent:
+        """Convert database row to SessionEvent."""
+        payload = _decode_json_field(row.get("payload_json"))
+        return SessionEvent(
+            id=row["id"],
+            session_id=row["session_id"],
+            direction=row["direction"],
+            event_type=row["event_type"],
+            payload=payload,
+            file_name=row.get("file_name"),
+            created_at=row["created_at"],
         )
 
     async def add_to_dlq(self, entry: DeadLetterEntry) -> int:

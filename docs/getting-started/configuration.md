@@ -268,6 +268,11 @@ Tako VM uses gVisor (runsc) by default for strong container isolation:
 - **strict** (default): Fails with `RuntimeUnavailableError` if gVisor is not installed. Use this in production for guaranteed strong isolation.
 - **permissive**: Falls back to standard runc runtime with a warning if gVisor is unavailable. Useful for development on systems without gVisor.
 
+**GPU compatibility note:**
+
+- GPU workloads run with `runc` (gVisor disabled).
+- If `security_mode: strict` is enabled, GPU sessions/jobs are rejected.
+
 ```yaml
 # Development (allow fallback to runc)
 security_mode: permissive
@@ -306,3 +311,8 @@ limactl shell tako-gvisor
 | `enable_seccomp` | Enable seccomp syscall filtering | `true` |
 | `enable_cap_restrictions` | Enable capability restrictions (`--cap-drop=ALL`) | `true` |
 | `enable_userns` | Enable user namespace isolation | `false` |
+| `sessions_enabled` | Enable long-running session API endpoints | `false` |
+| `session_idle_timeout_seconds` | Idle timeout before auto-expire | `1800` |
+| `session_max_ttl_seconds` | Max lifetime for any session | `86400` |
+| `session_max_message_bytes` | Max `/sessions/{id}/send` payload size | `262144` |
+| `session_max_events_per_poll` | Max events returned per poll request | `100` |

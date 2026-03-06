@@ -11,7 +11,14 @@
       "cpu_limit": 1.0,
       "timeout": 30,
       "startup_timeout": 120,
-      "network_enabled": false
+      "network_enabled": false,
+      "session_enabled": false,
+      "gpu": {
+        "enabled": false,
+        "vendor": null,
+        "count": null,
+        "device_ids": []
+      }
     },
     {
       "name": "data-processing",
@@ -27,7 +34,14 @@
       "cpu_limit": 2.0,
       "timeout": 60,
       "startup_timeout": 120,
-      "network_enabled": false
+      "network_enabled": false,
+      "session_enabled": false,
+      "gpu": {
+        "enabled": false,
+        "vendor": null,
+        "count": null,
+        "device_ids": []
+      }
     },
     {
       "name": "ml-inference",
@@ -43,7 +57,14 @@
       "cpu_limit": 2.0,
       "timeout": 120,
       "startup_timeout": 120,
-      "network_enabled": false
+      "network_enabled": false,
+      "session_enabled": false,
+      "gpu": {
+        "enabled": false,
+        "vendor": null,
+        "count": null,
+        "device_ids": []
+      }
     },
     {
       "name": "test-with-secrets",
@@ -59,7 +80,14 @@
       "cpu_limit": 0.5,
       "timeout": 10,
       "startup_timeout": 120,
-      "network_enabled": false
+      "network_enabled": false,
+      "session_enabled": false,
+      "gpu": {
+        "enabled": false,
+        "vendor": null,
+        "count": null,
+        "device_ids": []
+      }
     }
   ]
 }

@@ -94,6 +94,63 @@ class ContainerLimits(BaseModel):
         return self
 
 
+class JobTypeGPUConfig(BaseModel):
+    """GPU configuration for a job type."""
+
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = Field(default=False)
+    vendor: Optional[str] = Field(default=None, description="GPU vendor: 'nvidia' or 'amd'")
+    count: Optional[int] = Field(default=None, ge=1, le=16)
+    device_ids: List[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("vendor")
+    @classmethod
+    def validate_vendor(cls, v: Optional[str]) -> Optional[str]:
+        """Validate GPU vendor."""
+        if v is None:
+            return None
+        normalized = v.lower().strip()
+        if normalized not in {"nvidia", "amd"}:
+            raise ValueError("gpu.vendor must be one of: amd, nvidia")
+        return normalized
+
+    @field_validator("device_ids")
+    @classmethod
+    def validate_device_ids(cls, values: List[str]) -> List[str]:
+        """Validate GPU device ID list."""
+        normalized: List[str] = []
+        for value in values:
+            device_id = value.strip()
+            if not device_id:
+                raise ValueError("gpu.device_ids cannot contain empty values")
+            if "," in device_id:
+                raise ValueError("gpu.device_ids entries cannot contain commas")
+            normalized.append(device_id)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_gpu_config(self) -> "JobTypeGPUConfig":
+        """Validate cross-field GPU settings."""
+        if not self.enabled:
+            if self.vendor is not None or self.count is not None or self.device_ids:
+                raise ValueError(
+                    "gpu.enabled must be true when setting gpu.vendor, gpu.count, or gpu.device_ids"
+                )
+            return self
+
+        if self.vendor is None:
+            raise ValueError("gpu.vendor is required when gpu.enabled is true")
+
+        if self.count is not None and self.device_ids:
+            raise ValueError("gpu.count and gpu.device_ids are mutually exclusive")
+
+        if self.vendor == "amd" and self.count is not None:
+            raise ValueError("gpu.count is only supported for gpu.vendor='nvidia'")
+
+        return self
+
+
 class JobTypeConfig(BaseModel):
     """Job type configuration for embedding in main config."""
 
@@ -114,6 +171,11 @@ class JobTypeConfig(BaseModel):
     """Timeout for startup phase (container init + dep install) in seconds."""
 
     network_enabled: bool = Field(default=False, description="Allow network access (security risk)")
+    session_enabled: bool = Field(
+        default=False,
+        description="Allow this job type to be used for long-running sessions",
+    )
+    gpu: JobTypeGPUConfig = Field(default_factory=JobTypeGPUConfig)
 
     @field_validator("name")
     @classmethod
@@ -281,6 +343,13 @@ class TakoVMConfig(BaseModel):
         description="Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback to runc",
     )
 
+    # Session runtime controls
+    sessions_enabled: bool = Field(default=False)
+    session_idle_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    session_max_ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+    session_max_message_bytes: int = Field(default=262144, ge=1024, le=10485760)
+    session_max_events_per_poll: int = Field(default=100, ge=1, le=1000)
+
     @field_validator("container_runtime")
     @classmethod
     def validate_container_runtime(cls, v: str) -> str:
@@ -320,6 +389,8 @@ class TakoVMConfig(BaseModel):
             raise ValueError("default_timeout must be <= max_timeout")
         if self.default_startup_timeout > self.max_startup_timeout:
             raise ValueError("default_startup_timeout must be <= max_startup_timeout")
+        if self.session_idle_timeout_seconds > self.session_max_ttl_seconds:
+            raise ValueError("session_idle_timeout_seconds must be <= session_max_ttl_seconds")
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
@@ -471,6 +542,26 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
     if "TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS" in os.environ:
         config_dict["api_rate_limit_window_seconds"] = parse_env_int(
             "TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS"
+        )
+    if "TAKO_VM_SESSIONS_ENABLED" in os.environ:
+        config_dict["sessions_enabled"] = os.environ["TAKO_VM_SESSIONS_ENABLED"].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+    if "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS" in os.environ:
+        config_dict["session_idle_timeout_seconds"] = parse_env_int(
+            "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS"
+        )
+    if "TAKO_VM_SESSION_MAX_TTL_SECONDS" in os.environ:
+        config_dict["session_max_ttl_seconds"] = parse_env_int("TAKO_VM_SESSION_MAX_TTL_SECONDS")
+    if "TAKO_VM_SESSION_MAX_MESSAGE_BYTES" in os.environ:
+        config_dict["session_max_message_bytes"] = parse_env_int(
+            "TAKO_VM_SESSION_MAX_MESSAGE_BYTES"
+        )
+    if "TAKO_VM_SESSION_MAX_EVENTS_PER_POLL" in os.environ:
+        config_dict["session_max_events_per_poll"] = parse_env_int(
+            "TAKO_VM_SESSION_MAX_EVENTS_PER_POLL"
         )
 
     # Validate and create config

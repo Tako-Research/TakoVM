@@ -62,6 +62,21 @@ class JobType:
     network_enabled: bool = False
     """Allow network access (default: no network for security)."""
 
+    session_enabled: bool = False
+    """Allow this job type to be used for long-running sessions."""
+
+    gpu_enabled: bool = False
+    """Enable GPU access for this job type."""
+
+    gpu_vendor: Optional[str] = None
+    """GPU vendor ('nvidia' or 'amd')."""
+
+    gpu_count: Optional[int] = None
+    """Number of GPUs (NVIDIA only)."""
+
+    gpu_device_ids: list[str] = field(default_factory=list)
+    """Specific GPU device IDs/UUIDs to expose."""
+
     @property
     def image_name(self) -> str:
         """Docker image name for this job type."""
@@ -81,12 +96,38 @@ class JobType:
             "timeout": self.timeout,
             "startup_timeout": self.startup_timeout,
             "network_enabled": self.network_enabled,
+            "session_enabled": self.session_enabled,
+            "gpu": {
+                "enabled": self.gpu_enabled,
+                "vendor": self.gpu_vendor,
+                "count": self.gpu_count,
+                "device_ids": self.gpu_device_ids,
+            },
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> JobType:
         """Create from dictionary."""
-        return cls(**data)
+        gpu = data.get("gpu") or {}
+
+        return cls(
+            name=data["name"],
+            requirements=list(data.get("requirements", [])),
+            python_version=data.get("python_version", "3.11"),
+            base_image=data.get("base_image"),
+            shared_code=list(data.get("shared_code", [])),
+            environment=dict(data.get("environment", {})),
+            memory_limit=data.get("memory_limit", "512m"),
+            cpu_limit=float(data.get("cpu_limit", 1.0)),
+            timeout=int(data.get("timeout", 30)),
+            startup_timeout=int(data.get("startup_timeout", 120)),
+            network_enabled=bool(data.get("network_enabled", False)),
+            session_enabled=bool(data.get("session_enabled", False)),
+            gpu_enabled=bool(data.get("gpu_enabled", gpu.get("enabled", False))),
+            gpu_vendor=data.get("gpu_vendor", gpu.get("vendor")),
+            gpu_count=data.get("gpu_count", gpu.get("count")),
+            gpu_device_ids=list(data.get("gpu_device_ids", gpu.get("device_ids", []))),
+        )
 
     @classmethod
     def from_config(cls, config: JobTypeConfig) -> JobType:
@@ -111,6 +152,11 @@ class JobType:
             timeout=config.timeout,
             startup_timeout=config.startup_timeout,
             network_enabled=config.network_enabled,
+            session_enabled=config.session_enabled,
+            gpu_enabled=config.gpu.enabled,
+            gpu_vendor=config.gpu.vendor,
+            gpu_count=config.gpu.count,
+            gpu_device_ids=list(config.gpu.device_ids),
         )
 
     def to_config(self) -> JobTypeConfig:
@@ -120,7 +166,7 @@ class JobType:
         Returns:
             Pydantic JobTypeConfig instance
         """
-        from tako_vm.config import JobTypeConfig
+        from tako_vm.config import JobTypeConfig, JobTypeGPUConfig
 
         return JobTypeConfig(
             name=self.name,
@@ -134,6 +180,13 @@ class JobType:
             timeout=self.timeout,
             startup_timeout=self.startup_timeout,
             network_enabled=self.network_enabled,
+            session_enabled=self.session_enabled,
+            gpu=JobTypeGPUConfig(
+                enabled=self.gpu_enabled,
+                vendor=self.gpu_vendor,
+                count=self.gpu_count,
+                device_ids=list(self.gpu_device_ids),
+            ),
         )
 
 
