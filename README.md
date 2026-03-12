@@ -291,6 +291,35 @@ job_types:
     network_enabled: true
 ```
 
+### Ollama GPU Sessions (Minimal)
+
+Use a persistent Docker volume for model files, then configure an Ollama GPU session job type:
+
+```yaml
+security_mode: permissive
+sessions_enabled: true
+session_model_cache_volume: "tako-ollama-models"
+
+job_types:
+  - name: ollama-nvidia
+    base_image: "ollama/ollama:latest"
+    network_enabled: true
+    memory_limit: "8g"
+    cpu_limit: 4.0
+    timeout: 3600
+    session_enabled: true
+    environment:
+      OLLAMA_MODELS: "/models"
+      OLLAMA_HOST: "0.0.0.0:11434"
+    gpu:
+      enabled: true
+      vendor: nvidia
+```
+
+Notes:
+- GPU sessions/jobs require `security_mode: permissive`.
+- `/sessions/{id}/send` writes to Tako's inbox contract; it does not proxy Ollama HTTP endpoints.
+
 ### Network Control
 
 By default, containers have **no network access** (`--network=none`).

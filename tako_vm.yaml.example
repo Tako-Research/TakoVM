@@ -76,6 +76,9 @@ session_idle_timeout_seconds: 1800   # Auto-expire idle sessions after 30m
 session_max_ttl_seconds: 86400       # Hard cap on session lifetime (24h)
 session_max_message_bytes: 262144    # Max inbox message size (256KB)
 session_max_events_per_poll: 100     # Max events returned per /sessions/{id}/events poll
+# Optional Docker named volume mounted at /models for session containers
+# Use this for persistent Ollama model cache across sessions
+# session_model_cache_volume: "tako-ollama-models"
 
 # =============================================================================
 # Container Resource Limits
@@ -165,3 +168,22 @@ job_types:
       vendor: nvidia
       # count: 1
       # device_ids: ["GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"]
+
+  # Minimal Ollama GPU session (NVIDIA)
+  # Requires:
+  # - sessions_enabled: true
+  # - security_mode: permissive (GPU workloads run with runc)
+  # - session_model_cache_volume configured for persistent model cache (recommended)
+  - name: ollama-nvidia
+    base_image: "ollama/ollama:latest"
+    network_enabled: true
+    memory_limit: "8g"
+    cpu_limit: 4.0
+    timeout: 3600
+    session_enabled: true
+    environment:
+      OLLAMA_MODELS: "/models"
+      OLLAMA_HOST: "0.0.0.0:11434"
+    gpu:
+      enabled: true
+      vendor: nvidia

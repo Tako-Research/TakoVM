@@ -273,6 +273,12 @@ Tako VM uses gVisor (runsc) by default for strong container isolation:
 - GPU workloads run with `runc` (gVisor disabled).
 - If `security_mode: strict` is enabled, GPU sessions/jobs are rejected.
 
+For Ollama-style long-running sessions, configure a persistent Docker volume for model cache:
+
+```yaml
+session_model_cache_volume: "tako-ollama-models"
+```
+
 ```yaml
 # Development (allow fallback to runc)
 security_mode: permissive
@@ -316,3 +322,4 @@ limactl shell tako-gvisor
 | `session_max_ttl_seconds` | Max lifetime for any session | `86400` |
 | `session_max_message_bytes` | Max `/sessions/{id}/send` payload size | `262144` |
 | `session_max_events_per_poll` | Max events returned per poll request | `100` |
+| `session_model_cache_volume` | Optional Docker volume mounted at `/models` in session containers | `null` |

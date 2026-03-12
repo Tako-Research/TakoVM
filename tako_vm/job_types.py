@@ -225,15 +225,28 @@ class JobTypeRegistry:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    def register(self, job_type: JobType) -> None:
+    def register(self, job_type: JobType, persist: bool = True) -> None:
         """
         Register a new job type.
 
         Args:
             job_type: Job type configuration
+            persist: Whether to save registry changes to disk
         """
         self._job_types[job_type.name] = job_type
-        self._save()
+        if persist:
+            self._save()
+
+    def register_many(self, job_types: list[JobType], persist: bool = True) -> None:
+        """Register multiple job types at once."""
+        if not job_types:
+            return
+
+        for job_type in job_types:
+            self._job_types[job_type.name] = job_type
+
+        if persist:
+            self._save()
 
     def get(self, name: str) -> Optional[JobType]:
         """
@@ -302,3 +315,29 @@ def init_default_job_types(registry: JobTypeRegistry) -> None:
     for jt in DEFAULT_JOB_TYPES:
         if registry.get(jt.name) is None:
             registry.register(jt)
+
+
+def merge_config_job_types(
+    registry: JobTypeRegistry, config_job_types: list["JobTypeConfig"]
+) -> int:
+    """
+    Merge config-defined job types into a runtime registry.
+
+    Job types from config override any existing registry entry with the same name.
+    Changes are applied in memory only (no persistence to job_types.json).
+
+    Args:
+        registry: Runtime job type registry
+        config_job_types: Job types loaded from TakoVM config
+
+    Returns:
+        Number of config job types merged
+    """
+    if not config_job_types:
+        return 0
+
+    runtime_job_types = [
+        JobType.from_config(job_type_config) for job_type_config in config_job_types
+    ]
+    registry.register_many(runtime_job_types, persist=False)
+    return len(runtime_job_types)

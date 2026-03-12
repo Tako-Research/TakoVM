@@ -193,7 +193,7 @@ POST /sessions
 
 ```json
 {
-  "job_type": "openclaw-nvidia",
+  "job_type": "ollama-nvidia",
   "metadata": {"workflow": "assistant"},
   "idle_timeout_seconds": 1800,
   "ttl_seconds": 86400
@@ -214,6 +214,8 @@ POST /sessions/{session_id}/send
   }
 }
 ```
+
+This endpoint writes messages into the session inbox contract. It does not proxy the Ollama HTTP API.
 
 ### Poll Session Events
 

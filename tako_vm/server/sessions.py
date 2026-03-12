@@ -399,6 +399,12 @@ class SessionManager:
             ]
         )
 
+        if self.config.session_model_cache_volume:
+            cmd.append(
+                "--mount=type=volume,"
+                f"source={self.config.session_model_cache_volume},target=/models"
+            )
+
         if self.config.enable_seccomp and self.config.seccomp_profile_path:
             if is_native_linux() and self.config.seccomp_profile_path.exists():
                 cmd.append(f"--security-opt=seccomp={self.config.seccomp_profile_path}")
@@ -419,6 +425,9 @@ class SessionManager:
                 "--env=TAKO_SESSION_OUTBOX=/session/outbox",
             ]
         )
+
+        if self.config.session_model_cache_volume:
+            cmd.append("--env=TAKO_SESSION_MODEL_CACHE=/models")
 
         for key, value in gpu_env.items():
             cmd.append(f"--env={key}={value}")

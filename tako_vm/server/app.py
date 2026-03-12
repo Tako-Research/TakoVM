@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
 from tako_vm.execution.worker import CodeExecutor, check_gvisor_available
-from tako_vm.job_types import JobTypeRegistry
+from tako_vm.job_types import JobTypeRegistry, merge_config_job_types
 from tako_vm.models import ExecutionRecord, SessionEvent, SessionRecord, sha256_content, sha256_json
 from tako_vm.security import sanitize_error
 from tako_vm.server.correlation import (
@@ -171,6 +171,9 @@ async def lifespan(app: FastAPI):
     # Configure log level from config
     _configure_log_level(state.config.log_level)
     state.registry = JobTypeRegistry()
+    merged_job_types = merge_config_job_types(state.registry, state.config.job_types)
+    if merged_job_types:
+        logger.info("Loaded %s job type(s) from config", merged_job_types)
     state.executor = CodeExecutor(registry=state.registry, config=state.config)
     state.storage = ExecutionStorage(state.config.database_url)
     await state.storage.init()

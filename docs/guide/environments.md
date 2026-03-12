@@ -96,17 +96,22 @@ print(response.json()["output"])
 | `environment` | Environment variables | `{}` |
 | `shared_code` | Python files to include | `[]` |
 
-### GPU + Sessions Example
+### GPU + Sessions Example (Ollama)
 
 ```yaml
+session_model_cache_volume: "tako-ollama-models"
+
 job_types:
-  - name: openclaw-nvidia
-    base_image: "tako-openclaw:latest"
+  - name: ollama-nvidia
+    base_image: "ollama/ollama:latest"
     network_enabled: true
     memory_limit: "8g"
     cpu_limit: 4.0
     timeout: 3600
     session_enabled: true
+    environment:
+      OLLAMA_MODELS: "/models"
+      OLLAMA_HOST: "0.0.0.0:11434"
     gpu:
       enabled: true
       vendor: nvidia
@@ -114,6 +119,8 @@ job_types:
 ```
 
 GPU workloads run with `runc` (gVisor disabled). If `security_mode: strict` is enabled, GPU sessions are rejected.
+
+`/sessions/{id}/send` writes to the session inbox contract. It does not proxy Ollama HTTP APIs.
 
 ## Network Access
 

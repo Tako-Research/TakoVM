@@ -6,6 +6,7 @@ Loads configuration from YAML file with optional env var overrides.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -20,6 +21,10 @@ CONFIG_SEARCH_PATHS = [
     Path.home() / ".tako_vm" / "config.yaml",  # User home
     Path("/etc/tako_vm/config.yaml"),  # System-wide
 ]
+
+
+# Docker named volume pattern (1-128 chars, conservative allowlist)
+_DOCKER_VOLUME_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 def get_default_data_dir() -> Path:
@@ -349,6 +354,10 @@ class TakoVMConfig(BaseModel):
     session_max_ttl_seconds: int = Field(default=86400, ge=60, le=604800)
     session_max_message_bytes: int = Field(default=262144, ge=1024, le=10485760)
     session_max_events_per_poll: int = Field(default=100, ge=1, le=1000)
+    session_model_cache_volume: Optional[str] = Field(
+        default=None,
+        description="Optional Docker named volume mounted at /models for session container model cache",
+    )
 
     @field_validator("container_runtime")
     @classmethod
@@ -369,6 +378,25 @@ class TakoVMConfig(BaseModel):
         if v not in valid_modes:
             raise ValueError(f"security_mode must be one of: {', '.join(sorted(valid_modes))}")
         return v
+
+    @field_validator("session_model_cache_volume")
+    @classmethod
+    def validate_session_model_cache_volume(cls, value: Optional[str]) -> Optional[str]:
+        """Validate optional session model cache volume name."""
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+
+        if not _DOCKER_VOLUME_NAME_PATTERN.match(normalized):
+            raise ValueError(
+                "session_model_cache_volume must be a valid Docker named volume "
+                "([A-Za-z0-9][A-Za-z0-9_.-]{0,127})"
+            )
+
+        return normalized
 
     # Container limits (new!)
     container_limits: ContainerLimits = Field(default_factory=ContainerLimits)
@@ -563,6 +591,8 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         config_dict["session_max_events_per_poll"] = parse_env_int(
             "TAKO_VM_SESSION_MAX_EVENTS_PER_POLL"
         )
+    if "TAKO_VM_SESSION_MODEL_CACHE_VOLUME" in os.environ:
+        config_dict["session_model_cache_volume"] = os.environ["TAKO_VM_SESSION_MODEL_CACHE_VOLUME"]
 
     # Validate and create config
     try:
