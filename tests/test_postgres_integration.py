@@ -44,6 +44,7 @@ async def test_schema_migrations_written(temp_data_dir):
             versions = [row[0] for row in cur.fetchall()]
 
     assert "0001_initial" in versions
+    assert "0002_sessions" in versions
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,9 @@ from tako_vm.models import (
     InputArtifact,
     JobVersion,
     ResourceUsage,
+    SessionEvent,
+    SessionRecord,
+    SessionStatus,
 )
 from tako_vm.storage import ExecutionStorage
 
@@ -412,6 +415,108 @@ class TestJobVersions:
 
         versions = storage.list_versions("test-job")
         assert len(versions) == 3
+
+
+class TestSessionStorage:
+    """Tests for session persistence operations."""
+
+    @staticmethod
+    def _make_session(session_id: str, status: SessionStatus = "running") -> SessionRecord:
+        now = datetime.now(timezone.utc)
+        return SessionRecord(
+            session_id=session_id,
+            status=status,
+            job_type="default",
+            created_at=now,
+            last_activity_at=now,
+            idle_timeout_seconds=1800,
+            ttl_seconds=86400,
+            container_name=f"tako-session-{session_id}",
+            image_name="code-executor:latest",
+            runtime="runc",
+            workspace_dir=f"/tmp/{session_id}",
+            metadata={"source": "test"},
+        )
+
+    def test_save_and_get_session(self, storage):
+        """Can save and retrieve a session record."""
+        session = self._make_session("session-1")
+        storage.save_session(session)
+
+        loaded = storage.get_session("session-1")
+        assert loaded is not None
+        assert loaded.session_id == "session-1"
+        assert loaded.status == "running"
+        assert loaded.metadata["source"] == "test"
+
+    def test_list_sessions_with_status_filter(self, storage):
+        """Can list sessions filtered by status."""
+        storage.save_session(self._make_session("running-1", status="running"))
+        storage.save_session(self._make_session("terminated-1", status="terminated"))
+
+        running = storage.list_sessions(status="running")
+        assert len(running) == 1
+        assert running[0].session_id == "running-1"
+
+    def test_touch_session_updates_last_activity(self, storage):
+        """touch_session updates last_activity_at timestamp."""
+        session = self._make_session("session-touch")
+        storage.save_session(session)
+
+        touched_at = datetime.now(timezone.utc) + timedelta(seconds=5)
+        storage.touch_session("session-touch", touched_at=touched_at)
+
+        loaded = storage.get_session("session-touch")
+        assert loaded is not None
+        assert loaded.last_activity_at == touched_at
+
+    def test_save_session_event_dedupes_by_file_name(self, storage):
+        """Duplicate file_name inserts return existing event row."""
+        storage.save_session(self._make_session("session-events"))
+
+        first = storage.save_session_event(
+            SessionEvent(
+                session_id="session-events",
+                direction="out",
+                event_type="message",
+                payload={"value": 1},
+                file_name="event-1.json",
+            )
+        )
+        second = storage.save_session_event(
+            SessionEvent(
+                session_id="session-events",
+                direction="out",
+                event_type="message",
+                payload={"value": 2},
+                file_name="event-1.json",
+            )
+        )
+
+        assert first.id is not None
+        assert second.id == first.id
+
+        events = storage.list_session_events("session-events")
+        assert len(events) == 1
+        assert events[0].file_name == "event-1.json"
+
+    def test_list_session_events_after_cursor(self, storage):
+        """Can list events using an after_id cursor."""
+        storage.save_session(self._make_session("session-cursor"))
+
+        event1 = storage.save_session_event(
+            SessionEvent(session_id="session-cursor", direction="in", payload={"n": 1})
+        )
+        event2 = storage.save_session_event(
+            SessionEvent(session_id="session-cursor", direction="out", payload={"n": 2})
+        )
+
+        assert event1.id is not None
+        assert event2.id is not None
+
+        later_events = storage.list_session_events("session-cursor", after_id=event1.id)
+        assert len(later_events) == 1
+        assert later_events[0].id == event2.id
 
 
 class TestDeadLetterQueue:

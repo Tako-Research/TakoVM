@@ -20,6 +20,8 @@ from tako_vm.models import (
     JobStatus,
     JobVersion,
     ResourceUsage,
+    SessionEvent,
+    SessionRecord,
     sha256_content,
     sha256_json,
 )
@@ -416,3 +418,47 @@ class TestDeadLetterEntry:
         for error_type in valid_types:
             entry = DeadLetterEntry(job_id="job", job_data={}, error_type=error_type)
             assert entry.error_type == error_type
+
+
+class TestSessionModels:
+    """Tests for session-related models."""
+
+    def test_session_record_defaults(self):
+        """SessionRecord initializes with expected defaults."""
+        record = SessionRecord(
+            container_name="tako-session-1",
+            image_name="code-executor:latest",
+            runtime="runc",
+            workspace_dir="/tmp/session-1",
+        )
+
+        assert record.status == "creating"
+        assert record.job_type == "default"
+        assert record.gpu_enabled is False
+        assert record.metadata == {}
+
+    def test_session_record_validates_status_literal(self):
+        """SessionRecord enforces allowed status values."""
+        with pytest.raises(ValidationError):
+            SessionRecord(
+                status="unknown",  # type: ignore[arg-type]
+                container_name="tako-session-1",
+                image_name="code-executor:latest",
+                runtime="runc",
+                workspace_dir="/tmp/session-1",
+            )
+
+    def test_session_event_defaults(self):
+        """SessionEvent defaults event type to message."""
+        event = SessionEvent(session_id="session-1", direction="out", payload={"ok": True})
+        assert event.event_type == "message"
+        assert event.file_name is None
+
+    def test_session_event_validates_direction_literal(self):
+        """SessionEvent enforces direction literals."""
+        with pytest.raises(ValidationError):
+            SessionEvent(
+                session_id="session-1",
+                direction="sideways",  # type: ignore[arg-type]
+                payload={"bad": True},
+            )

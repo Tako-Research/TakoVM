@@ -490,3 +490,61 @@ class DeadLetterEntry(BaseModel):
 
     correlation_id: Optional[str] = Field(default=None, max_length=64)
     """Correlation ID for tracing."""
+
+
+SessionStatus = Literal[
+    "creating",
+    "running",
+    "terminated",
+    "failed",
+    "expired",
+]
+
+SessionEventDirection = Literal["in", "out", "system"]
+
+
+class SessionRecord(BaseModel):
+    """Persistent metadata for a long-running session container."""
+
+    model_config = {"extra": "forbid"}
+
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=64)
+    status: SessionStatus = "creating"
+    job_type: str = Field(default="default", min_length=1, max_length=64)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    last_activity_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: Optional[datetime] = None
+
+    idle_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+
+    container_name: str = Field(..., min_length=1, max_length=128)
+    container_id: Optional[str] = Field(default=None, max_length=128)
+    image_name: str = Field(..., min_length=1, max_length=255)
+    runtime: str = Field(..., min_length=1, max_length=16)
+
+    gpu_enabled: bool = False
+    gpu_vendor: Optional[str] = Field(default=None, max_length=16)
+
+    workspace_dir: str = Field(..., min_length=1, max_length=1024)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    error_message: Optional[str] = Field(default=None, max_length=4096)
+    terminated_reason: Optional[str] = Field(default=None, max_length=256)
+
+
+class SessionEvent(BaseModel):
+    """Input/output event persisted for session polling."""
+
+    model_config = {"extra": "forbid"}
+
+    id: Optional[int] = Field(default=None, ge=0)
+    session_id: str = Field(..., min_length=1, max_length=64)
+    direction: SessionEventDirection
+    event_type: str = Field(default="message", min_length=1, max_length=64)
+    payload: Any = None
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
