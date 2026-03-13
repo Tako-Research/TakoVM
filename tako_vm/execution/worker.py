@@ -209,15 +209,17 @@ class CodeExecutor:
         self.registry = registry or JobTypeRegistry()
         self.config = config or get_config()
 
-        # Check runtime availability
-        self._runtime = self._resolve_runtime()
+        # Resolve and validate baseline non-GPU runtime availability at startup
+        self._runtime = self._resolve_runtime(use_gpu=False, workload="job")
 
-    def _resolve_runtime(self) -> str:
+    def _resolve_runtime(self, use_gpu: bool = False, workload: str = "job") -> str:
         """
         Resolve the container runtime to use.
 
         In strict mode (default), gVisor must be available or we fail.
         In permissive mode, we fall back to runc with a warning.
+
+        GPU execution/session workloads always require runc.
 
         Returns:
             The runtime to use ('runsc' or 'runc')
@@ -227,6 +229,20 @@ class CodeExecutor:
         """
         requested_runtime = self.config.container_runtime
         security_mode = self.config.security_mode
+
+        if use_gpu:
+            if security_mode == "strict":
+                raise RuntimeUnavailableError(
+                    "GPU workloads require gVisor to be disabled, but security_mode='strict' "
+                    "requires gVisor. Use security_mode='permissive' for GPU sessions/jobs."
+                )
+
+            if requested_runtime == "runsc":
+                logger.info(
+                    "GPU enabled for %s workload; forcing runtime to runc (gVisor disabled)",
+                    workload,
+                )
+            return "runc"
 
         # If runc is explicitly requested, allow it (user knows what they're doing)
         if requested_runtime == "runc":
@@ -261,6 +277,45 @@ class CodeExecutor:
         logger.warning("WARNING: DO NOT USE FOR UNTRUSTED CODE")
         logger.warning("=" * 60)
         return "runc"
+
+    def resolve_runtime_for_job_type(self, job_type: JobType, workload: str = "job") -> str:
+        """Resolve runtime for a specific job type, accounting for GPU requirements."""
+        return self._resolve_runtime(use_gpu=job_type.gpu_enabled, workload=workload)
+
+    def build_gpu_flags(self, job_type: JobType) -> List[str]:
+        """Build Docker CLI GPU flags for a job type."""
+        if not job_type.gpu_enabled:
+            return []
+
+        vendor = (job_type.gpu_vendor or "").lower()
+        if vendor == "nvidia":
+            if job_type.gpu_device_ids:
+                return [f"--gpus=device={','.join(job_type.gpu_device_ids)}"]
+            if job_type.gpu_count is not None:
+                return [f"--gpus={job_type.gpu_count}"]
+            return ["--gpus=all"]
+
+        if vendor == "amd":
+            return ["--device=/dev/kfd", "--device=/dev/dri"]
+
+        raise RuntimeUnavailableError(f"Unsupported GPU vendor: {job_type.gpu_vendor}")
+
+    def build_gpu_env_vars(self, job_type: JobType) -> Dict[str, str]:
+        """Build environment variables used for GPU device selection."""
+        if not job_type.gpu_enabled or not job_type.gpu_device_ids:
+            return {}
+
+        device_list = ",".join(job_type.gpu_device_ids)
+        vendor = (job_type.gpu_vendor or "").lower()
+
+        if vendor == "nvidia":
+            return {"CUDA_VISIBLE_DEVICES": device_list}
+        if vendor == "amd":
+            return {
+                "ROCR_VISIBLE_DEVICES": device_list,
+                "HIP_VISIBLE_DEVICES": device_list,
+            }
+        return {}
 
     def _get_job_type(self, job_type_name: Optional[str]) -> JobType:
         """
@@ -819,6 +874,20 @@ class CodeExecutor:
                 "For true network isolation, use pre-built images via 'tako-vm build'."
             )
 
+        try:
+            runtime = self.resolve_runtime_for_job_type(job_type=job_type, workload="job")
+            gpu_flags = self.build_gpu_flags(job_type)
+            gpu_env_vars = self.build_gpu_env_vars(job_type)
+        except RuntimeUnavailableError as e:
+            safe_error = sanitize_error(str(e))
+            return {
+                "success": False,
+                "error": safe_error,
+                "stdout": "",
+                "stderr": safe_error,
+                "exit_code": -1,
+            }
+
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako", job_id)
 
@@ -849,8 +918,11 @@ class CodeExecutor:
         # Only specify runtime explicitly for gVisor (runsc)
         # runc is the default Docker runtime, so we don't need to specify it explicitly
         # (and some Docker configurations may not accept --runtime=runc)
-        if self._runtime == "runsc":
-            cmd.append(f"--runtime={self._runtime}")
+        if runtime == "runsc":
+            cmd.append("--runtime=runsc")
+
+        # GPU access flags (if enabled by job type)
+        cmd.extend(gpu_flags)
 
         # Mount uv cache volume for faster repeated installs
         if has_runtime_deps:
@@ -908,6 +980,10 @@ class CodeExecutor:
             if not validate_env_value(value):
                 logger.warning(f"Skipping environment variable with unsafe value: {key}")
                 continue
+            cmd.append(f"--env={key}={value}")
+
+        # Add GPU selection env vars (safe, generated by server)
+        for key, value in gpu_env_vars.items():
             cmd.append(f"--env={key}={value}")
 
         # Pass requirements for runtime installation via uv

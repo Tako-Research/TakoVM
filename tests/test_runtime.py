@@ -14,6 +14,7 @@ from tako_vm.execution import (
     RuntimeUnavailableError,
     reset_gvisor_check,
 )
+from tako_vm.job_types import JobType
 
 
 @pytest.fixture(autouse=True)
@@ -234,3 +235,102 @@ class TestPlatformDetection:
         from tako_vm.execution.worker import is_native_linux
 
         assert is_native_linux() is False
+
+
+class TestGpuRuntimePolicy:
+    """Tests for GPU-specific runtime resolution and Docker flags."""
+
+    @pytest.fixture(autouse=True)
+    def mock_gvisor_available(self, monkeypatch):
+        """Mock gVisor as available for baseline executor initialization."""
+        monkeypatch.setattr(worker_module, "_gvisor_available", True)
+
+    def test_gpu_workload_rejected_in_strict_mode(self):
+        """GPU workloads are blocked when strict mode requires gVisor."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+        )
+        gpu_job = JobType(name="gpu-job", gpu_enabled=True, gpu_vendor="nvidia")
+
+        with pytest.raises(RuntimeUnavailableError) as exc_info:
+            executor.resolve_runtime_for_job_type(gpu_job)
+
+        assert "GPU workloads require gVisor to be disabled" in str(exc_info.value)
+
+    def test_gpu_workload_forces_runc_in_permissive_mode(self):
+        """GPU workloads always use runc in permissive mode."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="permissive")
+        )
+        gpu_job = JobType(name="gpu-job", gpu_enabled=True, gpu_vendor="nvidia")
+
+        assert executor.resolve_runtime_for_job_type(gpu_job) == "runc"
+
+    def test_build_gpu_flags_for_nvidia_variants(self):
+        """NVIDIA flag generation supports all/count/device selection."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="permissive")
+        )
+
+        assert executor.build_gpu_flags(
+            JobType(name="all", gpu_enabled=True, gpu_vendor="nvidia")
+        ) == ["--gpus=all"]
+        assert executor.build_gpu_flags(
+            JobType(name="count", gpu_enabled=True, gpu_vendor="nvidia", gpu_count=2)
+        ) == ["--gpus=2"]
+        assert executor.build_gpu_flags(
+            JobType(
+                name="devices",
+                gpu_enabled=True,
+                gpu_vendor="nvidia",
+                gpu_device_ids=["GPU-1", "GPU-2"],
+            )
+        ) == ["--gpus=device=GPU-1,GPU-2"]
+
+    def test_build_gpu_flags_for_amd(self):
+        """AMD jobs mount required device nodes."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="permissive")
+        )
+        flags = executor.build_gpu_flags(JobType(name="amd", gpu_enabled=True, gpu_vendor="amd"))
+        assert flags == ["--device=/dev/kfd", "--device=/dev/dri"]
+
+    def test_build_gpu_env_vars_for_device_selection(self):
+        """Device selection env vars are vendor-specific."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="permissive")
+        )
+
+        nvidia_env = executor.build_gpu_env_vars(
+            JobType(
+                name="nvidia",
+                gpu_enabled=True,
+                gpu_vendor="nvidia",
+                gpu_device_ids=["0", "2"],
+            )
+        )
+        assert nvidia_env == {"CUDA_VISIBLE_DEVICES": "0,2"}
+
+        amd_env = executor.build_gpu_env_vars(
+            JobType(
+                name="amd",
+                gpu_enabled=True,
+                gpu_vendor="amd",
+                gpu_device_ids=["card0"],
+            )
+        )
+        assert amd_env == {
+            "ROCR_VISIBLE_DEVICES": "card0",
+            "HIP_VISIBLE_DEVICES": "card0",
+        }
+
+    def test_build_gpu_flags_rejects_unknown_vendor(self):
+        """Unsupported GPU vendor raises a runtime error."""
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="permissive")
+        )
+
+        with pytest.raises(RuntimeUnavailableError) as exc_info:
+            executor.build_gpu_flags(JobType(name="bad", gpu_enabled=True, gpu_vendor="intel"))
+
+        assert "Unsupported GPU vendor" in str(exc_info.value)
