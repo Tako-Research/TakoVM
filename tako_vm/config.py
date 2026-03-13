@@ -6,6 +6,7 @@ Loads configuration from YAML file with optional env var overrides.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -20,6 +21,10 @@ CONFIG_SEARCH_PATHS = [
     Path.home() / ".tako_vm" / "config.yaml",  # User home
     Path("/etc/tako_vm/config.yaml"),  # System-wide
 ]
+
+
+# Docker named volume pattern (1-128 chars, conservative allowlist)
+_DOCKER_VOLUME_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 def get_default_data_dir() -> Path:
@@ -343,6 +348,17 @@ class TakoVMConfig(BaseModel):
         description="Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback to runc",
     )
 
+    # Session runtime controls
+    sessions_enabled: bool = Field(default=False)
+    session_idle_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    session_max_ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+    session_max_message_bytes: int = Field(default=262144, ge=1024, le=10485760)
+    session_max_events_per_poll: int = Field(default=100, ge=1, le=1000)
+    session_model_cache_volume: Optional[str] = Field(
+        default=None,
+        description="Optional Docker named volume mounted at /models for session container model cache",
+    )
+
     @field_validator("container_runtime")
     @classmethod
     def validate_container_runtime(cls, v: str) -> str:
@@ -363,6 +379,25 @@ class TakoVMConfig(BaseModel):
             raise ValueError(f"security_mode must be one of: {', '.join(sorted(valid_modes))}")
         return v
 
+    @field_validator("session_model_cache_volume")
+    @classmethod
+    def validate_session_model_cache_volume(cls, value: Optional[str]) -> Optional[str]:
+        """Validate optional session model cache volume name."""
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+
+        if not _DOCKER_VOLUME_NAME_PATTERN.match(normalized):
+            raise ValueError(
+                "session_model_cache_volume must be a valid Docker named volume "
+                "([A-Za-z0-9][A-Za-z0-9_.-]{0,127})"
+            )
+
+        return normalized
+
     # Container limits (new!)
     container_limits: ContainerLimits = Field(default_factory=ContainerLimits)
 
@@ -382,6 +417,8 @@ class TakoVMConfig(BaseModel):
             raise ValueError("default_timeout must be <= max_timeout")
         if self.default_startup_timeout > self.max_startup_timeout:
             raise ValueError("default_startup_timeout must be <= max_startup_timeout")
+        if self.session_idle_timeout_seconds > self.session_max_ttl_seconds:
+            raise ValueError("session_idle_timeout_seconds must be <= session_max_ttl_seconds")
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
@@ -534,6 +571,29 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         config_dict["api_rate_limit_window_seconds"] = parse_env_int(
             "TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS"
         )
+    if "TAKO_VM_SESSIONS_ENABLED" in os.environ:
+        config_dict["sessions_enabled"] = os.environ["TAKO_VM_SESSIONS_ENABLED"].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+    if "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS" in os.environ:
+        config_dict["session_idle_timeout_seconds"] = parse_env_int(
+            "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS"
+        )
+    if "TAKO_VM_SESSION_MAX_TTL_SECONDS" in os.environ:
+        config_dict["session_max_ttl_seconds"] = parse_env_int("TAKO_VM_SESSION_MAX_TTL_SECONDS")
+    if "TAKO_VM_SESSION_MAX_MESSAGE_BYTES" in os.environ:
+        config_dict["session_max_message_bytes"] = parse_env_int(
+            "TAKO_VM_SESSION_MAX_MESSAGE_BYTES"
+        )
+    if "TAKO_VM_SESSION_MAX_EVENTS_PER_POLL" in os.environ:
+        config_dict["session_max_events_per_poll"] = parse_env_int(
+            "TAKO_VM_SESSION_MAX_EVENTS_PER_POLL"
+        )
+    if "TAKO_VM_SESSION_MODEL_CACHE_VOLUME" in os.environ:
+        config_dict["session_model_cache_volume"] = os.environ["TAKO_VM_SESSION_MODEL_CACHE_VOLUME"]
+
     # Validate and create config
     try:
         config = TakoVMConfig(**config_dict)
