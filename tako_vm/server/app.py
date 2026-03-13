@@ -29,7 +29,14 @@ from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
 from tako_vm.execution.worker import CodeExecutor, check_gvisor_available
 from tako_vm.job_types import JobTypeRegistry, merge_config_job_types
-from tako_vm.models import ExecutionRecord, SessionEvent, SessionRecord, sha256_content, sha256_json
+from tako_vm.models import (
+    ExecutionRecord,
+    SessionEvent,
+    SessionRecord,
+    SessionStatus,
+    sha256_content,
+    sha256_json,
+)
 from tako_vm.security import sanitize_error
 from tako_vm.server.correlation import (
     CorrelationIdMiddleware,
@@ -307,7 +314,7 @@ QueueStatus = Literal[
 ]
 HealthStatus = Literal["healthy", "degraded"]
 RelationshipType = Literal["rerun", "fork"]
-SessionStatusType = Literal["creating", "running", "terminated", "failed", "expired"]
+SessionStatusType = SessionStatus
 
 
 class AsyncExecuteResponse(BaseModel):

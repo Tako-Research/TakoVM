@@ -5,8 +5,12 @@ Tests job submission, status checking, and result retrieval
 using FastAPI's TestClient (no running server required).
 """
 
+import asyncio
 import importlib
+import json
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -765,3 +769,105 @@ class TestSessionsApi:
         assert poll_data["next_cursor"] == 8
         assert len(poll_data["events"]) == 1
         assert poll_data["events"][0]["event_type"] == "reply"
+
+
+class TestSessionsApiIntegration:
+    """Integration-style session API tests with minimal mocking."""
+
+    def _configure_real_session_manager(self, monkeypatch, tmp_path):
+        app_module = importlib.import_module("tako_vm.server.app")
+        job_type_cls = importlib.import_module("tako_vm.job_types").JobType
+        state = cast(Any, app_module.state)
+
+        state.config.sessions_enabled = True
+        state.config.session_max_events_per_poll = 10
+        state.registry.register(
+            job_type_cls(
+                name="session-live",
+                session_enabled=True,
+                base_image="code-executor:latest",
+            ),
+            persist=False,
+        )
+
+        monkeypatch.setattr("tako_vm.server.sessions.WORKSPACE_DIR", str(tmp_path))
+
+        async def fake_run(cmd, timeout):
+            del timeout
+            if cmd[:2] == ["docker", "run"]:
+                return subprocess.CompletedProcess(cmd, 0, "container-live\n", "")
+            if cmd[:2] == ["docker", "inspect"]:
+                return subprocess.CompletedProcess(cmd, 0, "running\t0", "")
+            if cmd[:2] == ["docker", "rm"]:
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(state.session_manager, "_run_subprocess", fake_run)
+        return state
+
+    def test_session_lifecycle_endpoints_with_real_manager(self, client, monkeypatch, tmp_path):
+        """Create/send/poll/terminate endpoints work end-to-end via SessionManager."""
+        state = self._configure_real_session_manager(monkeypatch, tmp_path)
+
+        create_response = client.post(
+            "/sessions",
+            json={"job_type": "session-live", "metadata": {"flow": "integration"}},
+        )
+        assert create_response.status_code == 200
+        session_data = create_response.json()
+        session_id = session_data["session_id"]
+        assert session_data["status"] == "running"
+
+        get_response = client.get(f"/sessions/{session_id}")
+        assert get_response.status_code == 200
+        assert get_response.json()["status"] == "running"
+
+        send_response = client.post(
+            f"/sessions/{session_id}/send",
+            json={"event_type": "input", "payload": {"prompt": "hello"}},
+        )
+        assert send_response.status_code == 200
+        assert send_response.json()["status"] == "queued"
+
+        record = asyncio.run(state.storage.get_session(session_id))
+        assert record is not None
+        outbox_file = Path(record.workspace_dir) / "outbox" / "event-1.json"
+        outbox_file.write_text(
+            json.dumps({"event_type": "reply", "text": "world"}),
+            encoding="utf-8",
+        )
+
+        poll_response = client.get(
+            f"/sessions/{session_id}/events", params={"after": 0, "limit": 20}
+        )
+        assert poll_response.status_code == 200
+        poll_data = poll_response.json()
+        assert len(poll_data["events"]) >= 1
+        assert any(event["event_type"] == "reply" for event in poll_data["events"])
+
+        terminate_response = client.post(f"/sessions/{session_id}/terminate")
+        assert terminate_response.status_code == 200
+        assert terminate_response.json()["status"] == "terminated"
+
+        final_response = client.get(f"/sessions/{session_id}")
+        assert final_response.status_code == 200
+        assert final_response.json()["status"] == "terminated"
+
+    def test_send_session_event_enforces_payload_limit(self, client, monkeypatch, tmp_path):
+        """Session send endpoint returns 413 for oversized payloads."""
+        state = self._configure_real_session_manager(monkeypatch, tmp_path)
+        state.config.session_max_message_bytes = 16
+
+        create_response = client.post(
+            "/sessions",
+            json={"job_type": "session-live"},
+        )
+        assert create_response.status_code == 200
+        session_id = create_response.json()["session_id"]
+
+        send_response = client.post(
+            f"/sessions/{session_id}/send",
+            json={"event_type": "input", "payload": {"message": "x" * 200}},
+        )
+        assert send_response.status_code == 413
+        assert "session_max_message_bytes" in send_response.json()["detail"]
