@@ -14,6 +14,11 @@ Complete reference for the Tako VM HTTP API.
 | `/jobs/{id}/cancel` | POST | Cancel running job |
 | `/jobs/{id}/rerun` | POST | Re-execute with same code/inputs |
 | `/jobs/{id}/fork` | POST | Re-execute with modified code |
+| `/sessions` | POST | Create long-running session |
+| `/sessions/{id}` | GET | Get session status |
+| `/sessions/{id}/send` | POST | Send message to session inbox |
+| `/sessions/{id}/events` | GET | Poll session events (cursor-based) |
+| `/sessions/{id}/terminate` | POST | End session and remove container |
 | `/health` | GET | Health check with queue stats |
 
 ## Base URL
@@ -171,6 +176,60 @@ If the same `idempotency_key` and payload are submitted again, the existing job 
 ```
 
 The status will reflect the current state of the existing job (e.g., `queued`, `running`, `succeeded`).
+
+---
+
+## Sessions API (Long-Running Containers)
+
+Sessions are disabled by default. Enable `sessions_enabled: true` in config and mark job types with `session_enabled: true`.
+
+If a job type enables GPU, sessions run with `runc` (gVisor disabled). In `security_mode: strict`, GPU sessions are rejected.
+
+### Create Session
+
+```http
+POST /sessions
+```
+
+```json
+{
+  "job_type": "ollama-nvidia",
+  "metadata": {"workflow": "assistant"},
+  "idle_timeout_seconds": 1800,
+  "ttl_seconds": 86400
+}
+```
+
+### Send Input to Session
+
+```http
+POST /sessions/{session_id}/send
+```
+
+```json
+{
+  "event_type": "input",
+  "payload": {
+    "message": "summarize the latest logs"
+  }
+}
+```
+
+This endpoint writes messages into the session inbox contract. It does not proxy the Ollama HTTP API.
+
+### Poll Session Events
+
+```http
+GET /sessions/{session_id}/events?after=0&limit=100
+```
+
+The response includes `next_cursor`; pass it as `after` in the next poll request.
+
+### Terminate Session
+
+```http
+POST /sessions/{session_id}/terminate
+```
 
 ---
 

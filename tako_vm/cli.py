@@ -517,8 +517,19 @@ def show_config(args):
 
         print("[Docker]")
         print(f"  docker_image: {config.docker_image}")
+        print(f"  container_runtime: {config.container_runtime}")
+        print(f"  security_mode: {config.security_mode}")
         print(f"  enable_seccomp: {config.enable_seccomp}")
+        print(f"  enable_cap_restrictions: {config.enable_cap_restrictions}")
         print(f"  enable_userns: {config.enable_userns}")
+        print()
+
+        print("[Sessions]")
+        print(f"  sessions_enabled: {config.sessions_enabled}")
+        print(f"  session_idle_timeout_seconds: {config.session_idle_timeout_seconds}")
+        print(f"  session_max_ttl_seconds: {config.session_max_ttl_seconds}")
+        print(f"  session_max_message_bytes: {config.session_max_message_bytes}")
+        print(f"  session_max_events_per_poll: {config.session_max_events_per_poll}")
         print()
 
         if config.job_types:
@@ -528,6 +539,16 @@ def show_config(args):
                 print(
                     f"      memory: {jt.memory_limit}, cpu: {jt.cpu_limit}, timeout: {jt.timeout}s"
                 )
+                print(f"      session_enabled: {jt.session_enabled}")
+                if jt.gpu.enabled:
+                    gpu_parts = [f"vendor={jt.gpu.vendor}"]
+                    if jt.gpu.count is not None:
+                        gpu_parts.append(f"count={jt.gpu.count}")
+                    if jt.gpu.device_ids:
+                        gpu_parts.append(f"device_ids={','.join(jt.gpu.device_ids)}")
+                    print(f"      gpu: enabled ({', '.join(gpu_parts)})")
+                else:
+                    print("      gpu: disabled")
                 if jt.requirements:
                     print(f"      requirements: {', '.join(jt.requirements)}")
 

@@ -291,6 +291,35 @@ job_types:
     network_enabled: true
 ```
 
+### Ollama GPU Sessions (Minimal)
+
+Use a persistent Docker volume for model files, then configure an Ollama GPU session job type:
+
+```yaml
+security_mode: permissive
+sessions_enabled: true
+session_model_cache_volume: "tako-ollama-models"
+
+job_types:
+  - name: ollama-nvidia
+    base_image: "ollama/ollama:latest"
+    network_enabled: true
+    memory_limit: "8g"
+    cpu_limit: 4.0
+    timeout: 3600
+    session_enabled: true
+    environment:
+      OLLAMA_MODELS: "/models"
+      OLLAMA_HOST: "0.0.0.0:11434"
+    gpu:
+      enabled: true
+      vendor: nvidia
+```
+
+Notes:
+- GPU sessions/jobs require `security_mode: permissive`.
+- `/sessions/{id}/send` writes to Tako's inbox contract; it does not proxy Ollama HTTP endpoints.
+
 ### Network Control
 
 By default, containers have **no network access** (`--network=none`).
@@ -369,6 +398,11 @@ curl http://localhost:8000/jobs/abc123/result
 | `/jobs/{id}` | GET | Get job status |
 | `/jobs/{id}/result` | GET | Wait for job result |
 | `/jobs/{id}/cancel` | POST | Cancel pending/running job |
+| `/sessions` | POST | Create long-running session |
+| `/sessions/{id}` | GET | Get session status |
+| `/sessions/{id}/send` | POST | Send message to session inbox |
+| `/sessions/{id}/events` | GET | Poll session output events |
+| `/sessions/{id}/terminate` | POST | Terminate session |
 | `/job-types` | GET | List available job types |
 | `/health` | GET | Health check |
 
@@ -543,6 +577,10 @@ Or via environment variable for testing:
 ```bash
 TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
 ```
+
+**GPU policy:**
+- GPU workloads (NVIDIA/AMD) run with `runc` and do not use gVisor.
+- In `security_mode: strict`, GPU sessions/jobs are rejected.
 
 **Additional isolation options:**
 - **AppArmor/SELinux** (Linux only) - Can block `/proc` reads if needed

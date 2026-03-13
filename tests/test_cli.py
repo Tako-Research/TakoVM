@@ -498,6 +498,42 @@ class TestShowConfigFunction:
 
         reset_config()
 
+    def test_show_config_with_gpu_job_type(self, capsys):
+        """show_config prints session/gpu details for job types."""
+        from tako_vm import config as config_module
+        from tako_vm.cli import show_config
+        from tako_vm.config import JobTypeConfig, JobTypeGPUConfig, TakoVMConfig, reset_config
+
+        reset_config()
+
+        mock_config = TakoVMConfig.model_validate(
+            {
+                "security_mode": "permissive",
+                "sessions_enabled": True,
+                "job_types": [
+                    JobTypeConfig(
+                        name="gpu-job",
+                        session_enabled=True,
+                        gpu=JobTypeGPUConfig(enabled=True, vendor="nvidia", count=1),
+                    ).model_dump()
+                ],
+            }
+        )
+
+        with patch.object(config_module, "get_config", return_value=mock_config):
+            with patch.object(config_module, "get_config_path", return_value=None):
+                args = MagicMock()
+                args.json = False
+                args.show_defaults = False
+                show_config(args)
+
+        captured = capsys.readouterr()
+        assert "[Sessions]" in captured.out
+        assert "session_enabled: True" in captured.out
+        assert "gpu: enabled" in captured.out
+
+        reset_config()
+
 
 class TestRunServerFunction:
     """Tests for run_server() function."""
@@ -674,6 +710,7 @@ class TestCLISubprocessExtended:
         assert "[Limits]" in result.stdout
         assert "[Container Limits]" in result.stdout
         assert "[Docker]" in result.stdout
+        assert "[Sessions]" in result.stdout
 
     def test_validate_yaml_syntax_error(self):
         """validate command detects YAML syntax errors."""

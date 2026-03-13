@@ -5,8 +5,15 @@ Tests job submission, status checking, and result retrieval
 using FastAPI's TestClient (no running server required).
 """
 
+import importlib
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, cast
+
 import pytest
 from fastapi.testclient import TestClient
+
+if TYPE_CHECKING:
+    from tako_vm.models import SessionStatus
 
 
 @pytest.fixture
@@ -625,3 +632,136 @@ class TestIdempotency:
             json={"code": "print(1)", "idempotency_key": "invalid key with spaces"},
         )
         assert response.status_code == 422
+
+
+class TestSessionsApi:
+    """Tests for session API endpoint behavior."""
+
+    def _make_session_record(self, session_id: str, status: "SessionStatus" = "running"):
+        from tako_vm.models import SessionRecord
+
+        now = datetime.now(timezone.utc)
+        return SessionRecord(
+            session_id=session_id,
+            status=status,
+            job_type="session-job",
+            created_at=now,
+            started_at=now,
+            last_activity_at=now,
+            idle_timeout_seconds=1800,
+            ttl_seconds=86400,
+            container_name=f"tako-session-{session_id}",
+            image_name="code-executor:latest",
+            runtime="runc",
+            workspace_dir=f"/tmp/{session_id}",
+        )
+
+    def test_create_session_success(self, client, monkeypatch):
+        """POST /sessions returns serialized session record."""
+        app_module = importlib.import_module("tako_vm.server.app")
+
+        async def fake_create_session(*args, **kwargs):
+            del args, kwargs
+            return self._make_session_record("session-123", status="running")
+
+        session_manager = cast(Any, app_module.state).session_manager
+        monkeypatch.setattr(session_manager, "create_session", fake_create_session)
+
+        response = client.post("/sessions", json={"job_type": "session-job"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["session_id"] == "session-123"
+        assert data["status"] == "running"
+        assert data["runtime"] == "runc"
+
+    def test_create_session_error_mapping(self, client, monkeypatch):
+        """SessionManagerError is surfaced as HTTPException with status code."""
+        app_module = importlib.import_module("tako_vm.server.app")
+        session_manager_error_cls = importlib.import_module(
+            "tako_vm.server.sessions"
+        ).SessionManagerError
+
+        async def fake_create_session(*args, **kwargs):
+            del args, kwargs
+            raise session_manager_error_cls("Sessions are disabled", status_code=403)
+
+        session_manager = cast(Any, app_module.state).session_manager
+        monkeypatch.setattr(session_manager, "create_session", fake_create_session)
+
+        response = client.post("/sessions", json={"job_type": "session-job"})
+        assert response.status_code == 403
+        assert "disabled" in response.json()["detail"].lower()
+
+    def test_list_sessions_pagination(self, client, monkeypatch):
+        """GET /sessions applies has_more logic with limit+1 fetch."""
+        app_module = importlib.import_module("tako_vm.server.app")
+
+        async def fake_list_sessions(*args, **kwargs):
+            del args, kwargs
+            return [
+                self._make_session_record("session-a", status="running"),
+                self._make_session_record("session-b", status="running"),
+            ]
+
+        session_manager = cast(Any, app_module.state).session_manager
+        monkeypatch.setattr(session_manager, "list_sessions", fake_list_sessions)
+
+        response = client.get("/sessions", params={"limit": 1, "offset": 0})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1
+        assert data["has_more"] is True
+        assert len(data["items"]) == 1
+
+    def test_send_and_poll_session_events(self, client, monkeypatch):
+        """Session send and poll endpoints serialize mailbox events."""
+        app_module = importlib.import_module("tako_vm.server.app")
+        session_event_cls = importlib.import_module("tako_vm.models").SessionEvent
+
+        now = datetime.now(timezone.utc)
+
+        async def fake_send_event(*args, **kwargs):
+            del args, kwargs
+            return session_event_cls(
+                id=7,
+                session_id="session-abc",
+                direction="in",
+                event_type="input",
+                payload={"message": "hi"},
+                created_at=now,
+            )
+
+        async def fake_poll_events(*args, **kwargs):
+            del args, kwargs
+            session = self._make_session_record("session-abc", status="running")
+            events = [
+                session_event_cls(
+                    id=8,
+                    session_id="session-abc",
+                    direction="out",
+                    event_type="reply",
+                    payload={"text": "hello"},
+                    created_at=now,
+                )
+            ]
+            return session, events
+
+        session_manager = cast(Any, app_module.state).session_manager
+        monkeypatch.setattr(session_manager, "send_event", fake_send_event)
+        monkeypatch.setattr(session_manager, "poll_events", fake_poll_events)
+
+        send_response = client.post(
+            "/sessions/session-abc/send",
+            json={"event_type": "input", "payload": {"message": "hi"}},
+        )
+        assert send_response.status_code == 200
+        assert send_response.json()["event_id"] == 7
+        assert send_response.json()["status"] == "queued"
+
+        poll_response = client.get("/sessions/session-abc/events", params={"after": 0, "limit": 10})
+        assert poll_response.status_code == 200
+        poll_data = poll_response.json()
+        assert poll_data["status"] == "running"
+        assert poll_data["next_cursor"] == 8
+        assert len(poll_data["events"]) == 1
+        assert poll_data["events"][0]["event_type"] == "reply"
