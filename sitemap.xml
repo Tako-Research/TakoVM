@@ -2,98 +2,98 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://tako-vm.dev/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/architecture/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/comparison/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/api/rest/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/api/sdk/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/deployment/how-to-deploy/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/deployment/production/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/deployment/scaling/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/deployment/security/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/design/dind-support/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/getting-started/configuration/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/getting-started/installation/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/getting-started/quickstart/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/guide/async-jobs/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/guide/basic-execution/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/guide/custom-libraries/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/guide/environments/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/guide/error-handling/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/SOLUTIONS/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/env-var-mitigation/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/honest-assessment/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/mitigations/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
     <url>
          <loc>https://tako-vm.dev/security/proc-exposure-vulnerability/</loc>
-         <lastmod>2026-03-16</lastmod>
+         <lastmod>2026-03-17</lastmod>
     </url>
 </urlset>
