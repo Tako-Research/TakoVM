@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#security-mitigations-for-proc-exposure" class="md-skip">
+        <a href="#security-mitigations" class="md-skip">
           Skip to content
         </a>
       
@@ -275,7 +275,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../guide/basic-execution/" class="md-tabs__link">
+        <a href="../../guide/tutorial/" class="md-tabs__link">
           
   
   
@@ -655,6 +655,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1088,6 +1116,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../deployment/operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../deployment/security/" class="md-nav__link">
         
   
@@ -1240,10 +1296,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#quick-reference" class="md-nav__link">
+  <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quick Reference
+        Summary
       
     </span>
   </a>
@@ -1251,22 +1307,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-enable-seccomp-profile-priority-high" class="md-nav__link">
+  <a href="#current-protections-implemented" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Enable Seccomp Profile (Priority: HIGH)
+        Current Protections (Implemented)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="1. Enable Seccomp Profile (Priority: HIGH)">
+    <nav class="md-nav" aria-label="Current Protections (Implemented)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#implementation" class="md-nav__link">
+  <a href="#seccomp-profile" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Implementation
+        Seccomp Profile
       
     </span>
   </a>
@@ -1274,10 +1330,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#update-workerpy" class="md-nav__link">
+  <a href="#container-hardening" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Update worker.py
+        Container Hardening
       
     </span>
   </a>
@@ -1285,10 +1341,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#update-configpy" class="md-nav__link">
+  <a href="#gvisor-runtime" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Update config.py
+        gVisor Runtime
       
     </span>
   </a>
@@ -1301,22 +1357,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-mask-sensitive-proc-paths-priority-high" class="md-nav__link">
+  <a href="#recommended-actions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Mask Sensitive /proc Paths (Priority: HIGH)
+        Recommended Actions
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="2. Mask Sensitive /proc Paths (Priority: HIGH)">
+    <nav class="md-nav" aria-label="Recommended Actions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#option-a-use-dockers-built-in-masking-docker-2010" class="md-nav__link">
+  <a href="#do-not-pass-secrets-as-environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option A: Use Docker's built-in masking (Docker 20.10+)
+        Do Not Pass Secrets as Environment Variables
       
     </span>
   </a>
@@ -1324,10 +1380,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#option-b-custom-apparmor-profile" class="md-nav__link">
+  <a href="#enable-gvisor-for-production" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option B: Custom AppArmor profile
+        Enable gVisor for Production
       
     </span>
   </a>
@@ -1340,132 +1396,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-remove-secrets-from-environment-variables-priority-critical" class="md-nav__link">
+  <a href="#planned-mitigations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Remove Secrets from Environment Variables (Priority: CRITICAL)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="3. Remove Secrets from Environment Variables (Priority: CRITICAL)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#current-problem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Current Problem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#solution-use-read-only-config-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Solution: Use Read-Only Config Files
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#update-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Update Documentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#solution-pre-install-deps-in-entrypoint-from-file" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Solution: Pre-install deps in entrypoint from file
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-documentation-updates-priority-high" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. Documentation Updates (Priority: HIGH)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="5. Documentation Updates (Priority: HIGH)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#add-to-docsdeploymentsecuritymd" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Add to docs/deployment/security.md
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#add-to-readmemd" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Add to README.md
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-testing-mitigations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. Testing Mitigations
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#implementation-roadmap" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implementation Roadmap
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#testing-plan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Testing Plan
+        Planned Mitigations
       
     </span>
   </a>
@@ -1627,366 +1561,87 @@
   
 
 
-<h1 id="security-mitigations-for-proc-exposure">Security Mitigations for /proc Exposure<a class="headerlink" href="#security-mitigations-for-proc-exposure" title="Permanent link">&para;</a></h1>
-<p>This document provides actionable steps to mitigate the /proc filesystem exposure vulnerability identified in the <a href="https://equixly.com/blog/2025/11/04/path-traversal-ai-containers/">Equixly security research</a>.</p>
-<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<h1 id="security-mitigations">Security Mitigations<a class="headerlink" href="#security-mitigations" title="Permanent link">&para;</a></h1>
+<p>This document describes mitigations for the <a href="../proc-exposure-vulnerability/">/proc filesystem exposure vulnerability</a> identified in the <a href="https://equixly.com/blog/2025/11/04/path-traversal-ai-containers/">Equixly security research</a>.</p>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>User code running inside Tako VM containers can read <code>/proc/self/environ</code> and other <code>/proc</code> paths, potentially leaking environment variables and process metadata. The mitigations below reduce this risk.</p>
+<h2 id="current-protections-implemented">Current Protections (Implemented)<a class="headerlink" href="#current-protections-implemented" title="Permanent link">&para;</a></h2>
+<p>These protections are active in the current release:</p>
+<h3 id="seccomp-profile">Seccomp Profile<a class="headerlink" href="#seccomp-profile" title="Permanent link">&para;</a></h3>
+<p>A seccomp profile (<code>tako_vm/seccomp_profile.json</code>) restricts dangerous syscalls like <code>ptrace</code>, <code>process_vm_readv</code>, and <code>process_vm_writev</code>. Enable it in your config:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">enable_seccomp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Seccomp does not block /proc reads</p>
+<p>Seccomp filters syscalls, not file paths. The <code>open</code> and <code>read</code> syscalls must be allowed for Python to function, so <code>/proc</code> files remain readable. Seccomp blocks other dangerous operations like process debugging.</p>
+</div>
+<h3 id="container-hardening">Container Hardening<a class="headerlink" href="#container-hardening" title="Permanent link">&para;</a></h3>
+<p>Every container runs with:</p>
+<ul>
+<li><code>--cap-drop=ALL</code> — all Linux capabilities removed</li>
+<li><code>--read-only</code> — read-only root filesystem</li>
+<li><code>--network=none</code> — no network access (by default)</li>
+<li>Non-root execution (uid 1000 via gosu)</li>
+<li>Resource limits (memory, CPU, PIDs, file size)</li>
+</ul>
+<h3 id="gvisor-runtime">gVisor Runtime<a class="headerlink" href="#gvisor-runtime" title="Permanent link">&para;</a></h3>
+<p>When using gVisor (<code>container_runtime: runsc</code>), the userspace kernel provides an additional isolation boundary. gVisor intercepts syscalls and limits what <code>/proc</code> exposes compared to the host kernel.</p>
+<h2 id="recommended-actions">Recommended Actions<a class="headerlink" href="#recommended-actions" title="Permanent link">&para;</a></h2>
+<h3 id="do-not-pass-secrets-as-environment-variables">Do Not Pass Secrets as Environment Variables<a class="headerlink" href="#do-not-pass-secrets-as-environment-variables" title="Permanent link">&para;</a></h3>
+<p>This is the single most important mitigation. User code can read <code>/proc/self/environ</code> to extract any environment variable set on the container.</p>
+<p><strong>Instead of:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">job_types</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-client</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">      </span><span class="nt">API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sk-secret-123&quot;</span><span class="w">  </span><span class="c1"># Readable via /proc!</span>
+</span></code></pre></div></p>
+<p><strong>Use:</strong>
+- Pass secrets through <code>/input/data.json</code> (mounted read-only, scoped to one job)
+- Use your platform's secret management (Vault, AWS Secrets Manager)
+- Use pre-built images with secrets baked in at build time (not at runtime)</p>
+<h3 id="enable-gvisor-for-production">Enable gVisor for Production<a class="headerlink" href="#enable-gvisor-for-production" title="Permanent link">&para;</a></h3>
+<p>gVisor's <code>/proc</code> implementation is more restricted than the host kernel's. Set:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">container_runtime</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">runsc</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">security_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">strict</span>
+</span></code></pre></div>
+<h2 id="planned-mitigations">Planned Mitigations<a class="headerlink" href="#planned-mitigations" title="Permanent link">&para;</a></h2>
+<p>These are tracked as future work:</p>
 <table>
 <thead>
 <tr>
 <th>Mitigation</th>
-<th>Priority</th>
-<th>Effort</th>
-<th>Impact</th>
+<th>Description</th>
+<th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Enable seccomp profile</td>
-<td><strong>HIGH</strong></td>
-<td>Low</td>
-<td>Blocks dangerous syscalls</td>
+<td><code>/proc</code> path masking</td>
+<td>Use Docker <code>--security-opt=mask=</code> to hide sensitive <code>/proc</code> paths</td>
+<td>Planned</td>
 </tr>
 <tr>
-<td>Mask /proc paths</td>
-<td><strong>HIGH</strong></td>
-<td>Medium</td>
-<td>Hides sensitive /proc files</td>
+<td>AppArmor profile</td>
+<td>Deny access to <code>/proc/*/environ</code> and <code>/proc/*/fd/</code></td>
+<td>Planned</td>
 </tr>
 <tr>
-<td>Remove env var secrets</td>
-<td><strong>CRITICAL</strong></td>
-<td>Medium</td>
-<td>Prevents secret leakage</td>
+<td>Config file migration</td>
+<td>Move job type environment vars from env to read-only files</td>
+<td>Planned</td>
 </tr>
 <tr>
-<td>Document limitations</td>
-<td><strong>HIGH</strong></td>
-<td>Low</td>
-<td>User awareness</td>
-</tr>
-<tr>
-<td>Add AppArmor/SELinux</td>
-<td>Medium</td>
-<td>High</td>
-<td>Additional MAC layer</td>
+<td>Requirements via file</td>
+<td>Pass <code>TAKO_REQUIREMENTS</code> via file instead of env var</td>
+<td>Planned</td>
 </tr>
 </tbody>
 </table>
-<h2 id="1-enable-seccomp-profile-priority-high">1. Enable Seccomp Profile (Priority: HIGH)<a class="headerlink" href="#1-enable-seccomp-profile-priority-high" title="Permanent link">&para;</a></h2>
-<h3 id="implementation">Implementation<a class="headerlink" href="#implementation" title="Permanent link">&para;</a></h3>
-<p>The seccomp profile is located at <code>tako_vm/seccomp_profile.json</code>:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;defaultAction&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SCMP_ACT_ERRNO&quot;</span><span class="p">,</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;defaultErrnoRet&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;archMap&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="p">{</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">&quot;architecture&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SCMP_ARCH_X86_64&quot;</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">      </span><span class="nt">&quot;subArchitectures&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;SCMP_ARCH_X86&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;SCMP_ARCH_X32&quot;</span><span class="p">]</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="p">{</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">&quot;architecture&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SCMP_ARCH_AARCH64&quot;</span><span class="p">,</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">&quot;subArchitectures&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;SCMP_ARCH_ARM&quot;</span><span class="p">]</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="p">}</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="p">],</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="nt">&quot;syscalls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="p">{</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="nt">&quot;names&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">        </span><span class="s2">&quot;accept&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;accept4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;access&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;arch_prctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bind&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;brk&quot;</span><span class="p">,</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">        </span><span class="s2">&quot;capget&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;capset&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;chdir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;chmod&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;chown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;clock_getres&quot;</span><span class="p">,</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">        </span><span class="s2">&quot;clock_gettime&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;clock_nanosleep&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;close&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;connect&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;copy_file_range&quot;</span><span class="p">,</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">        </span><span class="s2">&quot;creat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;dup&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;dup2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;dup3&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_create&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_create1&quot;</span><span class="p">,</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">        </span><span class="s2">&quot;epoll_ctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_ctl_old&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_pwait&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_wait&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;epoll_wait_old&quot;</span><span class="p">,</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">        </span><span class="s2">&quot;eventfd&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;eventfd2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;execve&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;execveat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;exit&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;exit_group&quot;</span><span class="p">,</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">        </span><span class="s2">&quot;faccessat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;faccessat2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fadvise64&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fallocate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fanotify_mark&quot;</span><span class="p">,</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">        </span><span class="s2">&quot;fchdir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fchmod&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fchmodat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fchown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fchownat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fcntl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fdatasync&quot;</span><span class="p">,</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">        </span><span class="s2">&quot;fgetxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;flistxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;flock&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fork&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fremovexattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fsetxattr&quot;</span><span class="p">,</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">        </span><span class="s2">&quot;fstat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fstatfs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;fsync&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ftruncate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;futex&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getcpu&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getcwd&quot;</span><span class="p">,</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">        </span><span class="s2">&quot;getdents&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getdents64&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getegid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;geteuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getgroups&quot;</span><span class="p">,</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="w">        </span><span class="s2">&quot;getitimer&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getpeername&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getpgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getpgrp&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getpid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getppid&quot;</span><span class="p">,</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="w">        </span><span class="s2">&quot;getpriority&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getrandom&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getresgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getresuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getrlimit&quot;</span><span class="p">,</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="w">        </span><span class="s2">&quot;get_robust_list&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getrusage&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getsid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getsockname&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getsockopt&quot;</span><span class="p">,</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="w">        </span><span class="s2">&quot;get_thread_area&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;gettid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;gettimeofday&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;getxattr&quot;</span><span class="p">,</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="w">        </span><span class="s2">&quot;inotify_add_watch&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;inotify_init&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;inotify_init1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;inotify_rm_watch&quot;</span><span class="p">,</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="w">        </span><span class="s2">&quot;io_cancel&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ioctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;io_destroy&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;io_getevents&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ioprio_get&quot;</span><span class="p">,</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="w">        </span><span class="s2">&quot;ioprio_set&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;io_setup&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;io_submit&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;kill&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;lchown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;lgetxattr&quot;</span><span class="p">,</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="w">        </span><span class="s2">&quot;link&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;linkat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;listen&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;listxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;llistxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;lremovexattr&quot;</span><span class="p">,</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="w">        </span><span class="s2">&quot;lseek&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;lsetxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;lstat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;madvise&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;memfd_create&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mincore&quot;</span><span class="p">,</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="w">        </span><span class="s2">&quot;mkdir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mkdirat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mknod&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mknodat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mlock&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mlock2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mlockall&quot;</span><span class="p">,</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="w">        </span><span class="s2">&quot;mmap&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mprotect&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mq_getsetattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mq_notify&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mq_open&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mq_timedreceive&quot;</span><span class="p">,</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="w">        </span><span class="s2">&quot;mq_timedsend&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mq_unlink&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;mremap&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;msgctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;msgget&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;msgrcv&quot;</span><span class="p">,</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="w">        </span><span class="s2">&quot;msgsnd&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;msync&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;munlock&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;munlockall&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;munmap&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;nanosleep&quot;</span><span class="p">,</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="w">        </span><span class="s2">&quot;newfstatat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;open&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;openat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pause&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pipe&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pipe2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;poll&quot;</span><span class="p">,</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="w">        </span><span class="s2">&quot;ppoll&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;prctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pread64&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;preadv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;preadv2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;prlimit64&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pselect6&quot;</span><span class="p">,</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="w">        </span><span class="s2">&quot;pwrite64&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pwritev&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pwritev2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;readahead&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;readlink&quot;</span><span class="p">,</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="w">        </span><span class="s2">&quot;readlinkat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;readv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;recv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;recvfrom&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;recvmmsg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;recvmsg&quot;</span><span class="p">,</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="w">        </span><span class="s2">&quot;remap_file_pages&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;removexattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rename&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;renameat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;renameat2&quot;</span><span class="p">,</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="w">        </span><span class="s2">&quot;restart_syscall&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rmdir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigaction&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigpending&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigprocmask&quot;</span><span class="p">,</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="w">        </span><span class="s2">&quot;rt_sigqueueinfo&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigreturn&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigsuspend&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rt_sigtimedwait&quot;</span><span class="p">,</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="w">        </span><span class="s2">&quot;rt_tgsigqueueinfo&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_getaffinity&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_getattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_getparam&quot;</span><span class="p">,</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="w">        </span><span class="s2">&quot;sched_get_priority_max&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_get_priority_min&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_getscheduler&quot;</span><span class="p">,</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="w">        </span><span class="s2">&quot;sched_rr_get_interval&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_setaffinity&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_setattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_setparam&quot;</span><span class="p">,</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="w">        </span><span class="s2">&quot;sched_setscheduler&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sched_yield&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;seccomp&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;select&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semctl&quot;</span><span class="p">,</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="w">        </span><span class="s2">&quot;semget&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semop&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semtimedop&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;send&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sendfile&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sendmmsg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sendmsg&quot;</span><span class="p">,</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a><span class="w">        </span><span class="s2">&quot;sendto&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setfsgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setfsuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setgroups&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setitimer&quot;</span><span class="p">,</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a><span class="w">        </span><span class="s2">&quot;setpgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setpriority&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setregid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setresgid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setresuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setreuid&quot;</span><span class="p">,</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a><span class="w">        </span><span class="s2">&quot;setrlimit&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;set_robust_list&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setsid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setsockopt&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;set_thread_area&quot;</span><span class="p">,</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="w">        </span><span class="s2">&quot;set_tid_address&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setuid&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;setxattr&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shmat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shmctl&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shmdt&quot;</span><span class="p">,</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="w">        </span><span class="s2">&quot;shmget&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shutdown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sigaltstack&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;signalfd&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;signalfd4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;socket&quot;</span><span class="p">,</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a><span class="w">        </span><span class="s2">&quot;socketpair&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;splice&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;stat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;statfs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;statx&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;symlink&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;symlinkat&quot;</span><span class="p">,</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a><span class="w">        </span><span class="s2">&quot;sync&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sync_file_range&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;syncfs&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sysinfo&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tee&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tgkill&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;time&quot;</span><span class="p">,</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a><span class="w">        </span><span class="s2">&quot;timer_create&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timer_delete&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timerfd_create&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timerfd_gettime&quot;</span><span class="p">,</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a><span class="w">        </span><span class="s2">&quot;timerfd_settime&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timer_getoverrun&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timer_gettime&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;timer_settime&quot;</span><span class="p">,</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="w">        </span><span class="s2">&quot;times&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tkill&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;truncate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;umask&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;uname&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;unlink&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;unlinkat&quot;</span><span class="p">,</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="w">        </span><span class="s2">&quot;utime&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;utimensat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;utimes&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;vfork&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;vmsplice&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;wait4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;waitid&quot;</span><span class="p">,</span>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a><span class="w">        </span><span class="s2">&quot;write&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;writev&quot;</span>
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a><span class="w">      </span><span class="p">],</span>
-</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a><span class="w">      </span><span class="nt">&quot;action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SCMP_ACT_ALLOW&quot;</span>
-</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a><span class="w">    </span><span class="p">},</span>
-</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a><span class="w">    </span><span class="p">{</span>
-</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a><span class="w">      </span><span class="nt">&quot;names&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ptrace&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;process_vm_readv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;process_vm_writev&quot;</span><span class="p">],</span>
-</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a><span class="w">      </span><span class="nt">&quot;action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SCMP_ACT_ERRNO&quot;</span><span class="p">,</span>
-</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a><span class="w">      </span><span class="nt">&quot;errnoRet&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
-</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a><span class="w">    </span><span class="p">}</span>
-</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a><span class="w">  </span><span class="p">]</span>
-</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a><span class="p">}</span>
-</span></code></pre></div>
-<h3 id="update-workerpy">Update worker.py<a class="headerlink" href="#update-workerpy" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># In _run_container method (tako_vm/execution/worker.py)</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># Add seccomp profile ALWAYS (not just when enabled)</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">seccomp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;seccomp_profile.json&quot;</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">if</span> <span class="n">seccomp_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--security-opt=seccomp=</span><span class="si">{</span><span class="n">seccomp_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="k">else</span><span class="p">:</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Default seccomp profile not found at </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">seccomp_path</span><span class="p">)</span>
-</span></code></pre></div>
-<h3 id="update-configpy">Update config.py<a class="headerlink" href="#update-configpy" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Change default from False to True</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">enable_seccomp</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># Enable by default</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Point to default profile</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">seccomp_profile_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">default</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;seccomp_profile.json&quot;</span><span class="p">,</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Path to seccomp profile JSON&quot;</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">)</span>
-</span></code></pre></div>
-<h2 id="2-mask-sensitive-proc-paths-priority-high">2. Mask Sensitive /proc Paths (Priority: HIGH)<a class="headerlink" href="#2-mask-sensitive-proc-paths-priority-high" title="Permanent link">&para;</a></h2>
-<h3 id="option-a-use-dockers-built-in-masking-docker-2010">Option A: Use Docker's built-in masking (Docker 20.10+)<a class="headerlink" href="#option-a-use-dockers-built-in-masking-docker-2010" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># In _run_container method</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="c1"># Mask environment variables</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="s2">&quot;--security-opt=mask=/proc/self/environ&quot;</span><span class="p">,</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="s2">&quot;--security-opt=mask=/proc/*/environ&quot;</span><span class="p">,</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="p">])</span>
-</span></code></pre></div>
-<h3 id="option-b-custom-apparmor-profile">Option B: Custom AppArmor profile<a class="headerlink" href="#option-b-custom-apparmor-profile" title="Permanent link">&para;</a></h3>
-<p>Create <code>config/apparmor-takvm</code> profile:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>#include &lt;tunables/global&gt;
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>profile takvm flags=(attach_disconnected,mediate_deleted) {
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  #include &lt;abstractions/base&gt;
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  #include &lt;abstractions/python&gt;
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  # Allow reading most of /proc
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  /proc/** r,
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>  # DENY access to sensitive /proc paths
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  deny /proc/*/environ r,
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>  deny /proc/self/environ r,
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>  deny /proc/*/fd/** r,
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>  deny /proc/self/fd/** r,
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>  # Allow normal operations
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>  /code/** r,
-</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>  /input/** r,
-</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>  /output/** rw,
-</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>  /tmp/** rw,
-</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>
-</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>  # Python runtime
-</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>  /usr/bin/python* rix,
-</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>  /usr/lib/python*/** r,
-</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>}
-</span></code></pre></div>
-<p>Apply in Docker:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;--security-opt=apparmor=takvm&quot;</span><span class="p">)</span>
-</span></code></pre></div>
-<h2 id="3-remove-secrets-from-environment-variables-priority-critical">3. Remove Secrets from Environment Variables (Priority: CRITICAL)<a class="headerlink" href="#3-remove-secrets-from-environment-variables-priority-critical" title="Permanent link">&para;</a></h2>
-<h3 id="current-problem">Current Problem<a class="headerlink" href="#current-problem" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># INSECURE: Secrets passed as environment variables</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">job_type</span><span class="o">.</span><span class="n">environment</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--env=</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span></code></pre></div>
-<h3 id="solution-use-read-only-config-files">Solution: Use Read-Only Config Files<a class="headerlink" href="#solution-use-read-only-config-files" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_prepare_config_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_type</span><span class="p">:</span> <span class="n">JobType</span><span class="p">,</span> <span class="n">input_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write job type configuration to read-only file instead of env vars.&quot;&quot;&quot;</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="k">if</span> <span class="n">job_type</span><span class="o">.</span><span class="n">environment</span><span class="p">:</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>        <span class="n">config_data</span> <span class="o">=</span> <span class="p">{</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>            <span class="s2">&quot;environment&quot;</span><span class="p">:</span> <span class="n">job_type</span><span class="o">.</span><span class="n">environment</span><span class="p">,</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        <span class="p">}</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>        <span class="n">config_file</span> <span class="o">=</span> <span class="n">input_dir</span> <span class="o">/</span> <span class="s2">&quot;_config.json&quot;</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>        <span class="n">config_file</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">config_data</span><span class="p">))</span>
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>        <span class="n">config_file</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="mo">0o444</span><span class="p">)</span>  <span class="c1"># Read-only</span>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="c1"># In _run_container method:</span>
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="bp">self</span><span class="o">.</span><span class="n">_prepare_config_file</span><span class="p">(</span><span class="n">job_type</span><span class="p">,</span> <span class="n">input_dir</span><span class="p">)</span>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="c1"># User code reads config from file:</span>
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="c1"># with open(&#39;/input/_config.json&#39;) as f:</span>
-</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="c1">#     config = json.load(f)</span>
-</span></code></pre></div>
-<h3 id="update-documentation">Update Documentation<a class="headerlink" href="#update-documentation" title="Permanent link">&para;</a></h3>
-<p>Add to user-facing docs:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="gu">## Accessing Configuration</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Configuration values are provided in <span class="sb">`/input/_config.json`</span> (not environment variables):
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>```python
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>import json
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>with open(&#39;/input/_config.json&#39;) as f:
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    config = json.load(f)
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>api_key = config[&#39;environment&#39;].get(&#39;API_KEY&#39;)
-</span></code></pre></div>
-<p><strong>Security Note:</strong> Never pass secrets via job submission. Use your platform's
-secret management for sensitive credentials.
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>## 4. Runtime Dependency Isolation (Priority: MEDIUM)
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>### Current Problem
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>```python
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a># TAKO_REQUIREMENTS exposed in environment
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>cmd.append(f&quot;--env=TAKO_REQUIREMENTS={reqs_str}&quot;)
-</span></code></pre></div></p>
-<h3 id="solution-pre-install-deps-in-entrypoint-from-file">Solution: Pre-install deps in entrypoint from file<a class="headerlink" href="#solution-pre-install-deps-in-entrypoint-from-file" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># In docker/entrypoint.sh</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="c1"># Read requirements from file instead of env var</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-f<span class="w"> </span>/input/_requirements.txt<span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>/input/_requirements.txt
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="k">fi</span>
-</span></code></pre></div>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># In _run_container method</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">if</span> <span class="n">validated_reqs</span><span class="p">:</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">reqs_file</span> <span class="o">=</span> <span class="n">input_dir</span> <span class="o">/</span> <span class="s2">&quot;_requirements.txt&quot;</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">reqs_file</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">validated_reqs</span><span class="p">))</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">reqs_file</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="mo">0o444</span><span class="p">)</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="c1"># No longer need: cmd.append(f&quot;--env=TAKO_REQUIREMENTS={reqs_str}&quot;)</span>
-</span></code></pre></div>
-<h2 id="5-documentation-updates-priority-high">5. Documentation Updates (Priority: HIGH)<a class="headerlink" href="#5-documentation-updates-priority-high" title="Permanent link">&para;</a></h2>
-<h3 id="add-to-docsdeploymentsecuritymd">Add to docs/deployment/security.md<a class="headerlink" href="#add-to-docsdeploymentsecuritymd" title="Permanent link">&para;</a></h3>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="gu">## Known Limitations</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="gu">### /proc Filesystem Access</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>User code has read access to the <span class="sb">`/proc`</span> filesystem, which can expose:
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="k">-</span><span class="w"> </span>Container process information
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="k">-</span><span class="w"> </span>File descriptors of open files
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="k">-</span><span class="w"> </span>Limited host system metadata
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>
-</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="gs">**Mitigations:**</span>
-</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="k">1.</span> Do NOT pass secrets via environment variables
-</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="k">2.</span> Use seccomp profiles to block dangerous syscalls
-</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="k">3.</span> Consider AppArmor/SELinux for additional restrictions
-</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>
-</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="gs">**Reference:**</span> [<span class="nt">/proc Exposure Vulnerability Analysis</span>](<span class="na">../security/proc-exposure-vulnerability.md</span>)
-</span></code></pre></div>
-<h3 id="add-to-readmemd">Add to README.md<a class="headerlink" href="#add-to-readmemd" title="Permanent link">&para;</a></h3>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="gu">## Security Considerations</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>Tako VM uses Docker for isolation but has known limitations:
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="k">-</span><span class="w"> </span>⚠️ User code can read <span class="sb">`/proc`</span> filesystem (process info, file descriptors)
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="k">-</span><span class="w"> </span>✅ Network isolated by default (<span class="sb">`--network=none`</span>)
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="k">-</span><span class="w"> </span>✅ Read-only root filesystem
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="k">-</span><span class="w"> </span>✅ Runs as non-root user (uid 1000)
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="k">-</span><span class="w"> </span>✅ Seccomp profile blocks dangerous syscalls
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="gs">**For production use:**</span>
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="k">1.</span> Enable all security features in <span class="sb">`tako_vm.yaml`</span>
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="k">2.</span> Never pass secrets via environment variables
-</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="k">3.</span> Use pre-built images for network-isolated execution
-</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="k">4.</span> Monitor execution logs for suspicious activity
-</span><span id="__span-13-16"><a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>
-</span><span id="__span-13-17"><a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>See [<span class="nt">Security Documentation</span>](<span class="na">docs/deployment/security.md</span>) for details.
-</span></code></pre></div>
-<h2 id="6-testing-mitigations">6. Testing Mitigations<a class="headerlink" href="#6-testing-mitigations" title="Permanent link">&para;</a></h2>
-<p>Create <code>tests/test_security_mitigations.py</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_proc_environ_blocked_with_seccomp</span><span class="p">(</span><span class="n">executor</span><span class="p">):</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify /proc/self/environ is blocked when seccomp is enabled.&quot;&quot;&quot;</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="n">code</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="s2">try:</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="s2">    with open(&#39;/proc/self/environ&#39;, &#39;rb&#39;) as f:</span>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="s2">        data = f.read()</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="s2">    result = &quot;FAIL: /proc/self/environ is readable&quot;</span>
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="s2">except PermissionError:</span>
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="s2">    result = &quot;PASS: /proc/self/environ is blocked&quot;</span>
-</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="s2">except Exception as e:</span>
-</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="s2">    result = f&quot;PASS: Access prevented ({type(e).__name__})&quot;</span>
-</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>
-</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="s2">with open(&#39;/output/result.json&#39;, &#39;w&#39;) as f:</span>
-</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="s2">    import json</span>
-</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="s2">    json.dump({&quot;result&quot;: result}, f)</span>
-</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="s2">&quot;&quot;&quot;</span>
-</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a>    <span class="c1"># Test with seccomp enabled</span>
-</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>    <span class="n">executor</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">enable_seccomp</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a>    <span class="n">job</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="n">code</span><span class="p">,</span> <span class="s2">&quot;input_data&quot;</span><span class="p">:</span> <span class="p">{}}</span>
-</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">executor</span><span class="o">.</span><span class="n">execute_job</span><span class="p">(</span><span class="n">job</span><span class="p">)</span>
-</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a>
-</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a>    <span class="k">assert</span> <span class="s2">&quot;PASS&quot;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;output&quot;</span><span class="p">][</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>
-</span></code></pre></div>
-<h2 id="implementation-roadmap">Implementation Roadmap<a class="headerlink" href="#implementation-roadmap" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>Phase 1 - Quick Wins (Week 1)</strong></li>
-<li>[ ] Add seccomp profile to <code>config/</code></li>
-<li>[ ] Enable seccomp by default in config.py</li>
-<li>[ ] Update documentation with limitations</li>
-<li>
-<p>[ ] Add warning to logs when env vars contain "secret", "key", "token", "password"</p>
-</li>
-<li>
-<p><strong>Phase 2 - Environment Variable Migration (Week 2)</strong></p>
-</li>
-<li>[ ] Implement config file approach for job_type.environment</li>
-<li>[ ] Update entrypoint.sh to read requirements from file</li>
-<li>[ ] Migrate examples to use config files</li>
-<li>
-<p>[ ] Add deprecation warning for env var secrets</p>
-</li>
-<li>
-<p><strong>Phase 3 - Advanced Hardening (Week 3-4)</strong></p>
-</li>
-<li>[ ] Add AppArmor profile option</li>
-<li>[ ] Implement /proc masking</li>
-<li>[ ] Add security audit logging</li>
-<li>
-<p>[ ] Create security test suite</p>
-</li>
-<li>
-<p><strong>Phase 4 - Production Hardening (Week 5+)</strong></p>
-</li>
-<li>[ ] Add runtime security monitoring</li>
-<li>[ ] Implement secret scanning in submissions</li>
-<li>[ ] Add rate limiting and abuse detection</li>
-<li>[ ] Security audit by third party</li>
-</ol>
-<h2 id="testing-plan">Testing Plan<a class="headerlink" href="#testing-plan" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Run security tests</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>pytest<span class="w"> </span>tests/test_proc_exposure.py<span class="w"> </span>-v
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Run with mitigations enabled</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="nv">TAKO_VM_ENABLE_SECCOMP</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>pytest<span class="w"> </span>tests/test_security_mitigations.py<span class="w"> </span>-v
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
-</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="c1"># Verify no secrets in logs</span>
-</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">&quot;password\|secret\|token&quot;</span><span class="w"> </span>~/.tako_vm/logs/
-</span></code></pre></div>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="../proc-exposure-vulnerability/">/proc Exposure Vulnerability Analysis</a></li>
 <li><a href="https://equixly.com/blog/2025/11/04/path-traversal-ai-containers/">Equixly: The False Security of AI Containers</a></li>
 <li><a href="https://docs.docker.com/engine/security/">Docker Security Best Practices</a></li>
-<li><a href="https://www.kernel.org/doc/html/latest/admin-guide/LSM/">Linux Security Modules (LSM)</a></li>
-<li><a href="https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html">Seccomp BPF</a></li>
 </ul>
 
 
@@ -2010,7 +1665,7 @@ secret management for sensitive credentials.
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 28, 2026 08:12:08 UTC"><span class="timeago" datetime="2026-01-28T08:12:08+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 28, 2026 08:12:08 UTC">2026-01-28</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 17, 2026 06:59:29 UTC"><span class="timeago" datetime="2026-03-17T06:59:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 17, 2026 06:59:29 UTC">2026-03-17</span>
   </span>
 
     

@@ -12,13 +12,13 @@
         <meta name="author" content="Tako VM">
       
       
-        <link rel="canonical" href="https://las7.github.io/TakoVM/guide/custom-libraries/">
+        <link rel="canonical" href="https://las7.github.io/TakoVM/deployment/operations/">
       
       
-        <link rel="prev" href="../environments/">
+        <link rel="prev" href="../scaling/">
       
       
-        <link rel="next" href="../error-handling/">
+        <link rel="next" href="../security/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Custom Libraries - Tako VM</title>
+        <title>Operations - Tako VM</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#custom-libraries" class="md-skip">
+        <a href="#operations-runbook" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Custom Libraries
+              Operations
             
           </span>
         </div>
@@ -271,13 +271,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../tutorial/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../guide/tutorial/" class="md-tabs__link">
           
   
   
@@ -332,11 +330,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../deployment/how-to-deploy/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../how-to-deploy/" class="md-tabs__link">
           
   
   
@@ -608,31 +608,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -650,7 +645,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -668,7 +663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorial/" class="md-nav__link">
+      <a href="../../guide/tutorial/" class="md-nav__link">
         
   
   
@@ -696,7 +691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../basic-execution/" class="md-nav__link">
+      <a href="../../guide/basic-execution/" class="md-nav__link">
         
   
   
@@ -724,7 +719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../async-jobs/" class="md-nav__link">
+      <a href="../../guide/async-jobs/" class="md-nav__link">
         
   
   
@@ -752,7 +747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../environments/" class="md-nav__link">
+      <a href="../../guide/environments/" class="md-nav__link">
         
   
   
@@ -777,37 +772,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Custom Libraries
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../guide/custom-libraries/" class="md-nav__link">
         
   
   
@@ -823,120 +791,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How It Works
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-custom-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Adding Custom Libraries
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Adding Custom Libraries">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#step-1-build-a-wheel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Build a Wheel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-2-add-to-custom_libs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Add to custom_libs
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-3-rebuild-the-executor-image" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Rebuild the Executor Image
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#directory-structure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Directory Structure
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#using-custom-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Using Custom Libraries
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Notes
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -949,7 +803,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../error-handling/" class="md-nav__link">
+      <a href="../../guide/error-handling/" class="md-nav__link">
         
   
   
@@ -1123,26 +977,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -1160,7 +1019,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1178,7 +1037,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/how-to-deploy/" class="md-nav__link">
+      <a href="../how-to-deploy/" class="md-nav__link">
         
   
   
@@ -1206,7 +1065,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/production/" class="md-nav__link">
+      <a href="../production/" class="md-nav__link">
         
   
   
@@ -1234,7 +1093,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/scaling/" class="md-nav__link">
+      <a href="../scaling/" class="md-nav__link">
         
   
   
@@ -1259,10 +1118,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../deployment/operations/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1278,6 +1164,142 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#diagnostic-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostic Endpoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Scenarios
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Scenarios">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#high-queue-depth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High Queue Depth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#circuit-breaker-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Circuit Breaker Open
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dead-letter-queue-growing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead Letter Queue Growing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#database-connection-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database Connection Failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#disk-full" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Disk Full
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#out-of-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-metrics-to-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Metrics to Monitor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#log-locations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log Locations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1290,7 +1312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../deployment/security/" class="md-nav__link">
+      <a href="../security/" class="md-nav__link">
         
   
   
@@ -1503,10 +1525,10 @@
     
     
       <li class="md-path__item">
-        <a href="../tutorial/" class="md-path__link">
+        <a href="../how-to-deploy/" class="md-path__link">
           
   <span class="md-ellipsis">
-    Guide
+    Deployment
   </span>
 
         </a>
@@ -1525,7 +1547,7 @@
 
 
   
-    <a href="https://github.com/las7/TakoVM/edit/main/docs/guide/custom-libraries.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/las7/TakoVM/edit/main/docs/deployment/operations.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1533,59 +1555,165 @@
   
 
 
-<h1 id="custom-libraries">Custom Libraries<a class="headerlink" href="#custom-libraries" title="Permanent link">&para;</a></h1>
-<p>Tako VM supports pre-installing custom Python libraries into executor images. This is useful for:</p>
-<ul>
-<li>Internal/proprietary packages not on PyPI</li>
-<li>Modified versions of public packages</li>
-<li>Packages that require complex build dependencies</li>
-</ul>
-<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p>Custom libraries are installed at <strong>image build time</strong>, not runtime. This means:</p>
-<ol>
-<li>Libraries are baked into the Docker image</li>
-<li>No network access needed at execution time</li>
-<li>Zero installation overhead per job</li>
-</ol>
-<h2 id="adding-custom-libraries">Adding Custom Libraries<a class="headerlink" href="#adding-custom-libraries" title="Permanent link">&para;</a></h2>
-<h3 id="step-1-build-a-wheel">Step 1: Build a Wheel<a class="headerlink" href="#step-1-build-a-wheel" title="Permanent link">&para;</a></h3>
-<p>Build your library as a wheel (<code>.whl</code>) file:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>your-library/
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python<span class="w"> </span>-m<span class="w"> </span>build<span class="w"> </span>--wheel
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># or</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel
+<h1 id="operations-runbook">Operations Runbook<a class="headerlink" href="#operations-runbook" title="Permanent link">&para;</a></h1>
+<p>Procedures for diagnosing and recovering from common production issues.</p>
+<h2 id="diagnostic-endpoints">Diagnostic Endpoints<a class="headerlink" href="#diagnostic-endpoints" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Server health</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>http://localhost:8000/health
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Worker pool status (queue depth, active workers)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>curl<span class="w"> </span>http://localhost:8000/pool/stats
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Dead letter queue stats</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>curl<span class="w"> </span>http://localhost:8000/dlq/stats
 </span></code></pre></div>
-<h3 id="step-2-add-to-custom_libs">Step 2: Add to custom_libs<a class="headerlink" href="#step-2-add-to-custom_libs" title="Permanent link">&para;</a></h3>
-<p>Copy the wheel to <code>tako_vm/custom_libs/</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cp<span class="w"> </span>dist/your_library-1.0.0-py3-none-any.whl<span class="w"> </span>/path/to/tako-vm/tako_vm/custom_libs/
-</span></code></pre></div>
-<h3 id="step-3-rebuild-the-executor-image">Step 3: Rebuild the Executor Image<a class="headerlink" href="#step-3-rebuild-the-executor-image" title="Permanent link">&para;</a></h3>
-<p>For the base executor image:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>code-executor:latest<span class="w"> </span>-f<span class="w"> </span>docker/Dockerfile.executor<span class="w"> </span>.
-</span></code></pre></div>
-<p>For job-type-specific images, use the REST API:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/job-types/data-processing/build
-</span></code></pre></div>
-<h2 id="directory-structure">Directory Structure<a class="headerlink" href="#directory-structure" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>tako_vm/
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>└── custom_libs/
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    ├── README.md
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    ├── your_library-1.0.0-py3-none-any.whl
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    └── another_lib-2.0.0-py3-none-any.whl
-</span></code></pre></div>
-<h2 id="using-custom-libraries">Using Custom Libraries<a class="headerlink" href="#using-custom-libraries" title="Permanent link">&para;</a></h2>
-<p>Once installed, import them like any other package:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">your_library</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyClass</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">MyClass</span><span class="p">()</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-</span></code></pre></div>
-<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
-<ul>
-<li>All <code>.whl</code> files in <code>custom_libs/</code> are installed automatically</li>
-<li>Dependencies of your library must either be included as wheels or available via PyPI</li>
-<li>To update a library, replace the wheel and rebuild the image</li>
-<li>Libraries are available to all code executions using that image</li>
-</ul>
+<h2 id="common-scenarios">Common Scenarios<a class="headerlink" href="#common-scenarios" title="Permanent link">&para;</a></h2>
+<h3 id="high-queue-depth">High Queue Depth<a class="headerlink" href="#high-queue-depth" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> <code>/pool/stats</code> shows <code>queue_depth</code> growing, jobs take longer to start.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Check current stats</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:8000/pool/stats<span class="w"> </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>json.tool
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Check if workers are stuck</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>docker<span class="w"> </span>ps<span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;name=tako-&quot;</span><span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;table {{.Names}}\t{{.Status}}\t{{.RunningFor}}&quot;</span>
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+1. If workers are idle but queue is full → restart the server
+2. If all workers are busy → increase <code>max_workers</code> in config and restart
+3. If containers are stuck → kill stale containers:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Find containers running longer than expected</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>ps<span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;name=tako-&quot;</span><span class="w"> </span>--format<span class="w"> </span><span class="s2">&quot;{{.ID}} {{.RunningFor}}&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s2">&quot;hours|days&quot;</span>
+</span></code></pre></div></p>
+<h3 id="circuit-breaker-open">Circuit Breaker Open<a class="headerlink" href="#circuit-breaker-open" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> Jobs return 503 immediately. Health endpoint shows <code>"docker_available": false</code>.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Check Docker daemon</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>docker<span class="w"> </span>info<span class="w"> </span>&gt;<span class="w"> </span>/dev/null<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Docker OK&quot;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Docker DOWN&quot;</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Check Docker socket permissions</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>ls<span class="w"> </span>-la<span class="w"> </span>/var/run/docker.sock
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+1. Restart Docker daemon: <code>sudo systemctl restart docker</code>
+2. Wait for Tako VM health check to detect Docker is back (automatic)
+3. If persistent, restart Tako VM server</p>
+<h3 id="dead-letter-queue-growing">Dead Letter Queue Growing<a class="headerlink" href="#dead-letter-queue-growing" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> <code>/dlq/stats</code> shows increasing count.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Check DLQ contents</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:8000/dlq/stats<span class="w"> </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>json.tool
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+1. Review DLQ entries for common failure patterns
+2. Fix the root cause (usually Docker issues or resource exhaustion)
+3. DLQ entries are informational — they indicate jobs that failed due to infrastructure errors (not user code errors)</p>
+<h3 id="database-connection-failures">Database Connection Failures<a class="headerlink" href="#database-connection-failures" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> Server returns 500 errors. Logs show PostgreSQL connection errors.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Check if auto-managed PostgreSQL is running</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>docker<span class="w"> </span>ps<span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;name=tako-postgres&quot;</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Test connectivity</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>pg_isready<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-p<span class="w"> </span><span class="m">55432</span>
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+1. If using auto-managed PostgreSQL: restart Tako VM server (it will recreate the container)
+2. If using external PostgreSQL: check connection string in <code>database_url</code> config
+3. Verify the database is reachable from the Tako VM host</p>
+<h3 id="disk-full">Disk Full<a class="headerlink" href="#disk-full" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> Jobs fail with write errors. Docker containers fail to start.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Check disk usage</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>df<span class="w"> </span>-h
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Check Docker disk usage</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>docker<span class="w"> </span>system<span class="w"> </span>df
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Clean up stopped containers and unused images</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>docker<span class="w"> </span>system<span class="w"> </span>prune<span class="w"> </span>-f
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Remove old Tako VM artifacts if stored locally</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># (location depends on your TAKO_VM_DATA_DIR config)</span>
+</span></code></pre></div></p>
+<h3 id="out-of-memory">Out of Memory<a class="headerlink" href="#out-of-memory" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom:</strong> Jobs return <code>oom</code> status. Host becomes slow.</p>
+<p><strong>Diagnosis:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Check host memory</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>free<span class="w"> </span>-h
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Check container memory limits</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>docker<span class="w"> </span>stats<span class="w"> </span>--no-stream<span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;name=tako-&quot;</span>
+</span></code></pre></div></p>
+<p><strong>Recovery:</strong>
+1. Reduce <code>max_workers</code> to lower concurrent memory usage
+2. Lower per-container memory limits in config (<code>container_memory_mb</code>)
+3. Add more RAM to the host</p>
+<h2 id="key-metrics-to-monitor">Key Metrics to Monitor<a class="headerlink" href="#key-metrics-to-monitor" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Source</th>
+<th>Warning Threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Queue depth</td>
+<td><code>/pool/stats</code> → <code>queue_depth</code></td>
+<td>&gt; <code>max_workers</code> × 2</td>
+</tr>
+<tr>
+<td>DLQ count</td>
+<td><code>/dlq/stats</code> → <code>count</code></td>
+<td>&gt; 0 (investigate)</td>
+</tr>
+<tr>
+<td>Docker health</td>
+<td><code>/health</code> → <code>docker_available</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td>Active workers</td>
+<td><code>/pool/stats</code> → <code>active_workers</code></td>
+<td>= <code>max_workers</code> sustained</td>
+</tr>
+<tr>
+<td>Disk usage</td>
+<td><code>df -h</code></td>
+<td>&gt; 80%</td>
+</tr>
+<tr>
+<td>Memory usage</td>
+<td><code>free -h</code></td>
+<td>&gt; 85%</td>
+</tr>
+</tbody>
+</table>
+<h2 id="log-locations">Log Locations<a class="headerlink" href="#log-locations" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Deployment</th>
+<th>Location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direct (systemd)</td>
+<td><code>journalctl -u tako-vm</code></td>
+</tr>
+<tr>
+<td>Docker Compose</td>
+<td><code>docker-compose logs -f tako-vm</code></td>
+</tr>
+<tr>
+<td>Kubernetes</td>
+<td><code>kubectl logs -l app=tako-vm</code></td>
+</tr>
+</tbody>
+</table>
 
 
 
@@ -1618,7 +1746,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="January 29, 2026 23:13:36 UTC"><span class="timeago" datetime="2026-01-29T23:13:36+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="January 29, 2026 23:13:36 UTC">2026-01-29</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 17, 2026 06:59:29 UTC"><span class="timeago" datetime="2026-03-17T06:59:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 17, 2026 06:59:29 UTC">2026-03-17</span>
   </span>
 
     

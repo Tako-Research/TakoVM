@@ -18,7 +18,7 @@
         <link rel="prev" href="../production/">
       
       
-        <link rel="next" href="../security/">
+        <link rel="next" href="../operations/">
       
       
         
@@ -275,7 +275,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../guide/basic-execution/" class="md-tabs__link">
+        <a href="../../guide/tutorial/" class="md-tabs__link">
           
   
   
@@ -655,6 +655,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1125,6 +1153,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-works-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Works Today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#current-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1233,6 +1272,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1489,7 +1556,43 @@
 
 
 <h1 id="tako-vm-scaling-guide">Tako VM Scaling Guide<a class="headerlink" href="#tako-vm-scaling-guide" title="Permanent link">&para;</a></h1>
-<p>This document outlines strategies for scaling Tako VM beyond the default configuration.</p>
+<p>This document covers scaling Tako VM. The first section describes what works today; later sections describe planned features that are not yet implemented.</p>
+<h2 id="what-works-today">What Works Today<a class="headerlink" href="#what-works-today" title="Permanent link">&para;</a></h2>
+<p>Tako VM supports <strong>single-node vertical scaling</strong> by increasing workers and queue size. Multi-node horizontal scaling is not yet available.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Increase workers (up to 64)</td>
+<td>Available</td>
+</tr>
+<tr>
+<td>Increase queue size</td>
+<td>Available</td>
+</tr>
+<tr>
+<td>gVisor runtime</td>
+<td>Available</td>
+</tr>
+<tr>
+<td>Container pooling</td>
+<td>Planned</td>
+</tr>
+<tr>
+<td>Distributed workers (multi-node)</td>
+<td>Planned</td>
+</tr>
+<tr>
+<td>Lighter isolation (nsjail, Firecracker)</td>
+<td>Planned</td>
+</tr>
+</tbody>
+</table>
 <h2 id="current-configuration">Current Configuration<a class="headerlink" href="#current-configuration" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># tako_vm.yaml</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">max_workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span><span class="w">      </span><span class="c1"># 4x default (was 4)</span>
@@ -1510,6 +1613,10 @@
 <p><strong>Limits</strong>: max_workers can go up to 64 in config validation.</p>
 <hr />
 <h3 id="2-container-pooling-high-impact">2. Container Pooling (High Impact)<a class="headerlink" href="#2-container-pooling-high-impact" title="Permanent link">&para;</a></h3>
+<div class="admonition warning">
+<p class="admonition-title">Not yet implemented</p>
+<p>Container pooling is a planned feature. The design below is aspirational.</p>
+</div>
 <p><strong>Status</strong>: Planned</p>
 <p>Pre-create containers at startup and reuse them instead of creating/destroying per job.</p>
 <h4 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h4>
@@ -1601,6 +1708,10 @@
 </ul>
 <hr />
 <h3 id="3-distributed-workers-horizontal-scaling">3. Distributed Workers (Horizontal Scaling)<a class="headerlink" href="#3-distributed-workers-horizontal-scaling" title="Permanent link">&para;</a></h3>
+<div class="admonition warning">
+<p class="admonition-title">Not yet implemented</p>
+<p>Distributed workers require Redis and external PostgreSQL. This is a planned feature.</p>
+</div>
 <p><strong>Status</strong>: Planned</p>
 <p>Run multiple Tako VM instances behind a load balancer with shared state.</p>
 <h4 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h4>
@@ -1736,6 +1847,10 @@
 <p>With container pooling + distribution: <strong>1000+ jobs/sec</strong></p>
 <hr />
 <h3 id="4-lighter-isolation-options">4. Lighter Isolation Options<a class="headerlink" href="#4-lighter-isolation-options" title="Permanent link">&para;</a></h3>
+<div class="admonition warning">
+<p class="admonition-title">Not yet implemented</p>
+<p>Alternative isolation backends are a planned feature. Only Docker and gVisor are supported today.</p>
+</div>
 <p><strong>Status</strong>: Planned</p>
 <p>For even higher throughput, consider lighter isolation than full Docker containers:</p>
 <table>
@@ -1883,7 +1998,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="February 12, 2026 02:17:32 UTC"><span class="timeago" datetime="2026-02-12T02:17:32+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="February 12, 2026 02:17:32 UTC">2026-02-12</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 17, 2026 06:59:29 UTC"><span class="timeago" datetime="2026-03-17T06:59:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 17, 2026 06:59:29 UTC">2026-03-17</span>
   </span>
 
     
