@@ -1,99 +1,99 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://tako-vm.dev/</loc>
+         <loc>https://las7.github.io/TakoVM/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/architecture/</loc>
+         <loc>https://las7.github.io/TakoVM/architecture/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/comparison/</loc>
+         <loc>https://las7.github.io/TakoVM/comparison/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/api/rest/</loc>
+         <loc>https://las7.github.io/TakoVM/api/rest/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/api/sdk/</loc>
+         <loc>https://las7.github.io/TakoVM/api/sdk/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/deployment/how-to-deploy/</loc>
+         <loc>https://las7.github.io/TakoVM/deployment/how-to-deploy/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/deployment/production/</loc>
+         <loc>https://las7.github.io/TakoVM/deployment/production/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/deployment/scaling/</loc>
+         <loc>https://las7.github.io/TakoVM/deployment/scaling/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/deployment/security/</loc>
+         <loc>https://las7.github.io/TakoVM/deployment/security/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/design/dind-support/</loc>
+         <loc>https://las7.github.io/TakoVM/design/dind-support/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/getting-started/configuration/</loc>
+         <loc>https://las7.github.io/TakoVM/getting-started/configuration/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/getting-started/installation/</loc>
+         <loc>https://las7.github.io/TakoVM/getting-started/installation/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/getting-started/quickstart/</loc>
+         <loc>https://las7.github.io/TakoVM/getting-started/quickstart/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/guide/async-jobs/</loc>
+         <loc>https://las7.github.io/TakoVM/guide/async-jobs/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/guide/basic-execution/</loc>
+         <loc>https://las7.github.io/TakoVM/guide/basic-execution/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/guide/custom-libraries/</loc>
+         <loc>https://las7.github.io/TakoVM/guide/custom-libraries/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/guide/environments/</loc>
+         <loc>https://las7.github.io/TakoVM/guide/environments/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/guide/error-handling/</loc>
+         <loc>https://las7.github.io/TakoVM/guide/error-handling/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/</loc>
+         <loc>https://las7.github.io/TakoVM/security/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/SOLUTIONS/</loc>
+         <loc>https://las7.github.io/TakoVM/security/SOLUTIONS/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/env-var-mitigation/</loc>
+         <loc>https://las7.github.io/TakoVM/security/env-var-mitigation/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/honest-assessment/</loc>
+         <loc>https://las7.github.io/TakoVM/security/honest-assessment/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/mitigations/</loc>
+         <loc>https://las7.github.io/TakoVM/security/mitigations/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
     <url>
-         <loc>https://tako-vm.dev/security/proc-exposure-vulnerability/</loc>
+         <loc>https://las7.github.io/TakoVM/security/proc-exposure-vulnerability/</loc>
          <lastmod>2026-03-17</lastmod>
     </url>
 </urlset>
