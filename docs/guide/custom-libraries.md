@@ -43,10 +43,10 @@ For the base executor image:
 docker build -t code-executor:latest -f docker/Dockerfile.executor .
 ```
 
-For job-type-specific images:
+For job-type-specific images, use the REST API:
 
 ```bash
-tako-vm build job-type data-processing
+curl -X POST http://localhost:8000/job-types/data-processing/build
 ```
 
 ## Directory Structure

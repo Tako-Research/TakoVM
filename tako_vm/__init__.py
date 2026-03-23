@@ -25,6 +25,10 @@ Core modules:
 - config: Configuration management
 """
 
+from importlib.metadata import version as _pkg_version
+
+__version__ = _pkg_version("tako-vm")
+
 # Suppress LibreSSL warnings on macOS (urllib3 v2 requires OpenSSL 1.1.1+)
 import warnings
 
@@ -90,4 +94,6 @@ __all__ = [
     "SDKExecutionError",
     "ExecutionError",  # Backward compatibility alias for SDKExecutionError
     "ValidationError",
+    # Version
+    "__version__",
 ]

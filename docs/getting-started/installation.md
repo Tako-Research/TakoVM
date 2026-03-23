@@ -2,10 +2,21 @@
 
 ## Prerequisites
 
-- **Docker** 20.10 or later
-- **Python** 3.9 or later
-- **[uv](https://github.com/astral-sh/uv)**
-- **gVisor** (recommended for production) - See [gVisor installation](https://gvisor.dev/docs/user_guide/install/)
+Before installing Tako VM, verify you have the following:
+
+| Requirement | Minimum Version | Check Command | Required? |
+|-------------|----------------|---------------|-----------|
+| **Docker** | 20.10+ | `docker --version` | Yes |
+| **Python** | 3.9+ | `python3 --version` | Yes |
+| **[uv](https://github.com/astral-sh/uv)** | any | `uv --version` | Recommended (pip also works) |
+| **gVisor** | any | `docker run --runtime=runsc --rm hello-world` | Production only |
+
+!!! note "Quick pre-flight check"
+    ```bash
+    docker info > /dev/null 2>&1 && echo "Docker: OK" || echo "Docker: NOT RUNNING"
+    python3 --version
+    ```
+    Docker must be **running** (not just installed). On macOS/Windows, start Docker Desktop first.
 
 ## Install Tako VM
 
@@ -29,7 +40,7 @@ uv pip install tako-vm[all]
 
 ```bash
 # Clone the repository
-git clone https://github.com/example/tako-vm.git
+git clone https://github.com/las7/TakoVM.git
 cd tako-vm
 uv venv && source .venv/bin/activate
 
@@ -55,7 +66,7 @@ This builds the base execution container with Python 3.11 and uv.
 
 ```bash
 tako-vm version
-# tako-vm 2.0.0
+# tako-vm 0.1.4
 
 tako-vm --help
 # Shows all available commands
@@ -83,7 +94,7 @@ Expected output:
 {
   "status": "healthy",
   "docker_available": true,
-  "version": "2.0.0"
+  "version": "0.1.4"
 }
 ```
 

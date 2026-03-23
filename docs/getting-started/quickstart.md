@@ -1,86 +1,38 @@
 # Quick Start
 
-This guide walks you through executing your first code in Tako VM.
+Get Tako VM running and execute your first code.
 
-## Library Mode (Recommended for Development)
-
-The simplest way to use Tako VM - no server required:
+## Install and Start
 
 ```bash
-uv pip install tako-vm
+pip install "tako-vm[server]"
+tako-vm setup                   # pull the executor Docker image
+tako-vm server                  # starts on http://localhost:8000
 ```
 
-```python
-from tako_vm import Sandbox
-
-# Basic execution
-with Sandbox() as sb:
-    result = sb.run("print('Hello from sandbox!')")
-    print(result.stdout)  # "Hello from sandbox!"
-
-# With dependencies
-with Sandbox() as sb:
-    result = sb.run("""
-import requests
-print(f"requests version: {requests.__version__}")
-""", requirements=["requests"])
-    print(result.stdout)
-
-# With input/output data
-with Sandbox() as sb:
-    result = sb.run("""
-import json
-with open("/input/data.json") as f:
-    data = json.load(f)
-result = {"sum": data["x"] + data["y"]}
-with open("/output/result.json", "w") as f:
-    json.dump(result, f)
-print("Done!")
-""", input_data={"x": 10, "y": 20})
-
-    print(result.stdout)   # "Done!"
-    print(result.output)   # {"sum": 30}
-```
-
-The first run builds the Docker image automatically (~30 seconds one-time setup).
-
-!!! note "gVisor on Linux"
-    Tako VM uses gVisor by default for strong isolation. If gVisor is not installed, set `TAKO_VM_SECURITY_MODE=permissive` or configure `security_mode: permissive` in your config file. See [Security](../deployment/security.md#gvisor-runtime) for installation instructions.
-
-## Server Mode (For Production)
-
-For production workloads with job queuing, retries, and persistence:
-
-### Start the Server
-
-```bash
-# Build the executor image first
-docker build -t code-executor:latest -f docker/Dockerfile.executor .
-
-# Start the server
-tako-vm server
-```
-
-The server starts on `http://localhost:8000` by default. Use `--port` to change:
+`tako-vm server` auto-starts a PostgreSQL container on port 55432 for job persistence. Use `--port` to change the server port:
 
 ```bash
 tako-vm server --port 9000
 ```
 
-### Execute Code via API
+!!! note "gVisor on Linux"
+    Tako VM defaults to `permissive` mode, which falls back to runc if gVisor is not installed. For production, set `security_mode: strict` to require gVisor. See [Security](../deployment/security.md#gvisor-runtime) for installation instructions.
 
-#### Using curl
+!!! warning "Security: Environment Variables"
+    Do not pass secrets (API keys, tokens, passwords) as job type environment variables. User code can read them via `/proc/self/environ`. Pass sensitive data through `input_data` instead, which is scoped to a single job. See [Security Mitigations](../security/mitigations.md) for details.
+
+## Execute Code
+
+### Using curl
 
 ```bash
 curl -X POST http://localhost:8000/execute \
   -H "Content-Type: application/json" \
-  -d '{
-    "code": "print(1 + 1)",
-    "requirements": ["requests"]
-  }'
+  -d '{"code": "print(1 + 1)"}'
 ```
 
-#### Using Python
+### Using Python
 
 ```python
 import requests
@@ -120,16 +72,14 @@ print(f"Output: {result['output']}")
 print(f"Stdout: {result['stdout']}")
 ```
 
-### Sync vs Async Execution
-
-Tako VM offers two execution modes:
+## Sync vs Async Execution
 
 | Endpoint | Behavior | Best For |
 |----------|----------|----------|
 | `POST /execute` | **Blocks** until complete, returns result directly | Quick jobs (<30s), simple scripts |
 | `POST /execute/async` | Returns `job_id` immediately, poll for result | Long jobs, queued workloads, production |
 
-#### Sync (Blocking)
+### Sync (Blocking)
 
 ```python
 # Blocks until done - simple but ties up the connection
@@ -139,7 +89,7 @@ response = requests.post("http://localhost:8000/execute", json={
 print(response.json()["stdout"])  # "hello"
 ```
 
-#### Async (Non-blocking)
+### Async (Non-blocking)
 
 ```python
 # Returns immediately with job_id

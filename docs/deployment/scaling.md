@@ -1,6 +1,19 @@
 # Tako VM Scaling Guide
 
-This document outlines strategies for scaling Tako VM beyond the default configuration.
+This document covers scaling Tako VM. The first section describes what works today; later sections describe planned features that are not yet implemented.
+
+## What Works Today
+
+Tako VM supports **single-node vertical scaling** by increasing workers and queue size. Multi-node horizontal scaling is not yet available.
+
+| Capability | Status |
+|-----------|--------|
+| Increase workers (up to 64) | Available |
+| Increase queue size | Available |
+| gVisor runtime | Available |
+| Container pooling | Planned |
+| Distributed workers (multi-node) | Planned |
+| Lighter isolation (nsjail, Firecracker) | Planned |
 
 ## Current Configuration
 
@@ -35,6 +48,9 @@ max_queue_size: 1000
 ---
 
 ### 2. Container Pooling (High Impact)
+
+!!! warning "Not yet implemented"
+    Container pooling is a planned feature. The design below is aspirational.
 
 **Status**: Planned
 
@@ -115,6 +131,9 @@ class ContainerPool:
 ---
 
 ### 3. Distributed Workers (Horizontal Scaling)
+
+!!! warning "Not yet implemented"
+    Distributed workers require Redis and external PostgreSQL. This is a planned feature.
 
 **Status**: Planned
 
@@ -223,6 +242,9 @@ With container pooling + distribution: **1000+ jobs/sec**
 ---
 
 ### 4. Lighter Isolation Options
+
+!!! warning "Not yet implemented"
+    Alternative isolation backends are a planned feature. Only Docker and gVisor are supported today.
 
 **Status**: Planned
 

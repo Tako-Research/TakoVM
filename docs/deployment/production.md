@@ -30,12 +30,14 @@ enable_seccomp: true
 In production mode, images must be pre-built:
 
 ```bash
-# Build all registered environments
-python -m tako_vm.execution.builder --init-defaults all
+# Build images via the REST API (requires a running server)
+curl -X POST http://localhost:8000/job-types/data-processing/build
 
 # Verify images exist
 docker images | grep tako-vm
 ```
+
+!!! note "CLI support for building images is planned — see [GitHub #30](https://github.com/las7/TakoVM/issues/30)."
 
 ## Running with Systemd
 

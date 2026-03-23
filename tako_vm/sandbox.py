@@ -178,7 +178,12 @@ class Sandbox:
         if not self.auto_build:
             raise RuntimeError(
                 f"Docker image '{self.config.image}' not found. "
-                f"Build it with: docker build -t {self.config.image} -f docker/Dockerfile.executor ."
+                f"Either pull the pre-built image:\n"
+                f"  docker pull ghcr.io/las7/takovm/executor:latest && "
+                f"docker tag ghcr.io/las7/takovm/executor:latest {self.config.image}\n"
+                f"Or clone the repo and build it:\n"
+                f"  git clone https://github.com/las7/tako-vm.git && "
+                f"cd tako-vm && docker build -t {self.config.image} -f docker/Dockerfile.executor ."
             )
 
         # Try to build the image
@@ -192,15 +197,25 @@ class Sandbox:
         package_dir = self._find_package_dir()
         if not package_dir:
             raise RuntimeError(
-                f"Cannot auto-build image: tako-vm package directory not found. "
-                f"Build manually: docker build -t {self.config.image} -f docker/Dockerfile.executor ."
+                f"Cannot auto-build image: tako-vm source directory not found. "
+                f"Either pull the pre-built image:\n"
+                f"  docker pull ghcr.io/las7/takovm/executor:latest && "
+                f"docker tag ghcr.io/las7/takovm/executor:latest {self.config.image}\n"
+                f"Or clone the repo and build it:\n"
+                f"  git clone https://github.com/las7/tako-vm.git && "
+                f"cd tako-vm && docker build -t {self.config.image} -f docker/Dockerfile.executor ."
             )
 
         dockerfile = package_dir / "docker" / "Dockerfile.executor"
         if not dockerfile.exists():
             raise RuntimeError(
                 f"Cannot auto-build image: Dockerfile not found at {dockerfile}. "
-                f"Build manually: docker build -t {self.config.image} -f docker/Dockerfile.executor ."
+                f"Either pull the pre-built image:\n"
+                f"  docker pull ghcr.io/las7/takovm/executor:latest && "
+                f"docker tag ghcr.io/las7/takovm/executor:latest {self.config.image}\n"
+                f"Or clone the repo and build it:\n"
+                f"  git clone https://github.com/las7/tako-vm.git && "
+                f"cd tako-vm && docker build -t {self.config.image} -f docker/Dockerfile.executor ."
             )
 
         print(f"Building executor image '{self.config.image}'... (one-time setup)")

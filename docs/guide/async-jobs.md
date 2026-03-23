@@ -63,16 +63,20 @@ print(f"Status: {status['status']}")
 
 ### Status Values
 
+The initial response from `/execute/async` returns `pending` (queue status). When you poll `/jobs/{id}`, you'll see **execution record** statuses:
+
 | Status | Description |
 |--------|-------------|
-| `pending` | Queued, waiting for worker (queue status) |
+| `queued` | Job persisted, waiting for a worker |
 | `running` | Currently executing |
-| `queued` | Job queued (record status) |
 | `succeeded` | Completed successfully |
 | `failed` | Failed with error |
 | `timeout` | Exceeded time limit |
 | `oom` | Out of memory |
 | `cancelled` | Cancelled by user |
+
+!!! tip "Polling tip"
+    When writing polling logic, check for terminal states: `succeeded`, `failed`, `timeout`, `oom`, `cancelled`.
 
 ## Wait for Result
 

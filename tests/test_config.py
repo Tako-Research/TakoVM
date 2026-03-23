@@ -185,6 +185,13 @@ class TestJobTypeGPUConfig:
         assert config.vendor == "nvidia"
         assert config.count == 2
 
+        multi_gpu = JobTypeGPUConfig(
+            enabled=True,
+            vendor="NVIDIA",
+            device_ids=[" GPU-1 ", "GPU-2"],
+        )
+        assert multi_gpu.device_ids == ["GPU-1", "GPU-2"]
+
     def test_job_type_gpu_config_rejects_missing_vendor(self):
         """Enabled GPU config requires vendor."""
         with pytest.raises(ValueError) as exc_info:
@@ -222,6 +229,15 @@ class TestJobTypeGPUConfig:
         with pytest.raises(ValueError):
             JobTypeGPUConfig(enabled=True, vendor="nvidia", device_ids=["bad,id"])
 
+        with pytest.raises(ValueError):
+            JobTypeGPUConfig(enabled=True, vendor="nvidia", device_ids=["GPU-1", "GPU-1"])
+
+        with pytest.raises(ValueError):
+            JobTypeGPUConfig(enabled=True, vendor="nvidia", device_ids=[" GPU-1 ", "GPU-1"])
+
+        with pytest.raises(ValueError):
+            JobTypeGPUConfig(enabled=True, vendor="nvidia", device_ids=["GPU-1", "gpu-1"])
+
 
 class TestTakoVMConfig:
     """Tests for TakoVMConfig validation."""
@@ -233,7 +249,7 @@ class TestTakoVMConfig:
         assert config.max_workers == 4
         assert config.default_timeout == 30
         assert config.container_runtime == "runsc"
-        assert config.security_mode == "strict"
+        assert config.security_mode == "permissive"
         assert config.api_max_payload_bytes == 2097152
         assert config.api_rate_limit_enabled is True
         assert config.api_rate_limit_requests == 120

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from importlib.resources import files as _resource_files
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -205,7 +206,7 @@ class JobTypeRegistry:
             config_path: Path to config file. Defaults to job_types.json in package dir.
         """
         if config_path is None:
-            config_path = Path(__file__).parent / "job_types.json"
+            config_path = Path(str(_resource_files("tako_vm").joinpath("job_types.json")))
         self.config_path = config_path
         self._job_types: dict[str, JobType] = {}
         self._load()

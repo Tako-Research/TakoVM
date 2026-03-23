@@ -5,5 +5,20 @@
       "Bash(/opt/homebrew/bin/docker --version)",
       "Bash(tako-vm:*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/lint.sh",
+            "timeout": 30000,
+            "statusMessage": "Running ruff lint + format"
+          }
+        ]
+      }
+    ]
   }
 }

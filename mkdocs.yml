@@ -1,10 +1,10 @@
 site_name: Tako VM
 site_description: Job queue infrastructure for Python AI agents
-site_url: https://tako-vm.dev
+site_url: https://las7.github.io/TakoVM/
 site_author: Tako VM
 
-repo_url: https://github.com/example/tako-vm
-repo_name: tako-vm
+repo_url: https://github.com/las7/TakoVM
+repo_name: TakoVM
 edit_uri: edit/main/docs/
 
 theme:
@@ -46,20 +46,22 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
     - Configuration: getting-started/configuration.md
+  - Architecture: architecture.md
+  - API Reference:
+    - REST API: api/rest.md
+    - Python SDK: api/sdk.md
   - Guide:
+    - Tutorial: guide/tutorial.md
     - Basic Execution: guide/basic-execution.md
     - Async Jobs: guide/async-jobs.md
     - Environments: guide/environments.md
     - Custom Libraries: guide/custom-libraries.md
     - Error Handling: guide/error-handling.md
-  - API Reference:
-    - REST API: api/rest.md
-    - Python SDK: api/sdk.md
-  - Architecture: architecture.md
   - Deployment:
     - How to Deploy: deployment/how-to-deploy.md
     - Production Setup: deployment/production.md
     - Scaling: deployment/scaling.md
+    - Operations: deployment/operations.md
     - Security: deployment/security.md
   - Security:
     - Mitigations: security/mitigations.md
@@ -99,4 +101,4 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/example/tako-vm
+      link: https://github.com/las7/TakoVM

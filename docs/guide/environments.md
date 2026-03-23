@@ -122,12 +122,11 @@ for jt in response.json():
 In development mode, images are auto-built on first use. To pre-build:
 
 ```bash
-# Build all job types
-python -m tako_vm.container_builder --build-all
-
-# Build specific job type
-python -m tako_vm.container_builder --build data-processing
+# Build images via the REST API (requires a running server)
+curl -X POST http://localhost:8000/job-types/data-processing/build
 ```
+
+!!! note "CLI support for building images is planned — see [GitHub #30](https://github.com/las7/TakoVM/issues/30)."
 
 Images are named `tako-vm-{name}:latest`.
 

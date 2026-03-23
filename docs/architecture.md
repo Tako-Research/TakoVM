@@ -154,9 +154,9 @@ Security Layers:
       │                                                │
       ▼                                                ▼
 ┌──────────────────┐                         ┌──────────────────┐
-│ tako-vm build    │                         │ Job submitted    │
-│ job-type         │                         │ with job_type    │
-│ data-processing  │                         │                  │
+│ Pre-build image  │                         │ Job submitted    │
+│ via REST API or  │                         │ with job_type    │
+│ docker build     │                         │                  │
 └────────┬─────────┘                         └────────┬─────────┘
          │                                            │
          ▼                                            ▼

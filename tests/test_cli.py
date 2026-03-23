@@ -27,7 +27,9 @@ class TestCLIVersion:
         )
         assert result.returncode == 0
         assert "tako-vm" in result.stdout.lower()
-        assert "2.0.0" in result.stdout
+        from tako_vm import __version__
+
+        assert __version__ in result.stdout
 
 
 class TestCLIHelp:
@@ -268,7 +270,7 @@ class TestCheckStatusFunction:
         mock_response.json.return_value = {
             "status": "healthy",
             "docker_available": True,
-            "version": "2.0.0",
+            "version": "1.0.0",
         }
 
         with patch.object(requests, "get", return_value=mock_response):
@@ -280,7 +282,7 @@ class TestCheckStatusFunction:
         captured = capsys.readouterr()
         assert "healthy" in captured.out
         assert "available" in captured.out
-        assert "2.0.0" in captured.out
+        assert "1.0.0" in captured.out
 
     def test_check_status_docker_unavailable(self, capsys):
         """check_status shows docker unavailable status."""
@@ -292,7 +294,7 @@ class TestCheckStatusFunction:
         mock_response.json.return_value = {
             "status": "degraded",
             "docker_available": False,
-            "version": "2.0.0",
+            "version": "1.0.0",
         }
 
         with patch.object(requests, "get", return_value=mock_response):

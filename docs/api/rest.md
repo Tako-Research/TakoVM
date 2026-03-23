@@ -195,16 +195,20 @@ GET /jobs/{job_id}
 
 ### Status Values
 
-| Status | Description |
-|--------|-------------|
-| `pending` | Queued, waiting for worker (queue status) |
-| `running` | Currently executing |
-| `queued` | Job queued (record status) |
-| `succeeded` | Completed successfully |
-| `failed` | Failed with error |
-| `timeout` | Exceeded time limit |
-| `oom` | Out of memory |
-| `cancelled` | Cancelled by user |
+There are two status systems. When you submit an async job, the **queue** tracks it as `pending` → `running` → `completed`. The **execution record** uses more granular statuses:
+
+| Status | Where | Description |
+|--------|-------|-------------|
+| `pending` | Queue | Waiting for a worker to pick up the job |
+| `running` | Both | Currently executing |
+| `queued` | Record | Job created and persisted, not yet started |
+| `succeeded` | Record | Completed successfully |
+| `failed` | Record | Failed with error |
+| `timeout` | Record | Exceeded time limit |
+| `oom` | Record | Out of memory |
+| `cancelled` | Record | Cancelled by user |
+
+When polling `/jobs/{id}`, you'll typically see: `queued` → `running` → `succeeded`/`failed`/`timeout`/`oom`.
 
 ---
 
@@ -613,7 +617,7 @@ GET /health
     "success_count": 5,
     "last_failure": null
   },
-  "version": "2.0.0",
+  "version": "0.1.4",
   "production_mode": false,
   "queue_stats": {
     "pending": 0,

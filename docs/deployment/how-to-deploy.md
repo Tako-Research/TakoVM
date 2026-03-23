@@ -51,7 +51,7 @@ sudo apt install -y python3
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone Tako VM
-git clone https://github.com/YOUR_ORG/tako-vm.git
+git clone https://github.com/las7/TakoVM.git
 cd tako-vm
 
 # Install Tako VM with server dependencies
@@ -59,7 +59,7 @@ uv pip install ".[server]"
 ```
 
 !!! note "gVisor is optional but recommended"
-    Tako VM uses gVisor by default (`security_mode: strict`). If gVisor is not installed, set `security_mode: permissive` in your config or use `TAKO_VM_SECURITY_MODE=permissive`.
+    Tako VM defaults to `security_mode: permissive`, which falls back to runc if gVisor is not installed. For production, set `security_mode: strict` to require gVisor.
 
 ### 3. Build the Executor Image
 
@@ -110,7 +110,7 @@ Run Tako VM itself in a container. The repo includes a ready-to-use `docker-comp
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_ORG/tako-vm.git
+git clone https://github.com/las7/TakoVM.git
 cd tako-vm
 
 # Build both images and start the server
@@ -345,7 +345,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone Tako VM
 if [ ! -d "tako-vm" ]; then
-    git clone https://github.com/YOUR_ORG/tako-vm.git
+    git clone https://github.com/las7/TakoVM.git
 fi
 cd tako-vm
 
@@ -357,7 +357,7 @@ docker build -t code-executor:latest .
 
 # Create production config
 cat > tako_vm.yaml << 'EOF'
-production_mode: false
+production_mode: true
 max_workers: 4
 EOF
 

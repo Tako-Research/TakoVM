@@ -66,9 +66,9 @@ enable_userns: false   # Run as non-root user (disable if using gosu)
 container_runtime: runsc
 
 # Security mode:
-# - 'strict' (default): Fails if gVisor is unavailable. Use this for production.
-# - 'permissive': Falls back to runc with warnings. ONLY for local development.
-security_mode: strict
+# - 'permissive' (default): Falls back to runc if gVisor is unavailable.
+# - 'strict': Fails if gVisor is unavailable. Use this for production.
+security_mode: permissive
 
 # =============================================================================
 # Container Resource Limits

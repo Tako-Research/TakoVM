@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Build and push Docker images to GHCR
+  docker:
+    name: Push Docker images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: executor
+            dockerfile: docker/Dockerfile.executor
+          - image: server
+            dockerfile: docker/Dockerfile.server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version and repo
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MAJOR="${VERSION%%.*}"
+          REPO="${GITHUB_REPOSITORY,,}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.image }}:latest
+            ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ steps.meta.outputs.repo }}/${{ matrix.image }}:${{ steps.meta.outputs.major }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Publish Python package to PyPI
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # trusted publishing (OIDC)
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tako-vm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build package
+        run: uv build --sdist --wheel
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always

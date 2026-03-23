@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from psycopg import IntegrityError
 from pydantic import BaseModel, Field, field_validator
 
+from tako_vm import __version__
 from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
 from tako_vm.execution.worker import CodeExecutor, check_gvisor_available
@@ -207,7 +208,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Tako VM - Secure Code Executor API",
     description="Execute AI-generated Python code in isolated containers",
-    version="2.0.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -726,7 +727,7 @@ async def health_check():
         docker_available=docker_available,
         gvisor_available=gvisor_available,
         circuit_breaker=CircuitBreakerStatus(**cb_status),
-        version="2.0.0",
+        version=__version__,
         production_mode=state.config.production_mode,
         queue_stats=QueueStatsResponse(**queue_stats),
     )

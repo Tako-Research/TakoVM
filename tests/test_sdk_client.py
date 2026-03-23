@@ -259,7 +259,7 @@ class TestHealthCheck:
         mock_response.json.return_value = {
             "status": "healthy",
             "docker_available": True,
-            "version": "2.0.0",
+            "version": "1.0.0",
         }
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response

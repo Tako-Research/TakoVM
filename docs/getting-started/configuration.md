@@ -68,7 +68,7 @@ enable_userns: false           # user namespace (disabled for gosu compatibility
 
 # gVisor runtime (strong isolation)
 container_runtime: runsc  # 'runsc' (gVisor) or 'runc' (standard Docker)
-security_mode: strict     # 'strict' (require gVisor) or 'permissive' (fallback to runc)
+security_mode: permissive # 'permissive' (fallback to runc) or 'strict' (require gVisor)
 
 container_limits:
   pids_limit: 100
@@ -182,6 +182,9 @@ Job types define pre-configured execution environments:
 
 When you define a job type, Tako VM builds a Docker image with the specified packages pre-installed (`tako-vm-{name}:latest`).
 
+!!! warning "Security: Environment Variables"
+    If your job type config includes `environment` variables, be aware that user code can read them via `/proc/self/environ`. Never put secrets (API keys, tokens) in job type environment variables. See [Security Mitigations](../security/mitigations.md).
+
 ## Container Limits
 
 | Limit | Description | Default | Range |
@@ -256,17 +259,17 @@ Tako VM separates startup time from code execution time:
 
 ## gVisor and Security Modes
 
-Tako VM uses gVisor (runsc) by default for strong container isolation:
+Tako VM supports gVisor (runsc) for strong container isolation:
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `container_runtime` | Container runtime: `runsc` (gVisor) or `runc` (standard) | `runsc` |
-| `security_mode` | `strict` (require gVisor) or `permissive` (fallback to runc) | `strict` |
+| `security_mode` | `permissive` (fallback to runc) or `strict` (require gVisor) | `permissive` |
 
 **Security modes:**
 
-- **strict** (default): Fails with `RuntimeUnavailableError` if gVisor is not installed. Use this in production for guaranteed strong isolation.
-- **permissive**: Falls back to standard runc runtime with a warning if gVisor is unavailable. Useful for development on systems without gVisor.
+- **permissive** (default): Falls back to standard runc runtime with a warning if gVisor is unavailable. Works on all platforms including macOS and Windows.
+- **strict**: Fails with `RuntimeUnavailableError` if gVisor is not installed. Use this in production for guaranteed strong isolation.
 
 ```yaml
 # Development (allow fallback to runc)
@@ -302,7 +305,7 @@ limactl shell tako-gvisor
 | `retry_base_delay` | Base delay between retries (seconds) | `1.0` |
 | `queue_wait_timeout` | Queue wait timeout (seconds) | `1.0` |
 | `container_runtime` | Container runtime (`runsc` or `runc`) | `runsc` |
-| `security_mode` | Security mode (`strict` or `permissive`) | `strict` |
+| `security_mode` | Security mode (`permissive` or `strict`) | `permissive` |
 | `enable_seccomp` | Enable seccomp syscall filtering | `true` |
 | `enable_cap_restrictions` | Enable capability restrictions (`--cap-drop=ALL`) | `true` |
 | `enable_userns` | Enable user namespace isolation | `false` |

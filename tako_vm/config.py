@@ -6,6 +6,7 @@ Loads configuration from YAML file with optional env var overrides.
 """
 
 import os
+from importlib.resources import files as _resource_files
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -120,12 +121,16 @@ class JobTypeGPUConfig(BaseModel):
     def validate_device_ids(cls, values: List[str]) -> List[str]:
         """Validate GPU device ID list."""
         normalized: List[str] = []
+        seen: set[str] = set()
         for value in values:
             device_id = value.strip()
             if not device_id:
                 raise ValueError("gpu.device_ids cannot contain empty values")
             if "," in device_id:
                 raise ValueError("gpu.device_ids entries cannot contain commas")
+            if device_id.lower() in seen:
+                raise ValueError("gpu.device_ids cannot contain duplicate values")
+            seen.add(device_id.lower())
             normalized.append(device_id)
         return normalized
 
@@ -339,7 +344,7 @@ class TakoVMConfig(BaseModel):
 
     # Security mode
     security_mode: str = Field(
-        default="strict",
+        default="permissive",
         description="Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback to runc",
     )
 
@@ -394,7 +399,9 @@ class TakoVMConfig(BaseModel):
         if self.seccomp_profile_path_str:
             self._resolved_seccomp_profile_path = Path(self.seccomp_profile_path_str)
         else:
-            self._resolved_seccomp_profile_path = Path(__file__).parent / "seccomp_profile.json"
+            self._resolved_seccomp_profile_path = Path(
+                str(_resource_files("tako_vm").joinpath("seccomp_profile.json"))
+            )
 
         return self
 

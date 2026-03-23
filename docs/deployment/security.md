@@ -302,14 +302,14 @@ Tako VM does NOT protect against:
 | Timing attacks | Execution time visible |
 
 For higher security, consider:
-- gVisor (default in Tako VM)
+- gVisor (supported by Tako VM)
 - Kata Containers
 - Dedicated execution hosts
 - VM-based isolation
 
 ## gVisor Runtime
 
-Tako VM uses gVisor (runsc) by default for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker.
+Tako VM supports gVisor (runsc) for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker. By default, Tako VM runs in `permissive` mode, which falls back to runc if gVisor is not installed.
 
 ### Why gVisor?
 
@@ -322,7 +322,7 @@ Tako VM uses gVisor (runsc) by default for strong container isolation. gVisor pr
 
 ### Installation
 
-gVisor is required for `strict` security mode (default). Install it following the [official gVisor installation guide](https://gvisor.dev/docs/user_guide/install/).
+gVisor is required for `strict` security mode. Install it following the [official gVisor installation guide](https://gvisor.dev/docs/user_guide/install/).
 
 **Ubuntu/Debian:**
 ```bash
@@ -348,8 +348,8 @@ security_mode: strict      # 'strict' (require gVisor) or 'permissive' (fallback
 
 **Security modes:**
 
-- **strict** (default): Fails with `RuntimeUnavailableError` if gVisor is not available. Recommended for production.
-- **permissive**: Falls back to standard runc runtime with a warning. Useful for development.
+- **permissive** (default): Falls back to standard runc runtime with a warning. Works on all platforms.
+- **strict**: Fails with `RuntimeUnavailableError` if gVisor is not available. Recommended for production.
 
 **Environment variable override (useful for testing):**
 ```bash

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tako-vm"
-version = "2.0.0"
+version = "0.1.4"
 description = "Secure Python code execution in isolated Docker containers"
 readme = "README.md"
 license = "Apache-2.0"
@@ -40,6 +40,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "psycopg[binary]>=3.2.0",
     "psycopg-pool>=3.2.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -47,13 +48,11 @@ dependencies = [
 server = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
-    "pyyaml>=6.0",
 ]
 # All dependencies
 all = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
-    "pyyaml>=6.0",
 ]
 # Development dependencies
 dev = [
@@ -70,10 +69,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/tako-vm"
-Documentation = "https://github.com/example/tako-vm#readme"
-Repository = "https://github.com/example/tako-vm"
-Issues = "https://github.com/example/tako-vm/issues"
+Homepage = "https://github.com/las7/tako-vm"
+Documentation = "https://github.com/las7/tako-vm#readme"
+Repository = "https://github.com/las7/tako-vm"
+Issues = "https://github.com/las7/tako-vm/issues"
 
 [project.scripts]
 tako-vm = "tako_vm.cli:main"
@@ -110,7 +109,7 @@ markers = [
 ]
 
 [dependency-groups]
-dev = [
+tools = [
     "pre-commit>=4.3.0",
     "pyright>=1.1.408",
 ]

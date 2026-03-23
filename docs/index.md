@@ -4,21 +4,19 @@
 
 Other tools give you isolated code execution. Tako VM gives you the complete job system: queue, workers, execution history, retries, and replay—all in one package.
 
-## Quick Start (Library Mode)
+## Quick Start
 
 ```bash
-uv pip install tako-vm
+pip install "tako-vm[server]"
+tako-vm setup                   # pull the executor Docker image
+tako-vm server                  # start server (auto-starts PostgreSQL via Docker)
 ```
 
-```python
-from tako_vm import Sandbox
-
-with Sandbox() as sb:
-    result = sb.run("print(1 + 1)")
-    print(result.stdout)  # "2"
+```bash
+curl -X POST http://localhost:8000/execute \
+  -H "Content-Type: application/json" \
+  -d '{"code": "print(1 + 1)"}'
 ```
-
-No server setup required. The Docker image builds automatically on first run.
 
 ## Why Tako VM?
 
@@ -26,11 +24,11 @@ Sandbox-only tools (e2b, microsandbox) give you isolated execution. You still ne
 
 | Feature | Sandbox-only | Tako VM |
 |---------|--------------|---------|
-| Job queue | ❌ Build with Redis/Celery | ✅ Built-in |
-| Execution history | ❌ Build with Postgres | ✅ PostgreSQL included |
-| Retries | ❌ Write retry logic | ✅ Automatic |
-| Replay/debugging | ❌ Build custom tooling | ✅ Rerun/fork API |
-| Idempotency | ❌ Implement deduplication | ✅ `idempotency_key` |
+| Job queue | Build with Redis/Celery | Built-in |
+| Execution history | Build with Postgres | PostgreSQL included |
+| Retries | Write retry logic | Automatic |
+| Replay/debugging | Build custom tooling | Rerun/fork API |
+| Idempotency | Implement deduplication | `idempotency_key` |
 
 **Tako VM includes:**
 
@@ -40,44 +38,9 @@ Sandbox-only tools (e2b, microsandbox) give you isolated execution. You still ne
 - **Docker isolation** - Seccomp filtering, network isolation
 - **Self-hosted** - Zero per-execution cost, works offline
 
-## Installation
-
-```bash
-uv pip install tako-vm              # Library mode (Sandbox class)
-uv pip install tako-vm[server]      # Server mode (REST API)
-```
-
-## Library Mode Examples
-
-```python
-from tako_vm import Sandbox
-
-# Basic execution
-with Sandbox() as sb:
-    result = sb.run("print('Hello!')")
-    print(result.stdout)
-
-# With dependencies
-with Sandbox() as sb:
-    result = sb.run("""
-import pandas as pd
-print(pd.__version__)
-""", requirements=["pandas"])
-
-# With local packages
-sb = Sandbox(package_dirs=["./my_utils"])
-result = sb.run("from my_utils import helper; helper.process()")
-```
-
 ## Server Mode
 
 For production workloads with job queuing, retries, and audit trails:
-
-```bash
-# Build image and start server
-docker build -t code-executor:latest -f docker/Dockerfile.executor .
-tako-vm server
-```
 
 ```python
 import requests
@@ -87,6 +50,22 @@ response = requests.post('http://localhost:8000/execute', json={
     'requirements': ['requests']
 })
 print(response.json())
+```
+
+## Library Mode
+
+For development and simple scripts, use the Sandbox class directly (no server needed):
+
+```bash
+pip install tako-vm
+```
+
+```python
+from tako_vm import Sandbox
+
+with Sandbox() as sb:
+    result = sb.run("print(1 + 1)")
+    print(result.stdout)  # "2"
 ```
 
 ## Architecture
@@ -104,12 +83,12 @@ print(response.json())
                     └─────────────┘
 ```
 
-**Security:** Tako VM uses gVisor (runsc) by default for strong container isolation with a userspace kernel.
+**Security:** Tako VM supports gVisor (runsc) for strong container isolation with a userspace kernel. Defaults to `permissive` mode, which falls back to standard Docker (runc) if gVisor is not installed.
 
 ## Next Steps
 
 - [Installation](getting-started/installation.md) - Set up Tako VM
 - [Quick Start](getting-started/quickstart.md) - Run your first code
-- [Basic Execution](guide/basic-execution.md) - Input/output patterns, artifacts
-- [Async Jobs](guide/async-jobs.md) - Long-running tasks, artifact downloads
-- [API Reference](api/rest.md) - Full API documentation
+- [Architecture](architecture.md) - How Tako VM works
+- [REST API](api/rest.md) - Full API documentation
+- [Tutorial](guide/tutorial.md) - Build a data processing pipeline

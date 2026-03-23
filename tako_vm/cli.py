@@ -2,6 +2,7 @@
 Tako VM Command Line Interface.
 
 Usage:
+    tako-vm setup           Pull executor image and verify Docker is ready
     tako-vm server          Start the Tako VM server
     tako-vm dev up          Start local development services
     tako-vm dev status      Show local development services status
@@ -105,6 +106,9 @@ def main():
         "--show-defaults", action="store_true", help="Show all values including defaults"
     )
 
+    # Setup command
+    subparsers.add_parser("setup", help="Pull executor image and verify Docker is ready")
+
     # Version command
     subparsers.add_parser("version", help="Show version")
 
@@ -137,11 +141,104 @@ def main():
         validate_config(args)
     elif args.command == "config":
         show_config(args)
+    elif args.command == "setup":
+        run_setup(args)
     elif args.command == "version":
-        print("tako-vm 2.0.0")
+        from tako_vm import __version__
+
+        print(f"tako-vm {__version__}")
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def run_setup(args):
+    """Pull executor image and verify Docker is ready."""
+    del args
+
+    from tako_vm import __version__
+    from tako_vm.constants import DEFAULT_IMAGE
+
+    ghcr_image = f"ghcr.io/las7/takovm/executor:{__version__}"
+
+    # Check Docker is available
+    print("Checking Docker...")
+    try:
+        subprocess.run(
+            ["docker", "info"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print("Error: Docker is not installed.", file=sys.stderr)
+        print("Install Docker: https://docs.docker.com/get-docker/", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        print("Error: Docker is not running.", file=sys.stderr)
+        sys.exit(1)
+    print("  Docker is available")
+
+    # Check if image already exists
+    result = subprocess.run(
+        ["docker", "image", "inspect", DEFAULT_IMAGE],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        print(f"  Image '{DEFAULT_IMAGE}' already exists")
+        print("\nSetup complete! Ready to run jobs.")
+        return
+
+    # Pull from GHCR
+    print(f"Pulling {ghcr_image}...")
+    result = subprocess.run(
+        ["docker", "pull", ghcr_image],
+        check=False,
+    )
+    if result.returncode != 0:
+        # Fall back to latest tag
+        ghcr_latest = "ghcr.io/las7/takovm/executor:latest"
+        print(f"Version {__version__} not found, trying latest...")
+        result = subprocess.run(
+            ["docker", "pull", ghcr_latest],
+            check=False,
+        )
+        if result.returncode != 0:
+            print("Error: Failed to pull executor image.", file=sys.stderr)
+            print(
+                "Build manually: git clone https://github.com/las7/tako-vm.git && "
+                "cd tako-vm && docker build -t code-executor:latest -f docker/Dockerfile.executor .",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        ghcr_image = ghcr_latest
+
+    # Tag as the default image name
+    subprocess.run(
+        ["docker", "tag", ghcr_image, DEFAULT_IMAGE],
+        check=True,
+        capture_output=True,
+    )
+    print(f"  Tagged as '{DEFAULT_IMAGE}'")
+
+    # Verify with a quick test
+    print("Verifying...")
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "python", DEFAULT_IMAGE, "-c", "print('ok')"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode == 0 and "ok" in result.stdout:
+        print("  Executor image works")
+    else:
+        print("Warning: Image pulled but verification failed.", file=sys.stderr)
+        if result.stderr:
+            print(f"  {result.stderr.strip()}", file=sys.stderr)
+
+    print("\nSetup complete! Ready to run jobs.")
 
 
 def run_server(args):
