@@ -10,6 +10,28 @@
 #   docker-compose logs -f tako-vm
 
 services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: tako-vm-docker-socket-proxy
+    environment:
+      # Docker CLI health/startup checks
+      - INFO=1
+      # Required for docker run lifecycle: create/start/wait/logs/remove.
+      - CONTAINERS=1
+      # Required for image inspection during container creation.
+      - IMAGES=1
+      # Required because executor containers use a named uv cache volume.
+      - VOLUMES=1
+      # Required for container create/start/stop API calls.
+      - POST=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - docker-internal
+    security_opt:
+      - no-new-privileges:true
+
   tako-vm:
     build:
       context: .
@@ -19,8 +41,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Docker socket for spawning executor containers
-      - /var/run/docker.sock:/var/run/docker.sock
       # Shared workspace for job files (must match host path for Docker mounts)
       - /tmp/tako-vm-jobs:/tmp/tako-vm-jobs
       # Config with scaled worker settings (16 workers, 500 queue)
@@ -32,9 +52,15 @@ services:
       # Use shared workspace path for job files
       - TAKO_VM_WORKSPACE=/tmp/tako-vm-jobs
       - TAKO_VM_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tako_vm
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     depends_on:
+      docker-socket-proxy:
+        condition: service_started
       postgres:
         condition: service_healthy
+    networks:
+      - default
+      - docker-internal
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -73,3 +99,7 @@ services:
 # Optional: persist data
 volumes:
   tako-vm-postgres-data:
+
+networks:
+  docker-internal:
+    internal: true

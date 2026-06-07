@@ -124,13 +124,27 @@ docker-compose logs -f tako-vm
 
 1. **tako-vm-server** - The API server (from `docker/Dockerfile.server`)
 2. **code-executor** - The sandbox container for running code (from `docker/Dockerfile.executor`)
+3. **docker-socket-proxy** - Internal Docker API proxy used by the server to start executor containers
 
 ### docker-compose.yaml
 
-The included `docker-compose.yaml` handles everything:
+The included `docker-compose.yaml` handles everything. The public `tako-vm` service does not mount `/var/run/docker.sock` directly; it reaches Docker through an internal socket proxy on `DOCKER_HOST=tcp://docker-socket-proxy:2375`.
 
 ```yaml
 services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - INFO=1
+      - POST=1
+      - VOLUMES=1
+    networks:
+      - docker-internal
+
   tako-vm:
     build:
       context: .
@@ -139,10 +153,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Docker socket for spawning executor containers
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Shared workspace for job files
+      - /tmp/tako-vm-jobs:/tmp/tako-vm-jobs
       # Optional: mount custom config
       # - ./tako_vm.yaml:/app/tako_vm.yaml:ro
+    environment:
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -175,7 +191,7 @@ docker-compose down && docker-compose up -d
 ```
 
 !!! warning "Security Note"
-    Mounting `/var/run/docker.sock` gives Tako VM full Docker access. The executor containers are still isolated, but Tako VM itself has elevated privileges.
+    The socket proxy is an interim hardening layer: it removes the raw Docker socket from the public API container and limits Docker API sections, but it is not the same as a dedicated policy-enforcing executor service. Treat the compose deployment as trusted infrastructure and keep it behind authentication and network controls.
 
 ### Container-in-Container: Workspace Volume
 
@@ -195,12 +211,12 @@ services:
   tako-vm:
     # ... other config ...
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       # Shared workspace - same path inside container AND on host
       - /tmp/tako-workspace:/tmp/tako-workspace
     environment:
       # Tell Tako VM to use this directory for job files
       - TAKO_VM_WORKSPACE=/tmp/tako-workspace
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
 ```
 
 This mounts the **same host directory** at the **same path** inside Tako VM, so when Docker mounts `/tmp/tako-workspace/job-123`, it finds the files.

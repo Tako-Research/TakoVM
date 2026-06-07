@@ -94,18 +94,21 @@ docker-compose logs -f tako-vm
 docker-compose down
 ```
 
+The compose deployment routes Docker access through an internal `docker-socket-proxy` service. The public `tako-vm` container does not mount `/var/run/docker.sock` directly.
+
 To customize, mount your config file:
 
 ```yaml
 services:
   tako-vm:
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./tako_vm.yaml:/app/tako_vm.yaml:ro  # Add this line
+    environment:
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
 ```
 
 !!! warning
-    Mounting the Docker socket gives Tako VM access to the Docker daemon. In high-security environments, consider using Docker-in-Docker or a separate Docker host.
+    The socket proxy is an interim mitigation, not a complete privilege boundary. In high-security environments, prefer Docker-in-Docker, a separate Docker host, or the planned dedicated executor service with policy enforcement.
 
 ## Reverse Proxy (Nginx)
 
