@@ -56,6 +56,18 @@ def _require_safe_execution_id(execution_id: str) -> str:
     return execution_id
 
 
+def _resolve_run_path(data_dir: Path, execution_id: str, *parts: str) -> Path:
+    """Resolve a path under data_dir/runs/<execution_id> and verify containment."""
+    safe_execution_id = _require_safe_execution_id(execution_id)
+    runs_root = (data_dir / "runs").resolve()
+    resolved = (runs_root / safe_execution_id).joinpath(*parts).resolve()
+
+    if not resolved.is_relative_to(runs_root):
+        raise ValueError("Resolved run path escaped the configured runs directory")
+
+    return resolved
+
+
 def check_gvisor_available() -> bool:
     """
     Check if gVisor (runsc) runtime is available.
@@ -328,7 +340,7 @@ class CodeExecutor:
         timeout = job.get("timeout", job_type.timeout)
 
         # Create temporary workspace
-        workspace = Path(tempfile.mkdtemp(prefix=f"job-{job_id}-", dir=WORKSPACE_DIR))
+        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
 
         try:
             # Prepare directories
@@ -446,7 +458,7 @@ class CodeExecutor:
         timeout = job.get("timeout", job_type.timeout)
 
         # Create temporary workspace
-        workspace = Path(tempfile.mkdtemp(prefix=f"job-{job_id}-", dir=WORKSPACE_DIR))
+        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
 
         try:
             # Prepare directories
@@ -656,7 +668,7 @@ class CodeExecutor:
             return artifacts
 
         # Create permanent storage directory for artifacts
-        artifacts_dir = self.config.data_dir / "runs" / job_id / "artifacts"
+        artifacts_dir = _resolve_run_path(self.config.data_dir, job_id, "artifacts")
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         for path in output_dir.iterdir():
@@ -685,7 +697,7 @@ class CodeExecutor:
                 storage_key = f"runs/{job_id}/artifacts/{path.name}"
 
                 # Copy file to permanent storage
-                dest_path = self.config.data_dir / storage_key
+                dest_path = _resolve_run_path(self.config.data_dir, job_id, "artifacts", path.name)
                 shutil.copy2(path, dest_path)
 
                 artifacts.append(
@@ -721,7 +733,7 @@ class CodeExecutor:
         """
         replay_artifacts = []
         execution_id = _require_safe_execution_id(execution_id)
-        runs_dir = self.config.data_dir / "runs" / execution_id
+        runs_dir = _resolve_run_path(self.config.data_dir, execution_id)
 
         try:
             # Ensure directory exists
