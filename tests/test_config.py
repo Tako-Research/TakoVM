@@ -254,6 +254,8 @@ class TestTakoVMConfig:
         assert config.api_rate_limit_enabled is True
         assert config.api_rate_limit_requests == 120
         assert config.api_rate_limit_window_seconds == 60
+        assert config.allow_runtime_requirements is False
+        assert config.dependency_proxy_url is None
 
     def test_tako_vm_config_path_resolution(self):
         """TakoVMConfig resolves data_dir while keeping database URL."""
@@ -325,6 +327,20 @@ class TestTakoVMConfig:
         assert len(config.job_types) == 2
         assert config.job_types[0].name == "job-a"
 
+    def test_tako_vm_config_dependency_proxy_url_validation(self):
+        """Dependency proxy URL accepts proxy schemes and rejects unsafe values."""
+        config = TakoVMConfig(dependency_proxy_url=" https://proxy.example:8443 ")
+        assert config.dependency_proxy_url == "https://proxy.example:8443"
+
+        with pytest.raises(ValueError, match="dependency_proxy_url"):
+            TakoVMConfig(dependency_proxy_url="file:///tmp/proxy")
+
+        with pytest.raises(ValueError, match="control characters"):
+            TakoVMConfig(dependency_proxy_url="https://proxy.example\nbad")
+
+        with pytest.raises(ValueError, match="path, query, or fragment"):
+            TakoVMConfig(dependency_proxy_url="https://proxy.example:8443/proxy")
+
     def test_tako_vm_config_get_method(self):
         """TakoVMConfig.get() provides dict-like access."""
         config = TakoVMConfig(max_workers=8)
@@ -388,6 +404,8 @@ security_mode: permissive
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_ENABLED", "false")
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_REQUESTS", "42")
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS", "15")
+        monkeypatch.setenv("TAKO_VM_ALLOW_RUNTIME_REQUIREMENTS", "true")
+        monkeypatch.setenv("TAKO_VM_DEPENDENCY_PROXY_URL", "https://proxy.example:8443")
 
         config = load_config()
 
@@ -395,6 +413,8 @@ security_mode: permissive
         assert config.api_rate_limit_enabled is False
         assert config.api_rate_limit_requests == 42
         assert config.api_rate_limit_window_seconds == 15
+        assert config.allow_runtime_requirements is True
+        assert config.dependency_proxy_url == "https://proxy.example:8443"
 
     @pytest.mark.parametrize(
         "var_name",

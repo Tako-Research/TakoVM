@@ -167,7 +167,11 @@ class TestExecutorRejectsUnsafeIds:
 
     def test_run_container_writes_requirements_file_not_env(self, monkeypatch, tmp_path):
         executor = CodeExecutor(
-            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+            config=TakoVMConfig(
+                container_runtime="runsc",
+                security_mode="strict",
+                allow_runtime_requirements=True,
+            )
         )
         code_dir = tmp_path / "code"
         input_dir = tmp_path / "input"
@@ -199,3 +203,91 @@ class TestExecutorRejectsUnsafeIds:
         assert not any(arg.startswith("--env=TAKO_REQUIREMENTS=") for arg in captured["cmd"])
         assert "--network=bridge" in captured["cmd"]
         assert (input_dir / "_requirements.txt").read_text(encoding="utf-8") == "requests>=2.31\n"
+
+    def test_run_container_rejects_requirements_when_policy_disabled(self, monkeypatch, tmp_path):
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+        )
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        fake_run = MagicMock()
+        monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
+
+        result = executor._run_container(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            startup_timeout=45,
+            job_type=JobType(name="default", requirements=[]),
+            extra_requirements=["requests>=2.31"],
+            job_id="job-123",
+        )
+
+        assert result["success"] is False
+        assert "Runtime dependency installation is disabled" in result["error"]
+        assert not (input_dir / "_requirements.txt").exists()
+        fake_run.assert_not_called()
+
+    def test_run_container_adds_dependency_proxy_only_for_runtime_deps(self, monkeypatch, tmp_path):
+        executor = CodeExecutor(
+            config=TakoVMConfig(
+                container_runtime="runsc",
+                security_mode="strict",
+                allow_runtime_requirements=True,
+                dependency_proxy_url="https://proxy.example:8443",
+            )
+        )
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        captured = {}
+
+        def fake_run(cmd, timeout, capture_output, text, check):
+            captured["cmd"] = cmd
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
+
+        result = executor._run_container(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            startup_timeout=45,
+            job_type=JobType(name="default", requirements=[]),
+            extra_requirements=["requests>=2.31"],
+            job_id="job-123",
+        )
+
+        assert result["success"] is True
+        assert "--env=TAKO_DEPENDENCY_PROXY_URL=https://proxy.example:8443" in captured["cmd"]
+        assert not any(arg.startswith("--env=HTTP_PROXY=") for arg in captured["cmd"])
+        assert not any(arg.startswith("--env=HTTPS_PROXY=") for arg in captured["cmd"])
+        assert not any(arg.startswith("--env=ALL_PROXY=") for arg in captured["cmd"])
+
+        captured.clear()
+        (input_dir / "_requirements.txt").unlink()
+        result = executor._run_container(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            startup_timeout=45,
+            job_type=JobType(name="default", requirements=[]),
+            job_id="job-123",
+        )
+
+        assert result["success"] is True
+        assert not any(
+            arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in captured["cmd"]
+        )

@@ -239,7 +239,7 @@ class TestSandboxRequirements:
 import requests
 print(f"requests version: {requests.__version__}")
 """
-        with Sandbox() as sb:
+        with Sandbox(allow_runtime_requirements=True) as sb:
             result = sb.run(code, requirements=["requests"])
 
         assert result.success is True
@@ -253,7 +253,7 @@ import httpx
 print(f"requests: {requests.__version__}")
 print(f"httpx: {httpx.__version__}")
 """
-        with Sandbox() as sb:
+        with Sandbox(allow_runtime_requirements=True) as sb:
             result = sb.run(code, requirements=["requests", "httpx"])
 
         assert result.success is True
@@ -266,11 +266,66 @@ print(f"httpx: {httpx.__version__}")
 import requests
 print(f"version: {requests.__version__}")
 """
-        with Sandbox() as sb:
+        with Sandbox(allow_runtime_requirements=True) as sb:
             result = sb.run(code, requirements=["requests>=2.20.0"])
 
         assert result.success is True
         assert "version:" in result.stdout
+
+    def test_sandbox_rejects_requirements_by_default(self):
+        """Runtime dependency installation is opt-in."""
+        with Sandbox() as sb:
+            result = sb.run("print('hi')", requirements=["requests"])
+
+        assert result.success is False
+        assert result.exit_code == -1
+        assert result.error is not None
+        assert "Runtime dependency installation is disabled" in result.error
+
+    def test_sandbox_dependency_proxy_url_validation(self):
+        """Sandbox validates dependency proxy URL."""
+        with Sandbox(dependency_proxy_url=" https://proxy.example:8443 ") as sb:
+            assert sb.config.dependency_proxy_url == "https://proxy.example:8443"
+
+        with pytest.raises(ValueError, match="dependency_proxy_url"):
+            Sandbox(dependency_proxy_url="file:///tmp/proxy")
+
+        with pytest.raises(ValueError, match="path, query, or fragment"):
+            Sandbox(dependency_proxy_url="https://proxy.example:8443/proxy")
+
+    def test_sandbox_dependency_proxy_is_scoped_to_runtime_requirements(self, tmp_path):
+        """Sandbox passes proxy only when runtime requirements are present."""
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        sb = Sandbox(
+            allow_runtime_requirements=True,
+            dependency_proxy_url="https://proxy.example:8443",
+        )
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            requirements=["requests"],
+        )
+
+        assert "--env=TAKO_DEPENDENCY_PROXY_URL=https://proxy.example:8443" in cmd
+        assert not any(arg.startswith("--env=HTTP_PROXY=") for arg in cmd)
+
+        (input_dir / "_requirements.txt").unlink()
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+        )
+
+        assert not any(arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in cmd)
 
 
 @pytest.mark.requires_host_mounts

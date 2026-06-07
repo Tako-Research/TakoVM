@@ -9,13 +9,14 @@ WARNING: These are intentionally vulnerable scenarios to document the risk.
 
 import pytest
 
+from tako_vm.config import TakoVMConfig
 from tako_vm.execution.worker import CodeExecutor
 
 
 @pytest.fixture
 def executor():
     """Create a CodeExecutor for testing."""
-    return CodeExecutor()
+    return CodeExecutor(config=TakoVMConfig(allow_runtime_requirements=True))
 
 
 class TestProcExposure:

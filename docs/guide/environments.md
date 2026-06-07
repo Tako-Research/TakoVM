@@ -105,6 +105,13 @@ job_types:
 
 When `network_enabled: true`, containers can access any external host. For strict egress control in production, use external firewalls or Kubernetes NetworkPolicy.
 
+Runtime dependency installation from `requirements` is disabled by default. Use pre-built job images for production. For trusted development environments, enable:
+
+```yaml
+allow_runtime_requirements: true
+dependency_proxy_url: "https://proxy.example:8443"  # optional
+```
+
 ## List Job Types
 
 ```python
@@ -159,6 +166,7 @@ In production mode (`production_mode: true`):
 - Auto-build is disabled
 - All job types must be pre-built
 - Requests for missing job types fail with an error
+- Runtime dependency installation should remain disabled
 
 ```yaml
 production_mode: true
