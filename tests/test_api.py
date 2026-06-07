@@ -43,6 +43,15 @@ class TestHealthEndpoint:
 class TestSyncExecution:
     """Tests for synchronous /execute endpoint."""
 
+    def test_generate_sync_job_id_is_unique(self):
+        """Legacy sync endpoint IDs are UUID-based to avoid collisions."""
+        from tako_vm.server.app import _generate_sync_job_id
+
+        job_ids = {_generate_sync_job_id() for _ in range(20)}
+
+        assert len(job_ids) == 20
+        assert all(job_id.startswith("api-") for job_id in job_ids)
+
     def test_execute_simple_code(self, client):
         """Execute simple code that writes output."""
         code = """
@@ -443,6 +452,11 @@ for i in range(60):
         assert cancel_data["status"] == "cancelled"
         assert cancel_data["job_id"] == job_id
 
+        result_response = client.get(f"/jobs/{job_id}/result", params={"wait": True, "timeout": 60})
+        assert result_response.status_code == 200
+        result_data = result_response.json()
+        assert result_data["status"] == "cancelled"
+
     def test_cancel_nonexistent_job(self, client):
         """Cancel of non-existent job returns 404."""
         response = client.post("/jobs/nonexistent-id/cancel")
@@ -588,6 +602,54 @@ class TestIdempotency:
         second_response = client.post(
             "/execute/async",
             json={"code": "print('different')", "idempotency_key": idempotency_key},
+        )
+        assert second_response.status_code == 409
+
+    def test_idempotency_key_reuse_with_different_requirements_fails(self, client):
+        """Requirements changes must be treated as a different idempotent payload."""
+        idempotency_key = "test-conflict-reqs-12345"
+
+        first_response = client.post(
+            "/execute/async",
+            json={
+                "code": "print('deps')",
+                "requirements": ["requests"],
+                "idempotency_key": idempotency_key,
+            },
+        )
+        assert first_response.status_code == 200
+
+        second_response = client.post(
+            "/execute/async",
+            json={
+                "code": "print('deps')",
+                "requirements": ["httpx"],
+                "idempotency_key": idempotency_key,
+            },
+        )
+        assert second_response.status_code == 409
+
+    def test_idempotency_key_reuse_with_different_startup_timeout_fails(self, client):
+        """Startup timeout changes must be treated as a different idempotent payload."""
+        idempotency_key = "test-conflict-startup-12345"
+
+        first_response = client.post(
+            "/execute/async",
+            json={
+                "code": "print('startup')",
+                "startup_timeout": 30,
+                "idempotency_key": idempotency_key,
+            },
+        )
+        assert first_response.status_code == 200
+
+        second_response = client.post(
+            "/execute/async",
+            json={
+                "code": "print('startup')",
+                "startup_timeout": 60,
+                "idempotency_key": idempotency_key,
+            },
         )
         assert second_response.status_code == 409
 

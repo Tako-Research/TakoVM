@@ -70,7 +70,7 @@ class TestKillContainer:
         """kill_container calls docker kill command."""
         mock_run.return_value = MagicMock(returncode=0)
 
-        kill_container("tako-test-123")
+        assert kill_container("tako-test-123") is True
 
         mock_run.assert_called_once_with(
             ["docker", "kill", "tako-test-123"],
@@ -84,24 +84,21 @@ class TestKillContainer:
         """kill_container silently ignores errors."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
 
-        # Should not raise
-        kill_container("nonexistent-container")
+        assert kill_container("nonexistent-container") is False
 
     @patch("subprocess.run")
     def test_kill_container_ignores_docker_errors(self, mock_run):
         """kill_container ignores docker command failures."""
         mock_run.return_value = MagicMock(returncode=1)  # Container not found
 
-        # Should not raise
-        kill_container("already-stopped-container")
+        assert kill_container("already-stopped-container") is False
 
     @patch("subprocess.run")
     def test_kill_container_handles_exception(self, mock_run):
         """kill_container handles unexpected exceptions."""
         mock_run.side_effect = Exception("Unexpected error")
 
-        # Should not raise
-        kill_container("error-container")
+        assert kill_container("error-container") is False
 
 
 class TestContainerNameValidation:

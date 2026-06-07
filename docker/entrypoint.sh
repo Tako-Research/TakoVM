@@ -10,6 +10,11 @@ get_time_ms() {
     echo $(($(date +%s%N) / 1000000))
 }
 
+write_total_time() {
+    END_TOTAL=$(get_time_ms)
+    echo "total_ms=$((END_TOTAL - START_TOTAL))" >> "$PHASE_FILE"
+}
+
 # Initialize phase tracking
 START_TOTAL=$(get_time_ms)
 echo "container_start_ms=$START_TOTAL" > "$PHASE_FILE"
@@ -35,7 +40,12 @@ if [ -n "$TAKO_REQUIREMENTS" ]; then
 
     # Capture install result (don't exit on error yet so we can record timing)
     set +e
-    uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE" 2>&1
+    if [ -n "$TAKO_STARTUP_TIMEOUT" ]; then
+        timeout --signal=TERM "${TAKO_STARTUP_TIMEOUT}s" \
+            uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE" 2>&1
+    else
+        uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE" 2>&1
+    fi
     DEP_EXIT_CODE=$?
     set -e
 
@@ -52,8 +62,10 @@ if [ -n "$TAKO_REQUIREMENTS" ]; then
 
     # Exit if dep install failed
     if [ $DEP_EXIT_CODE -ne 0 ]; then
+        echo "startup_ms=$((END_DEP - START_STARTUP))" >> "$PHASE_FILE"
         echo "phase=failed" >> "$PHASE_FILE"
         echo "failed_phase=startup" >> "$PHASE_FILE"
+        write_total_time
         exit $DEP_EXIT_CODE
     fi
 else
@@ -73,8 +85,14 @@ echo "execution_start_ms=$START_EXEC" >> "$PHASE_FILE"
 
 # Drop privileges and run user code as sandbox user
 # Using exec replaces this process, so we need a wrapper to capture timing
-gosu sandbox python -u /code/main.py
+set +e
+if [ -n "$TAKO_EXECUTION_TIMEOUT" ]; then
+    timeout --signal=TERM "${TAKO_EXECUTION_TIMEOUT}s" gosu sandbox python -u /code/main.py
+else
+    gosu sandbox python -u /code/main.py
+fi
 EXEC_EXIT_CODE=$?
+set -e
 
 # Record execution completion
 END_EXEC=$(get_time_ms)
@@ -90,7 +108,6 @@ else
 fi
 
 # Total time
-END_TOTAL=$(get_time_ms)
-echo "total_ms=$((END_TOTAL - START_TOTAL))" >> "$PHASE_FILE"
+write_total_time
 
 exit $EXEC_EXIT_CODE

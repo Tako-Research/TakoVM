@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from tako_vm.execution.docker import generate_container_name, kill_container
 from tako_vm.models import (
     DeadLetterEntry,
     ExecutionError,
@@ -49,6 +50,9 @@ class QueuedJob:
 
     cancelled: bool = False
     """Whether this job has been cancelled."""
+
+    cancel_signal_sent: bool = False
+    """Whether a kill signal was successfully sent to a running container."""
 
 
 class WorkerPool:
@@ -311,24 +315,58 @@ class WorkerPool:
         Returns:
             True if job was found and cancelled
         """
+        running_job: Optional[QueuedJob] = None
         async with self._jobs_lock:
             # Check pending jobs
             job = self._active_jobs.get(job_id)
             if job and job.future and not job.future.done():
                 job.cancelled = True
-                job.future.cancel()
                 logger.info(f"Job {job_id} cancelled (was pending)")
                 return True
 
-            # Check running jobs - can't cancel Docker execution directly
-            # but we can mark it for cleanup
+            # Check running jobs - send a kill to the tracked container.
             job = self._running_jobs.get(job_id)
             if job:
                 job.cancelled = True
-                logger.info(f"Job {job_id} marked for cancellation (was running)")
-                return True
+                running_job = job
 
-        return False
+        if not running_job:
+            return False
+
+        container_name = generate_container_name("tako", job_id)
+        signal_sent = await asyncio.to_thread(kill_container, container_name)
+
+        async with self._jobs_lock:
+            current = self._running_jobs.get(job_id)
+            if current is running_job:
+                current.cancel_signal_sent = signal_sent
+
+        if signal_sent:
+            logger.info(f"Job {job_id} cancellation signal sent to container {container_name}")
+        else:
+            logger.info(f"Job {job_id} cancellation requested, but container was not running")
+
+        return True
+
+    def _build_cancelled_record(self, job: QueuedJob) -> ExecutionRecord:
+        """Create a final cancelled record for a job."""
+        job_type_name = job.job_data.get("job_type") or "default"
+        return ExecutionRecord(
+            execution_id=job.job_id,
+            status="cancelled",
+            job_type=job_type_name,
+            job_ref=f"{job_type_name}@latest",
+            created_at=job.created_at,
+            queued_at=job.created_at,
+            code_hash=sha256_content(job.job_data.get("code", "")),
+            input_hash=sha256_json(job.job_data.get("input_data", {})),
+            client_ip=job.client_ip,
+            error=ExecutionError(type="cancelled", message="Execution was cancelled by user"),
+            idempotency_key=job.job_data.get("idempotency_key"),
+            idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
+            parent_execution_id=job.job_data.get("parent_execution_id"),
+            relationship=job.job_data.get("relationship"),
+        )
 
     def _estimate_queue_position_unlocked(self, job_id: str) -> int:
         """Estimate position in queue (rough estimate). Must be called with _jobs_lock held."""
@@ -397,6 +435,12 @@ class WorkerPool:
 
                 # Skip if already cancelled
                 if job.cancelled or (job.future and job.future.cancelled()):
+                    await self.storage.save_record(self._build_cancelled_record(job))
+                    if job.future and not job.future.done():
+                        try:
+                            job.future.set_result(self._build_cancelled_record(job))
+                        except asyncio.InvalidStateError:
+                            logger.debug(f"Future already done for cancelled job {job.job_id}")
                     async with self._jobs_lock:
                         self._active_jobs.pop(job.job_id, None)
                     continue
@@ -416,6 +460,17 @@ class WorkerPool:
                     # Run execution in thread pool
                     record = await self._execute_job(job)
 
+                    if job.cancelled and (
+                        job.cancel_signal_sent or record.exit_code in {124, 137, 143}
+                    ):
+                        phase = record.timing.phase_at_exit if record.timing else None
+                        record.status = "cancelled"
+                        record.error = ExecutionError(
+                            type="cancelled",
+                            message="Execution was cancelled by user",
+                            phase=phase,
+                        )
+
                     # Save to storage
                     await self.storage.save_record(record)
 
@@ -428,23 +483,7 @@ class WorkerPool:
 
                 except asyncio.CancelledError:
                     # Job was cancelled
-                    job_type_name = job.job_data.get("job_type") or "default"
-                    record = ExecutionRecord(
-                        execution_id=job.job_id,
-                        status="cancelled",
-                        job_type=job_type_name,
-                        job_ref=f"{job_type_name}@latest",
-                        created_at=job.created_at,
-                        queued_at=job.created_at,
-                        code_hash=sha256_content(job.job_data.get("code", "")),
-                        input_hash=sha256_json(job.job_data.get("input_data", {})),
-                        client_ip=job.client_ip,
-                        # Propagate idempotency and lineage fields
-                        idempotency_key=job.job_data.get("idempotency_key"),
-                        idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
-                        parent_execution_id=job.job_data.get("parent_execution_id"),
-                        relationship=job.job_data.get("relationship"),
-                    )
+                    record = self._build_cancelled_record(job)
                     await self.storage.save_record(record)
 
                     if job.future:
@@ -563,9 +602,10 @@ class WorkerPool:
         """
         loop = asyncio.get_running_loop()
 
-        # Get job timeout with buffer for Docker startup overhead
+        # Include both startup and execution budgets, plus buffer for Docker orchestration.
         job_timeout = job.job_data.get("timeout", 30)
-        executor_timeout = job_timeout + 60  # 60s buffer for container setup
+        startup_timeout = job.job_data.get("startup_timeout", 120)
+        executor_timeout = startup_timeout + job_timeout + 60
 
         # Run synchronous execution in thread pool with timeout protection
         record = await asyncio.wait_for(
