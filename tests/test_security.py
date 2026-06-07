@@ -69,13 +69,17 @@ class TestExecutorRejectsUnsafeIds:
         monkeypatch.setattr(worker_module, "_gvisor_available", True)
 
     def test_execute_job_rejects_path_traversal_ids(self):
-        executor = CodeExecutor(config=TakoVMConfig(container_runtime="runsc", security_mode="strict"))
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+        )
 
         with pytest.raises(ValueError, match="Execution ID must be"):
             executor.execute_job({"id": "../escape", "code": "print('hi')", "input_data": {}})
 
     def test_execute_job_with_record_accepts_existing_repo_id_formats(self):
-        executor = CodeExecutor(config=TakoVMConfig(container_runtime="runsc", security_mode="strict"))
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+        )
 
         record = executor.execute_job_with_record(
             "550e8400-e29b-41d4-a716-446655440000",

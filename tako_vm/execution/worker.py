@@ -52,9 +52,7 @@ _gvisor_available: Optional[bool] = None
 def _require_safe_execution_id(execution_id: str) -> str:
     """Reject execution IDs that are unsafe for filesystem-backed storage."""
     if not validate_execution_id(execution_id):
-        raise ValueError(
-            "Execution ID must be 1-64 chars of letters, numbers, '.', '_' or '-'"
-        )
+        raise ValueError("Execution ID must be 1-64 chars of letters, numbers, '.', '_' or '-'")
     return execution_id
 
 
