@@ -39,6 +39,7 @@ from tako_vm.security import (
     validate_docker_image,
     validate_env_key,
     validate_env_value,
+    validate_execution_id,
     validate_pip_requirement,
 )
 
@@ -46,6 +47,15 @@ logger = logging.getLogger(__name__)
 
 # Cache for runtime availability check
 _gvisor_available: Optional[bool] = None
+
+
+def _require_safe_execution_id(execution_id: str) -> str:
+    """Reject execution IDs that are unsafe for filesystem-backed storage."""
+    if not validate_execution_id(execution_id):
+        raise ValueError(
+            "Execution ID must be 1-64 chars of letters, numbers, '.', '_' or '-'"
+        )
+    return execution_id
 
 
 def check_gvisor_available() -> bool:
@@ -311,7 +321,7 @@ class CodeExecutor:
                 - error: Error message (if failed)
                 - job_type: Name of job type used
         """
-        job_id = job.get("id", str(int(time.time() * 1000)))
+        job_id = _require_safe_execution_id(job.get("id", str(int(time.time() * 1000))))
 
         # Get job type configuration
         job_type = self._get_job_type(job.get("job_type"))
@@ -396,6 +406,8 @@ class CodeExecutor:
         Returns:
             ExecutionRecord with complete audit trail
         """
+        job_id = _require_safe_execution_id(job_id)
+
         # Create initial record
         code = job.get("code", "")
         input_data = job.get("input_data", {})
@@ -640,6 +652,7 @@ class CodeExecutor:
         """
         artifacts = []
         total_size = 0
+        job_id = _require_safe_execution_id(job_id)
 
         if not output_dir.exists():
             return artifacts
@@ -709,6 +722,7 @@ class CodeExecutor:
             List of InputArtifact objects for the stored files
         """
         replay_artifacts = []
+        execution_id = _require_safe_execution_id(execution_id)
         runs_dir = self.config.data_dir / "runs" / execution_id
 
         try:

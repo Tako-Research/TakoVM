@@ -472,14 +472,40 @@ def validate_python_version(version: str) -> bool:
     return bool(_PYTHON_VERSION_PATTERN.match(version))
 
 
-# Pattern for pip package specifier (simplified PEP 508)
-# Allows: package-name, package_name, package[extra], package>=1.0, etc.
-_PIP_PACKAGE_PATTERN = re.compile(
-    r"^[a-zA-Z0-9][-a-zA-Z0-9._]*"  # Package name
-    r"(?:\[[a-zA-Z0-9][-a-zA-Z0-9,._]*\])?"  # Optional extras
-    r"(?:[<>=!~]+[a-zA-Z0-9.*+!-]+(?:,[<>=!~]+[a-zA-Z0-9.*+!-]+)*)?"  # Optional version
-    r"$"
+_SAFE_EXECUTION_ID_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
 )
+_SAFE_PIP_NAME_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
+)
+_SAFE_PIP_VERSION_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.*+!-"
+)
+_SAFE_PIP_OPERATOR_CHARS = frozenset("<>=!~")
+
+
+def validate_execution_id(value: str) -> bool:
+    """
+    Validate an execution/job ID before using it in filesystem paths.
+
+    The same identifier is also reused in Docker container names, so the
+    character set stays intentionally conservative.
+    """
+    if not value or len(value) > 64:
+        return False
+    if value in (".", "..") or value.startswith("."):
+        return False
+    if "/" in value or "\\" in value:
+        return False
+    return all(char in _SAFE_EXECUTION_ID_CHARS for char in value)
+
+
+def _consume_token(value: str, start: int, allowed_chars: frozenset[str]) -> int:
+    """Consume a non-empty token made of allowed characters."""
+    index = start
+    while index < len(value) and value[index] in allowed_chars:
+        index += 1
+    return index
 
 
 def validate_pip_requirement(requirement: str) -> bool:
@@ -515,4 +541,48 @@ def validate_pip_requirement(requirement: str) -> bool:
         if pattern in requirement:
             return False
 
-    return bool(_PIP_PACKAGE_PATTERN.match(requirement))
+    # Parse a conservative subset of PEP 508 in linear time:
+    # package-name
+    # package-name[extra,extra2]
+    # package-name>=1.0,!=2.0
+    index = _consume_token(requirement, 0, _SAFE_PIP_NAME_CHARS)
+    if index == 0:
+        return False
+
+    # Optional extras block: [extra,extra2]
+    if index < len(requirement) and requirement[index] == "[":
+        index += 1
+        while True:
+            extra_end = _consume_token(requirement, index, _SAFE_PIP_NAME_CHARS)
+            if extra_end == index:
+                return False
+            index = extra_end
+
+            if index >= len(requirement):
+                return False
+            if requirement[index] == "]":
+                index += 1
+                break
+            if requirement[index] != ",":
+                return False
+            index += 1
+
+    # Optional version clauses: >=1.0,!=2.0
+    while index < len(requirement):
+        op_end = _consume_token(requirement, index, _SAFE_PIP_OPERATOR_CHARS)
+        if op_end == index:
+            return False
+        index = op_end
+
+        version_end = _consume_token(requirement, index, _SAFE_PIP_VERSION_CHARS)
+        if version_end == index:
+            return False
+        index = version_end
+
+        if index == len(requirement):
+            return True
+        if requirement[index] != ",":
+            return False
+        index += 1
+
+    return True
