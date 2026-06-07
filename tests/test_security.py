@@ -8,7 +8,11 @@ import tako_vm.execution.worker as worker_module
 from tako_vm.config import TakoVMConfig
 from tako_vm.execution import CodeExecutor
 from tako_vm.job_types import JobType
-from tako_vm.security import validate_execution_id, validate_pip_requirement
+from tako_vm.security import (
+    validate_docker_run_args,
+    validate_execution_id,
+    validate_pip_requirement,
+)
 
 
 class TestValidateExecutionId:
@@ -64,6 +68,40 @@ class TestValidatePipRequirement:
     )
     def test_rejects_unsafe_or_malformed_forms(self, value):
         assert validate_pip_requirement(value) is False
+
+
+class TestValidateDockerRunArgs:
+    def test_accepts_safe_docker_run_argv(self, tmp_path):
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+
+        assert (
+            validate_docker_run_args(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--name=tako-job-123",
+                    "--network=none",
+                    f"--mount=type=bind,source={code_dir.resolve()},target=/code,readonly",
+                    "--env=TAKO_EXECUTION_TIMEOUT=30",
+                    "code-executor:latest",
+                ]
+            )
+            is True
+        )
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["podman", "run", "code-executor:latest"],
+            ["docker", "run", "bad\narg", "code-executor:latest"],
+            ["docker", "run", "--env=NAME=value with spaces", "code-executor:latest"],
+            ["docker", "run", "", "code-executor:latest"],
+        ],
+    )
+    def test_rejects_unsafe_docker_run_argv(self, args):
+        assert validate_docker_run_args(args) is False
 
 
 class TestExecutorRejectsUnsafeIds:
