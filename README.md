@@ -20,7 +20,7 @@ Job queues, retries, and execution history included.
 </p>
 
 ```bash
-# Install (requires Docker + Python 3.9+)
+# Install (requires Docker + Python 3.10+)
 pip install "tako-vm[server]"
 tako-vm setup                   # pull the executor Docker image
 tako-vm server                  # start server (auto-starts PostgreSQL via Docker)

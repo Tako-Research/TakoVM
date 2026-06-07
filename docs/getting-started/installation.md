@@ -7,7 +7,7 @@ Before installing Tako VM, verify you have the following:
 | Requirement | Minimum Version | Check Command | Required? |
 |-------------|----------------|---------------|-----------|
 | **Docker** | 20.10+ | `docker --version` | Yes |
-| **Python** | 3.9+ | `python3 --version` | Yes |
+| **Python** | 3.10+ | `python3 --version` | Yes |
 | **[uv](https://github.com/astral-sh/uv)** | any | `uv --version` | Recommended (pip also works) |
 | **gVisor** | any | `docker run --runtime=runsc --rm hello-world` | Production only |
 
