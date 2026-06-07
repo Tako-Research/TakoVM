@@ -2605,7 +2605,7 @@
 <td><code>requirements</code></td>
 <td>array</td>
 <td>No</td>
-<td>Python packages to install at runtime (e.g., <code>["pandas", "numpy&gt;=1.20"]</code>)</td>
+<td>Python packages to install at runtime when <code>allow_runtime_requirements</code> is enabled (e.g., <code>["pandas", "numpy&gt;=1.20"]</code>). Prefer pre-built images in production.</td>
 </tr>
 </tbody>
 </table>
@@ -2628,7 +2628,7 @@
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="s1">    &quot;timeout&quot;: 60</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="s1">  }&#39;</span>
 </span></code></pre></div>
-<p>This example sets a 5-minute startup timeout (for installing TensorFlow) and a 1-minute code execution timeout.</p>
+<p>This example requires <code>allow_runtime_requirements: true</code>. It sets a 5-minute startup timeout (for installing TensorFlow) and a 1-minute code execution timeout.</p>
 <h3 id="example-with-inputoutput">Example with Input/Output<a class="headerlink" href="#example-with-inputoutput" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/execute<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
@@ -2705,7 +2705,7 @@
 <td><code>requirements</code></td>
 <td>array</td>
 <td>No</td>
-<td>Python packages to install at runtime (e.g., <code>["pandas", "numpy&gt;=1.20"]</code>)</td>
+<td>Python packages to install at runtime when <code>allow_runtime_requirements</code> is enabled (e.g., <code>["pandas", "numpy&gt;=1.20"]</code>). Prefer pre-built images in production.</td>
 </tr>
 <tr>
 <td><code>idempotency_key</code></td>
@@ -3908,7 +3908,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 17, 2026 06:59:29 UTC"><span class="timeago" datetime="2026-03-17T06:59:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 17, 2026 06:59:29 UTC">2026-03-17</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 7, 2026 04:27:56 UTC"><span class="timeago" datetime="2026-06-07T04:27:56+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 7, 2026 04:27:56 UTC">2026-06-07</span>
   </span>
 
     
