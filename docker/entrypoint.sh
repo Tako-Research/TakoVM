@@ -25,13 +25,10 @@ echo "container_start_ms=$START_TOTAL" > "$PHASE_FILE"
 echo "phase=startup" >> "$PHASE_FILE"
 START_STARTUP=$(get_time_ms)
 
-if [ -n "$TAKO_REQUIREMENTS" ]; then
-    echo "dep_install_started=true" >> "$PHASE_FILE"
+REQS_FILE="/input/_requirements.txt"
 
-    # Write requirements to a temporary file for safer handling
-    # This avoids shell word splitting issues with package specifiers
-    REQS_FILE=$(mktemp)
-    echo "$TAKO_REQUIREMENTS" | tr ',' '\n' > "$REQS_FILE"
+if [ -s "$REQS_FILE" ]; then
+    echo "dep_install_started=true" >> "$PHASE_FILE"
 
     # Install with uv to a writable target directory (avoids read-only filesystem issues)
     # Using --target instead of --system to install to /tmp/site-packages
@@ -51,9 +48,6 @@ if [ -n "$TAKO_REQUIREMENTS" ]; then
 
     # Set PYTHONPATH so Python can find the installed packages
     export PYTHONPATH="$TARGET_DIR:$PYTHONPATH"
-
-    # Cleanup
-    rm -f "$REQS_FILE"
 
     # Record dep install completion
     END_DEP=$(get_time_ms)

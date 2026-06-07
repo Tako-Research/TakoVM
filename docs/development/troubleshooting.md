@@ -3,8 +3,8 @@
 ## Dependency Flow
 
 1. Job submitted with `job_type: "data-processing"` (has `requirements: [pandas, numpy]`)
-2. Worker passes requirements via `TAKO_REQUIREMENTS` env var
-3. Container starts, `entrypoint.sh` runs `uv pip install pandas numpy`
+2. Worker writes validated requirements to `/input/_requirements.txt`
+3. Container starts, `entrypoint.sh` runs `uv pip install -r /input/_requirements.txt`
 4. Code runs as `sandbox` user (uid 1000) via `gosu`
 
 For network-isolated jobs with deps, use pre-built images via the REST API:

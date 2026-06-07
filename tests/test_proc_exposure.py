@@ -26,7 +26,7 @@ class TestProcExposure:
         Demonstrate that user code can read /proc/self/environ.
 
         VULNERABILITY: User code can access all environment variables including:
-        - TAKO_REQUIREMENTS (dependency list)
+        - dependency specifications if they are passed through environment variables
         - Custom job_type.environment variables
         """
         code = """
@@ -63,12 +63,12 @@ with open('/output/result.json', 'w') as f:
             "id": "test-proc-environ",
             "code": code,
             "input_data": {},
-            "requirements": ["requests"],  # This will appear in TAKO_REQUIREMENTS
+            "requirements": ["requests"],
         }
 
         result = executor.execute_job(job)
 
-        # This test PASSES, demonstrating the vulnerability
+        # /proc environment access remains possible, but dependency specs should not leak.
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
@@ -79,14 +79,13 @@ with open('/output/result.json', 'w') as f:
         assert output["has_path"] is True
         assert output["has_home"] is True
 
-        # SECURITY ISSUE: Tako-specific variables are exposed
-        assert "TAKO_REQUIREMENTS" in output["tako_vars"]
-        assert "requests" in output["tako_vars"]["TAKO_REQUIREMENTS"]
+        # Dependency requirements are passed via /input/_requirements.txt, not env.
+        assert "TAKO_REQUIREMENTS" not in output["tako_vars"]
 
-        print("\n⚠️  VULNERABILITY CONFIRMED:")
+        print("\n/proc environment exposure observed:")
         print(f"   - Total environment variables exposed: {output['total_vars']}")
         print(f"   - Tako variables exposed: {list(output['tako_vars'].keys())}")
-        print(f"   - Requirements leaked: {output['tako_vars'].get('TAKO_REQUIREMENTS', 'N/A')}")
+        print("   - Requirements leaked: no")
 
     def test_binary_extraction_via_proc_exe(self, executor):
         """

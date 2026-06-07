@@ -37,8 +37,8 @@ from tako_vm.security import (
     compute_file_hash,
     is_safe_filename,
     sanitize_error,
-    validate_docker_run_args,
     validate_docker_image,
+    validate_docker_run_args,
     validate_env_key,
     validate_env_value,
     validate_execution_id,
@@ -822,9 +822,40 @@ class CodeExecutor:
                 "exit_code": -1,
             }
 
+        # Validate runtime requirements before deciding network and tmpfs policy.
+        all_requirements = list(job_type.requirements) if job_type.requirements else []
+        if extra_requirements:
+            all_requirements.extend(extra_requirements)
+
+        if len(all_requirements) > MAX_REQUIREMENTS:
+            logger.error(
+                "Job has %s requirements (max %s). Use pre-built images for large dependency sets.",
+                len(all_requirements),
+                MAX_REQUIREMENTS,
+            )
+            return {
+                "success": False,
+                "error": f"Too many requirements ({len(all_requirements)} > {MAX_REQUIREMENTS})",
+                "stdout": "",
+                "stderr": "Use pre-built images for jobs with many dependencies",
+                "exit_code": -1,
+            }
+
+        validated_reqs = []
+        for req in all_requirements:
+            if validate_pip_requirement(req):
+                validated_reqs.append(req)
+            else:
+                logger.warning("Skipping invalid pip requirement: %s", req)
+
+        requirements_file = input_dir / "_requirements.txt"
+        if validated_reqs:
+            requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
+            requirements_file.chmod(0o444)
+
         # Determine which image to use
         # Use custom base_image if specified, otherwise use default executor
-        # Dependencies are installed at runtime via TAKO_REQUIREMENTS env var
+        # Dependencies are installed at runtime from /input/_requirements.txt.
         if job_type.base_image:
             if not validate_docker_image(job_type.base_image):
                 return {
@@ -846,13 +877,8 @@ class CodeExecutor:
                     "exit_code": -1,
                 }
 
-        # Merge job_type requirements with extra_requirements
-        all_requirements = list(job_type.requirements) if job_type.requirements else []
-        if extra_requirements:
-            all_requirements.extend(extra_requirements)
-
         # Check if runtime deps require network access
-        has_runtime_deps = bool(all_requirements)
+        has_runtime_deps = bool(validated_reqs)
         needs_network_for_deps = has_runtime_deps and not job_type.network_enabled
 
         if needs_network_for_deps:
@@ -952,32 +978,6 @@ class CodeExecutor:
                 logger.warning(f"Skipping environment variable with unsafe value: {key}")
                 continue
             cmd.append(f"--env={key}={value}")
-
-        # Pass requirements for runtime installation via uv
-        if all_requirements:
-            # Check requirements limit to prevent env var overflow
-            if len(all_requirements) > MAX_REQUIREMENTS:
-                logger.error(
-                    f"Job has {len(all_requirements)} requirements "
-                    f"(max {MAX_REQUIREMENTS}). Use pre-built images for large dependency sets."
-                )
-                return {
-                    "success": False,
-                    "error": f"Too many requirements ({len(all_requirements)} > {MAX_REQUIREMENTS})",
-                    "stdout": "",
-                    "stderr": "Use pre-built images for jobs with many dependencies",
-                    "exit_code": -1,
-                }
-
-            validated_reqs = []
-            for req in all_requirements:
-                if validate_pip_requirement(req):
-                    validated_reqs.append(req)
-                else:
-                    logger.warning(f"Skipping invalid pip requirement: {req}")
-            if validated_reqs:
-                reqs_str = ",".join(validated_reqs)
-                cmd.append(f"--env=TAKO_REQUIREMENTS={reqs_str}")
 
         cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={startup_timeout}")
         cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")
