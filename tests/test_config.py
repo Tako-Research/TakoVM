@@ -254,6 +254,9 @@ class TestTakoVMConfig:
         assert config.api_rate_limit_enabled is True
         assert config.api_rate_limit_requests == 120
         assert config.api_rate_limit_window_seconds == 60
+        assert config.api_auth_enabled is False
+        assert config.api_keys == []
+        assert config.api_auth_header == "X-API-Key"
         assert config.allow_runtime_requirements is False
         assert config.dependency_proxy_url is None
         assert config.enable_runtime_dependency_cache is False
@@ -342,6 +345,20 @@ class TestTakoVMConfig:
         with pytest.raises(ValueError, match="path, query, or fragment"):
             TakoVMConfig(dependency_proxy_url="https://proxy.example:8443/proxy")
 
+    def test_tako_vm_config_api_auth_validation(self):
+        """API auth requires usable keys when enabled."""
+        config = TakoVMConfig(api_auth_enabled=True, api_keys=[" aaaaaaaaaaaaaaaa "])
+        assert config.api_keys == ["aaaaaaaaaaaaaaaa"]
+
+        with pytest.raises(ValueError, match="api_keys"):
+            TakoVMConfig(api_auth_enabled=True)
+
+        with pytest.raises(ValueError, match="at least 16"):
+            TakoVMConfig(api_auth_enabled=True, api_keys=["short"])
+
+        with pytest.raises(ValueError, match="api_auth_header"):
+            TakoVMConfig(api_auth_header="Bad Header")
+
     def test_tako_vm_config_get_method(self):
         """TakoVMConfig.get() provides dict-like access."""
         config = TakoVMConfig(max_workers=8)
@@ -405,6 +422,9 @@ security_mode: permissive
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_ENABLED", "false")
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_REQUESTS", "42")
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS", "15")
+        monkeypatch.setenv("TAKO_VM_API_AUTH_ENABLED", "true")
+        monkeypatch.setenv("TAKO_VM_API_KEYS", "aaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbb")
+        monkeypatch.setenv("TAKO_VM_API_AUTH_HEADER", "X-Tako-Key")
         monkeypatch.setenv("TAKO_VM_ALLOW_RUNTIME_REQUIREMENTS", "true")
         monkeypatch.setenv("TAKO_VM_DEPENDENCY_PROXY_URL", "https://proxy.example:8443")
         monkeypatch.setenv("TAKO_VM_ENABLE_RUNTIME_DEPENDENCY_CACHE", "true")
@@ -415,6 +435,9 @@ security_mode: permissive
         assert config.api_rate_limit_enabled is False
         assert config.api_rate_limit_requests == 42
         assert config.api_rate_limit_window_seconds == 15
+        assert config.api_auth_enabled is True
+        assert config.api_keys == ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"]
+        assert config.api_auth_header == "X-Tako-Key"
         assert config.allow_runtime_requirements is True
         assert config.dependency_proxy_url == "https://proxy.example:8443"
         assert config.enable_runtime_dependency_cache is True
