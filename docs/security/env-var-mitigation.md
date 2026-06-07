@@ -12,7 +12,7 @@ with open('/proc/self/environ', 'rb') as f:
 
 Instead of passing secrets via `--env` flags, write them to read-only files in `/input/`.
 
-### Implementation Plan
+### Current Implementation
 
 #### Step 1: Update worker.py
 
@@ -37,7 +37,7 @@ def _prepare_config_file(self, job_type: JobType, input_dir: Path) -> None:
 
 def _prepare_requirements_file(self, requirements: List[str], input_dir: Path) -> None:
     """
-    Write requirements to file instead of TAKO_REQUIREMENTS env var.
+    Write requirements to file instead of an environment variable.
     """
     if requirements:
         reqs_file = input_dir / "_requirements.txt"
@@ -54,8 +54,7 @@ for key, value in job_type.environment.items():
     cmd.append(f"--env={key}={value}")
 
 if validated_reqs:
-    reqs_str = ",".join(validated_reqs)
-    cmd.append(f"--env=TAKO_REQUIREMENTS={reqs_str}")
+    cmd.append("--env=DEPENDENCIES=<comma-separated requirements>")
 ```
 
 With this:
@@ -73,8 +72,8 @@ Replace the env var reading:
 
 ```bash
 # OLD: Read from env var
-if [ -n "$TAKO_REQUIREMENTS" ]; then
-    echo "$TAKO_REQUIREMENTS" | tr ',' '\n' > /tmp/requirements.txt
+if [ -n "$DEPENDENCIES" ]; then
+    echo "$DEPENDENCIES" | tr ',' '\n' > /tmp/requirements.txt
     uv pip install -r /tmp/requirements.txt
 fi
 ```

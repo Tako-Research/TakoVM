@@ -7,9 +7,8 @@ Provides output capping, error sanitization, and artifact validation.
 import hashlib
 import logging
 import re
-from typing import Sequence
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 from .models import ErrorType
 
@@ -484,8 +483,7 @@ _SAFE_PIP_VERSION_CHARS = frozenset(
 )
 _SAFE_PIP_OPERATOR_CHARS = frozenset("<>=!~")
 _SAFE_DOCKER_ARG_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    "._:/=,+-[]{}@%"
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
 )
 
 

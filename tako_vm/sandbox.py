@@ -23,8 +23,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from tako_vm.constants import DEFAULT_IMAGE, UV_CACHE_VOLUME, WORKSPACE_DIR
+from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
 from tako_vm.execution.docker import generate_container_name, kill_container
+from tako_vm.security import validate_pip_requirement
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +392,23 @@ class Sandbox:
         Returns:
             Tuple of (command, container_name) for cleanup on timeout.
         """
+        validated_reqs = []
+        if requirements:
+            if len(requirements) > MAX_REQUIREMENTS:
+                raise ValueError(
+                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
+                )
+            for req in requirements:
+                if validate_pip_requirement(req):
+                    validated_reqs.append(req)
+                else:
+                    logger.warning("Skipping invalid pip requirement: %s", req)
+
+        if validated_reqs:
+            requirements_file = input_dir / "_requirements.txt"
+            requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
+            requirements_file.chmod(0o444)
+
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
@@ -419,7 +437,7 @@ class Sandbox:
             # no capability to regain root. The container also has all other caps dropped.
 
         # Network isolation
-        has_requirements = bool(requirements)
+        has_requirements = bool(validated_reqs)
         if self.config.network_enabled or has_requirements:
             cmd.append("--network=bridge")
         else:
@@ -466,11 +484,6 @@ class Sandbox:
         if pythonpath_parts:
             pythonpath = ":".join(pythonpath_parts)
             cmd.append(f"--env=PYTHONPATH={pythonpath}")
-
-        # Pass requirements
-        if requirements:
-            reqs_str = ",".join(requirements)
-            cmd.append(f"--env=TAKO_REQUIREMENTS={reqs_str}")
 
         # Image
         cmd.append(self.config.image)

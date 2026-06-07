@@ -97,7 +97,7 @@
         ▼                       ▼                       ▼
 ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
 │ entrypoint.sh    │    │ uv pip install   │    │ gosu sandbox     │
-│ starts           │    │ $TAKO_REQUIREMENTS│   │ python main.py   │
+│ starts           │    │ _requirements.txt │   │ python main.py   │
 └──────────────────┘    └──────────────────┘    └──────────────────┘
                                │
                                ▼

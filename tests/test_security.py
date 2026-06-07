@@ -164,3 +164,38 @@ class TestExecutorRejectsUnsafeIds:
         assert captured["timeout"] == 80
         assert "--env=TAKO_STARTUP_TIMEOUT=45" in captured["cmd"]
         assert "--env=TAKO_EXECUTION_TIMEOUT=30" in captured["cmd"]
+
+    def test_run_container_writes_requirements_file_not_env(self, monkeypatch, tmp_path):
+        executor = CodeExecutor(
+            config=TakoVMConfig(container_runtime="runsc", security_mode="strict")
+        )
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        captured = {}
+
+        def fake_run(cmd, timeout, capture_output, text, check):
+            captured["cmd"] = cmd
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
+
+        result = executor._run_container(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            startup_timeout=45,
+            job_type=JobType(name="default", requirements=[]),
+            extra_requirements=["requests>=2.31"],
+            job_id="job-123",
+        )
+
+        assert result["success"] is True
+        assert not any(arg.startswith("--env=TAKO_REQUIREMENTS=") for arg in captured["cmd"])
+        assert "--network=bridge" in captured["cmd"]
+        assert (input_dir / "_requirements.txt").read_text(encoding="utf-8") == "requests>=2.31\n"

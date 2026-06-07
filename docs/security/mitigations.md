@@ -72,7 +72,7 @@ These are tracked as future work:
 | `/proc` path masking | Use Docker `--security-opt=mask=` to hide sensitive `/proc` paths | Planned |
 | AppArmor profile | Deny access to `/proc/*/environ` and `/proc/*/fd/` | Planned |
 | Config file migration | Move job type environment vars from env to read-only files | Planned |
-| Requirements via file | Pass `TAKO_REQUIREMENTS` via file instead of env var | Planned |
+| Requirements via file | Pass validated requirements via `/input/_requirements.txt` instead of env var | Active |
 
 ## References
 
