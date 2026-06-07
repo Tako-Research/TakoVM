@@ -8,7 +8,6 @@ This middleware provides lightweight API-layer protections:
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import math
 import time
@@ -108,11 +107,11 @@ class ApiProtectionMiddleware:
 
         config = self._config_getter()
         path = scope.get("path", "")
-        authenticated_key = None
+        authenticated_identity = None
 
         if config.api_auth_enabled and not self._is_auth_exempt(path):
-            authenticated_key = self._authenticate_request(scope, config)
-            if authenticated_key is None:
+            authenticated_identity = self._authenticate_request(scope, config)
+            if authenticated_identity is None:
                 await self._send_error_response(
                     scope,
                     receive,
@@ -125,7 +124,7 @@ class ApiProtectionMiddleware:
 
         if config.api_rate_limit_enabled and not self._is_rate_limit_exempt(path):
             limiter = self._get_rate_limiter(config)
-            client_id = self._get_client_identifier(scope, authenticated_key)
+            client_id = self._get_client_identifier(scope, authenticated_identity)
             allowed, retry_after = limiter.allow(client_id)
 
             if not allowed:
@@ -220,14 +219,14 @@ class ApiProtectionMiddleware:
         return self._rate_limiter
 
     def _authenticate_request(self, scope: Scope, config: TakoVMConfig) -> Optional[str]:
-        """Return the matched API key if the request is authenticated."""
+        """Return a non-secret API key identity if the request is authenticated."""
         provided_key = self._extract_api_key(scope, config.api_auth_header)
         if provided_key is None:
             return None
 
-        for configured_key in config.api_keys:
+        for index, configured_key in enumerate(config.api_keys):
             if hmac.compare_digest(provided_key, configured_key):
-                return configured_key
+                return f"api_key:{index}"
         return None
 
     @staticmethod
@@ -254,11 +253,10 @@ class ApiProtectionMiddleware:
         return None
 
     @staticmethod
-    def _get_client_identifier(scope: Scope, authenticated_key: Optional[str] = None) -> str:
+    def _get_client_identifier(scope: Scope, authenticated_identity: Optional[str] = None) -> str:
         """Use API key identity when present, otherwise client host."""
-        if authenticated_key:
-            key_hash = hashlib.sha256(authenticated_key.encode("utf-8")).hexdigest()[:16]
-            return f"api_key:{key_hash}"
+        if authenticated_identity:
+            return authenticated_identity
         client = scope.get("client")
         if client and client[0]:
             return str(client[0])
