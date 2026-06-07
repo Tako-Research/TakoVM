@@ -934,7 +934,11 @@ class CodeExecutor:
 
         # Mount uv cache volume for faster repeated installs
         if has_runtime_deps:
-            cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target=/root/.cache/uv")
+            uv_cache_dir = "/tmp/uv-cache"
+            if self.config.enable_runtime_dependency_cache:
+                uv_cache_dir = "/root/.cache/uv"
+                cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
+            cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
         # Network isolation (default: no network for security)
         if job_type.network_enabled:

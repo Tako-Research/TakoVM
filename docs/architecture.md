@@ -102,9 +102,9 @@
                                │
                                ▼
                         ┌──────────────────┐
-                        │ Cached in        │
-                        │ tako-uv-cache    │
-                        │ volume           │
+                        │ Optional shared  │
+                        │ cache volume     │
+                        │ if enabled       │
                         └──────────────────┘
 
 Security Layers:
@@ -123,7 +123,7 @@ Security Layers:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Runtime Dependencies (Default)                          │
+│                     Runtime Dependencies (Opt-in)                           │
 └─────────────────────────────────────────────────────────────────────────────┘
 
   Job Config                    Container                    Result
@@ -134,15 +134,15 @@ Security Layers:
       │                             │                           │
       ▼                             ▼                           ▼
 ┌──────────────┐          ┌─────────────────┐         ┌──────────────┐
-│ TAKO_        │─────────▶│ uv pip install  │────────▶│ Code runs    │
-│ REQUIREMENTS │          │ pandas numpy    │         │ with deps    │
-│ env var      │          │ (~1-2 seconds)  │         │ available    │
+│ /input/      │─────────▶│ uv pip install  │────────▶│ Code runs    │
+│ _requirements│          │ pandas numpy    │         │ with deps    │
+│ .txt file    │          │                 │         │ available    │
 └──────────────┘          └─────────────────┘         └──────────────┘
                                   │
                                   ▼
                           ┌─────────────────┐
-                          │ tako-uv-cache   │  Cached for
-                          │ Docker volume   │  future runs
+                          │ Optional shared │  Enabled only with
+                          │ Docker volume   │  dependency cache
                           └─────────────────┘
 
 

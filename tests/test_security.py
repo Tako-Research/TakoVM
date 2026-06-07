@@ -6,6 +6,7 @@ import pytest
 
 import tako_vm.execution.worker as worker_module
 from tako_vm.config import TakoVMConfig
+from tako_vm.constants import UV_CACHE_VOLUME
 from tako_vm.execution import CodeExecutor
 from tako_vm.job_types import JobType
 from tako_vm.security import (
@@ -291,3 +292,50 @@ class TestExecutorRejectsUnsafeIds:
         assert not any(
             arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in captured["cmd"]
         )
+
+    @pytest.mark.parametrize(
+        ("cache_enabled", "expect_cache_mount"),
+        [(False, False), (True, True)],
+    )
+    def test_run_container_dependency_cache_is_opt_in(
+        self, monkeypatch, tmp_path, cache_enabled, expect_cache_mount
+    ):
+        executor = CodeExecutor(
+            config=TakoVMConfig(
+                container_runtime="runsc",
+                security_mode="strict",
+                allow_runtime_requirements=True,
+                enable_runtime_dependency_cache=cache_enabled,
+            )
+        )
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        captured = {}
+
+        def fake_run(cmd, timeout, capture_output, text, check):
+            captured["cmd"] = cmd
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
+
+        result = executor._run_container(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            startup_timeout=45,
+            job_type=JobType(name="default", requirements=[]),
+            extra_requirements=["requests>=2.31"],
+            job_id="job-123",
+        )
+
+        cache_mount = f"--mount=type=volume,source={UV_CACHE_VOLUME},target=/root/.cache/uv"
+        expected_cache_dir = "/root/.cache/uv" if cache_enabled else "/tmp/uv-cache"
+        assert result["success"] is True
+        assert (cache_mount in captured["cmd"]) is expect_cache_mount
+        assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in captured["cmd"]

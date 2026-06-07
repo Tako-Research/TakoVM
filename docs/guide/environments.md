@@ -110,6 +110,7 @@ Runtime dependency installation from `requirements` is disabled by default. Use 
 ```yaml
 allow_runtime_requirements: true
 dependency_proxy_url: "https://proxy.example:8443"  # optional
+enable_runtime_dependency_cache: false              # default: no shared writable cache
 ```
 
 ## List Job Types
@@ -167,6 +168,7 @@ In production mode (`production_mode: true`):
 - All job types must be pre-built
 - Requests for missing job types fail with an error
 - Runtime dependency installation should remain disabled
+- Shared runtime dependency cache should remain disabled unless explicitly needed
 
 ```yaml
 production_mode: true

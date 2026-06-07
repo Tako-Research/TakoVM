@@ -256,6 +256,7 @@ class TestTakoVMConfig:
         assert config.api_rate_limit_window_seconds == 60
         assert config.allow_runtime_requirements is False
         assert config.dependency_proxy_url is None
+        assert config.enable_runtime_dependency_cache is False
 
     def test_tako_vm_config_path_resolution(self):
         """TakoVMConfig resolves data_dir while keeping database URL."""
@@ -406,6 +407,7 @@ security_mode: permissive
         monkeypatch.setenv("TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS", "15")
         monkeypatch.setenv("TAKO_VM_ALLOW_RUNTIME_REQUIREMENTS", "true")
         monkeypatch.setenv("TAKO_VM_DEPENDENCY_PROXY_URL", "https://proxy.example:8443")
+        monkeypatch.setenv("TAKO_VM_ENABLE_RUNTIME_DEPENDENCY_CACHE", "true")
 
         config = load_config()
 
@@ -415,6 +417,7 @@ security_mode: permissive
         assert config.api_rate_limit_window_seconds == 15
         assert config.allow_runtime_requirements is True
         assert config.dependency_proxy_url == "https://proxy.example:8443"
+        assert config.enable_runtime_dependency_cache is True
 
     @pytest.mark.parametrize(
         "var_name",
