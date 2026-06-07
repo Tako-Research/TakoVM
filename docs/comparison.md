@@ -86,7 +86,7 @@ Comparison of secure code execution platforms (as of January 2026)
 **Tako VM:**
 - **Runtime installation** via `uv` (10x faster than pip)
 - Single base image for all job types
-- Dependencies cached in Docker volume (`tako-uv-cache`)
+- Runtime dependency cache is opt-in (`enable_runtime_dependency_cache`)
 - Optional: Pre-built images for production
 - Install time: ~1-2 seconds for common packages
 

@@ -113,6 +113,9 @@ class SandboxConfig:
     dependency_proxy_url: Optional[str] = None
     """Optional proxy URL used only during runtime dependency installs."""
 
+    enable_runtime_dependency_cache: bool = False
+    """Whether to mount a shared uv cache volume for runtime dependency installs."""
+
     package_dirs: List[str] = field(default_factory=list)
     """Local directories to mount as packages (added to PYTHONPATH)."""
 
@@ -159,6 +162,7 @@ class Sandbox:
         network_enabled: bool = False,
         allow_runtime_requirements: bool = False,
         dependency_proxy_url: Optional[str] = None,
+        enable_runtime_dependency_cache: bool = False,
         package_dirs: Optional[List[str]] = None,
         auto_build: bool = True,
     ):
@@ -173,6 +177,7 @@ class Sandbox:
             network_enabled: Whether to allow network access
             allow_runtime_requirements: Whether requirements may be installed at runtime
             dependency_proxy_url: Optional proxy URL for runtime dependency installs
+            enable_runtime_dependency_cache: Whether to use a shared uv cache volume
             package_dirs: Local directories to mount as Python packages
             auto_build: Whether to auto-build image if missing
         """
@@ -184,6 +189,7 @@ class Sandbox:
             network_enabled=network_enabled,
             allow_runtime_requirements=allow_runtime_requirements,
             dependency_proxy_url=_validate_dependency_proxy_url(dependency_proxy_url),
+            enable_runtime_dependency_cache=enable_runtime_dependency_cache,
             package_dirs=package_dirs or [],
         )
         self.auto_build = auto_build
@@ -491,7 +497,11 @@ class Sandbox:
 
         # Mount uv cache for faster installs
         if has_requirements:
-            cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target=/root/.cache/uv")
+            uv_cache_dir = "/tmp/uv-cache"
+            if self.config.enable_runtime_dependency_cache:
+                uv_cache_dir = "/root/.cache/uv"
+                cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
+            cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
         # Resource limits
         cmd.extend(

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tako_vm.constants import UV_CACHE_VOLUME
 from tako_vm.sandbox import Sandbox, SandboxResult
 from tako_vm.sandbox import run as sandbox_run
 
@@ -326,6 +327,36 @@ print(f"version: {requests.__version__}")
         )
 
         assert not any(arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in cmd)
+
+    @pytest.mark.parametrize(
+        ("cache_enabled", "expect_cache_mount"),
+        [(False, False), (True, True)],
+    )
+    def test_sandbox_dependency_cache_is_opt_in(self, tmp_path, cache_enabled, expect_cache_mount):
+        """Sandbox mounts the shared uv cache only when explicitly enabled."""
+        code_dir = tmp_path / "code"
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        code_dir.mkdir()
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        sb = Sandbox(
+            allow_runtime_requirements=True,
+            enable_runtime_dependency_cache=cache_enabled,
+        )
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+            requirements=["requests"],
+        )
+
+        cache_mount = f"--mount=type=volume,source={UV_CACHE_VOLUME},target=/root/.cache/uv"
+        expected_cache_dir = "/root/.cache/uv" if cache_enabled else "/tmp/uv-cache"
+        assert (cache_mount in cmd) is expect_cache_mount
+        assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in cmd
 
 
 @pytest.mark.requires_host_mounts

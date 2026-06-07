@@ -48,6 +48,7 @@ max_timeout: 300          # maximum allowed
 
 allow_runtime_requirements: false      # install request/job requirements at runtime
 dependency_proxy_url: null             # optional proxy for runtime dependency installs
+enable_runtime_dependency_cache: false # shared uv cache for runtime installs
 
 max_code_bytes: 102400    # 100KB
 max_input_bytes: 1048576  # 1MB
@@ -113,6 +114,8 @@ execution_record_ttl_days: 30
 
 !!! warning "Runtime dependencies are opt-in"
     `requirements` are intended for pre-built job images. Runtime installation is disabled by default because it allows outbound package downloads and package setup code execution. Set `allow_runtime_requirements: true` only for trusted deployments, preferably with `dependency_proxy_url` configured.
+
+    The shared uv dependency cache is also disabled by default to avoid writable state shared across jobs. Set `enable_runtime_dependency_cache: true` only when the performance benefit is worth the cross-job cache tradeoff.
 
 ## Config File Search Order
 

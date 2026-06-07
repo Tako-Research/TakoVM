@@ -335,6 +335,10 @@ class TakoVMConfig(BaseModel):
         default=None,
         description="Optional HTTP(S)/SOCKS proxy URL used only during runtime dependency installs",
     )
+    enable_runtime_dependency_cache: bool = Field(
+        default=False,
+        description="Mount a shared uv cache volume for runtime dependency installs",
+    )
 
     # Retention
     execution_record_ttl_days: int = Field(default=30, ge=1, le=3650)
@@ -587,6 +591,14 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         )
     if "TAKO_VM_DEPENDENCY_PROXY_URL" in os.environ:
         config_dict["dependency_proxy_url"] = os.environ["TAKO_VM_DEPENDENCY_PROXY_URL"]
+    if "TAKO_VM_ENABLE_RUNTIME_DEPENDENCY_CACHE" in os.environ:
+        config_dict["enable_runtime_dependency_cache"] = os.environ[
+            "TAKO_VM_ENABLE_RUNTIME_DEPENDENCY_CACHE"
+        ].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
     # Validate and create config
     try:
         config = TakoVMConfig(**config_dict)

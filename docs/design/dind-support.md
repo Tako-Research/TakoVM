@@ -151,7 +151,7 @@ Tako VM connects to the sidecar's Docker daemon via `DOCKER_HOST=tcp://localhost
 
 1. **Executor image exists**: Tako VM assumes `code-executor:latest` is available. With dind, the nested daemon starts empty.
 
-2. **UV cache volume exists**: Tako VM mounts `tako-uv-cache` volume for fast dependency installs. This volume doesn't exist in a fresh dind daemon.
+2. **UV cache volume exists when enabled**: If `enable_runtime_dependency_cache` is true, Tako VM mounts the `tako-uv-cache` volume for faster dependency installs. This volume doesn't exist in a fresh dind daemon.
 
 ### Required Changes
 
