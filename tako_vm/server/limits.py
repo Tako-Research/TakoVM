@@ -8,6 +8,8 @@ This middleware provides lightweight API-layer protections:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import math
 import time
 from threading import Lock
@@ -26,6 +28,7 @@ from tako_vm.server.correlation import (
 
 _CORRELATION_ID_HEADER_BYTES = CORRELATION_ID_HEADER.lower().encode("ascii")
 _RATE_LIMIT_EXEMPT_PATHS = {
+    "/health",
     "/openapi.json",
     "/docs/oauth2-redirect",
 }
@@ -87,7 +90,8 @@ class ApiProtectionMiddleware:
     """
     Enforce API request protections.
 
-    - Rate limits requests by client IP (excluding docs/schema routes)
+    - Optionally requires API key auth (excluding health/docs/schema routes)
+    - Rate limits requests by client IP or authenticated API key
     - Rejects oversized payloads with HTTP 413
     """
 
@@ -104,10 +108,24 @@ class ApiProtectionMiddleware:
 
         config = self._config_getter()
         path = scope.get("path", "")
+        authenticated_key = None
+
+        if config.api_auth_enabled and not self._is_auth_exempt(path):
+            authenticated_key = self._authenticate_request(scope, config)
+            if authenticated_key is None:
+                await self._send_error_response(
+                    scope,
+                    receive,
+                    send,
+                    status_code=401,
+                    detail="Missing or invalid API key.",
+                    extra_headers={"WWW-Authenticate": "Bearer"},
+                )
+                return
 
         if config.api_rate_limit_enabled and not self._is_rate_limit_exempt(path):
             limiter = self._get_rate_limiter(config)
-            client_id = self._get_client_identifier(scope)
+            client_id = self._get_client_identifier(scope, authenticated_key)
             allowed, retry_after = limiter.allow(client_id)
 
             if not allowed:
@@ -201,9 +219,46 @@ class ApiProtectionMiddleware:
 
         return self._rate_limiter
 
+    def _authenticate_request(self, scope: Scope, config: TakoVMConfig) -> Optional[str]:
+        """Return the matched API key if the request is authenticated."""
+        provided_key = self._extract_api_key(scope, config.api_auth_header)
+        if provided_key is None:
+            return None
+
+        for configured_key in config.api_keys:
+            if hmac.compare_digest(provided_key, configured_key):
+                return configured_key
+        return None
+
     @staticmethod
-    def _get_client_identifier(scope: Scope) -> str:
-        """Use client host as rate-limiting identifier."""
+    def _extract_api_key(scope: Scope, api_auth_header: str) -> Optional[str]:
+        """Extract API key from configured header or Authorization bearer token."""
+        configured_header = api_auth_header.lower().encode("ascii")
+        for header_name, header_value in scope.get("headers", []):
+            header_name_lower = header_name.lower()
+            if header_name_lower == configured_header:
+                try:
+                    value = header_value.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    return None
+                return value or None
+            if header_name_lower == b"authorization":
+                try:
+                    value = header_value.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    return None
+                prefix = "bearer "
+                if value.lower().startswith(prefix):
+                    token = value[len(prefix) :].strip()
+                    return token or None
+        return None
+
+    @staticmethod
+    def _get_client_identifier(scope: Scope, authenticated_key: Optional[str] = None) -> str:
+        """Use API key identity when present, otherwise client host."""
+        if authenticated_key:
+            key_hash = hashlib.sha256(authenticated_key.encode("utf-8")).hexdigest()[:16]
+            return f"api_key:{key_hash}"
         client = scope.get("client")
         if client and client[0]:
             return str(client[0])
@@ -219,6 +274,11 @@ class ApiProtectionMiddleware:
             path == prefix or path.startswith(f"{prefix}/")
             for prefix in _RATE_LIMIT_EXEMPT_PREFIXES
         )
+
+    @classmethod
+    def _is_auth_exempt(cls, path: str) -> bool:
+        """Allow health/docs/schema endpoints to bypass API key auth."""
+        return cls._is_rate_limit_exempt(path)
 
     @staticmethod
     def _get_content_length(scope: Scope) -> Optional[int]:

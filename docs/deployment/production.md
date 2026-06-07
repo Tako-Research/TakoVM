@@ -112,6 +112,16 @@ services:
 
 ## Reverse Proxy (Nginx)
 
+Enable API key authentication before exposing Tako VM beyond a trusted local network:
+
+```yaml
+api_auth_enabled: true
+api_keys:
+  - "replace-with-a-long-random-key"
+```
+
+Clients should send `X-API-Key: <key>` or `Authorization: Bearer <key>`. Keep reverse-proxy authentication or network controls in front as defense in depth.
+
 ```nginx
 # /etc/nginx/sites-available/tako-vm
 

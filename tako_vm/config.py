@@ -239,6 +239,15 @@ class TakoVMConfig(BaseModel):
     api_max_payload_bytes: int = Field(
         default=2097152, ge=1024, le=104857600, description="Maximum HTTP request payload size"
     )
+    api_auth_enabled: bool = Field(default=False, description="Require API key authentication")
+    api_keys: List[str] = Field(
+        default_factory=list,
+        description="Accepted API keys when api_auth_enabled is true",
+    )
+    api_auth_header: str = Field(
+        default="X-API-Key",
+        description="Header used for API key authentication",
+    )
     api_rate_limit_enabled: bool = Field(default=True, description="Enable API rate limiting")
     api_rate_limit_requests: int = Field(
         default=120, ge=1, le=100000, description="Requests allowed per rate limit window"
@@ -271,6 +280,45 @@ class TakoVMConfig(BaseModel):
         if v.upper() not in valid_levels:
             raise ValueError(f"log_level must be one of: {', '.join(sorted(valid_levels))}")
         return v.upper()
+
+    @field_validator("api_auth_header")
+    @classmethod
+    def validate_api_auth_header(cls, v: str) -> str:
+        """Validate API auth header name."""
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("api_auth_header cannot be empty")
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        if any(char not in allowed for char in normalized):
+            raise ValueError("api_auth_header must be a valid HTTP header name")
+        return normalized
+
+    @field_validator("api_keys")
+    @classmethod
+    def validate_api_keys(cls, values: List[str]) -> List[str]:
+        """Normalize and validate configured API keys."""
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for value in values:
+            key = value.strip()
+            if not key:
+                raise ValueError("api_keys cannot contain empty values")
+            if any(char in key for char in ("\n", "\r", "\x00")):
+                raise ValueError("api_keys cannot contain control characters")
+            if len(key) < 16:
+                raise ValueError("api_keys entries must be at least 16 characters")
+            if key in seen:
+                raise ValueError("api_keys cannot contain duplicate values")
+            seen.add(key)
+            normalized.append(key)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_api_auth_config(self) -> "TakoVMConfig":
+        """Require at least one API key when auth is enabled."""
+        if self.api_auth_enabled and not self.api_keys:
+            raise ValueError("api_keys must contain at least one key when api_auth_enabled=true")
+        return self
 
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/tako_vm",
@@ -567,6 +615,18 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         )
     if "TAKO_VM_API_MAX_PAYLOAD_BYTES" in os.environ:
         config_dict["api_max_payload_bytes"] = parse_env_int("TAKO_VM_API_MAX_PAYLOAD_BYTES")
+    if "TAKO_VM_API_AUTH_ENABLED" in os.environ:
+        config_dict["api_auth_enabled"] = os.environ["TAKO_VM_API_AUTH_ENABLED"].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+    if "TAKO_VM_API_KEYS" in os.environ:
+        config_dict["api_keys"] = [
+            key.strip() for key in os.environ["TAKO_VM_API_KEYS"].split(",") if key.strip()
+        ]
+    if "TAKO_VM_API_AUTH_HEADER" in os.environ:
+        config_dict["api_auth_header"] = os.environ["TAKO_VM_API_AUTH_HEADER"]
     if "TAKO_VM_API_RATE_LIMIT_ENABLED" in os.environ:
         config_dict["api_rate_limit_enabled"] = os.environ[
             "TAKO_VM_API_RATE_LIMIT_ENABLED"

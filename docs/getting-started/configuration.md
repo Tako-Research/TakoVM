@@ -36,6 +36,9 @@ database_url: "postgresql://postgres:postgres@localhost:5432/tako_vm"
 # API PROTECTION
 # ==============================================================================
 api_max_payload_bytes: 2097152       # 2MB max HTTP request body
+api_auth_enabled: false              # Require API key auth for protected routes
+api_keys: []                         # Accepted API keys when auth is enabled
+api_auth_header: X-API-Key           # Header for API key auth
 api_rate_limit_enabled: true         # Enable per-client-IP rate limiting
 api_rate_limit_requests: 120         # Requests allowed per window
 api_rate_limit_window_seconds: 60    # Rate limit window in seconds
@@ -116,6 +119,27 @@ execution_record_ttl_days: 30
     `requirements` are intended for pre-built job images. Runtime installation is disabled by default because it allows outbound package downloads and package setup code execution. Set `allow_runtime_requirements: true` only for trusted deployments, preferably with `dependency_proxy_url` configured.
 
     The shared uv dependency cache is also disabled by default to avoid writable state shared across jobs. Set `enable_runtime_dependency_cache: true` only when the performance benefit is worth the cross-job cache tradeoff.
+
+## API Authentication
+
+API authentication is disabled by default for local compatibility. For exposed deployments, enable API keys:
+
+```yaml
+api_auth_enabled: true
+api_keys:
+  - "replace-with-a-long-random-key"
+api_auth_header: X-API-Key
+```
+
+Clients can send either `X-API-Key: <key>` or `Authorization: Bearer <key>`. Health, docs, and OpenAPI routes remain unauthenticated for operations. When auth is enabled, rate limits are tracked per API key instead of only by client IP.
+
+Environment variables:
+
+```bash
+TAKO_VM_API_AUTH_ENABLED=true
+TAKO_VM_API_KEYS=key-one-at-least-16,key-two-at-least-16
+TAKO_VM_API_AUTH_HEADER=X-API-Key
+```
 
 ## Config File Search Order
 
@@ -307,6 +331,9 @@ limactl shell tako-gvisor
 | `server_host` | Server bind host | `0.0.0.0` |
 | `server_port` | Server bind port | `8000` |
 | `api_max_payload_bytes` | Max HTTP request body size (bytes) | `2097152` |
+| `api_auth_enabled` | Require API key auth for protected routes | `false` |
+| `api_keys` | Accepted API keys when auth is enabled | `[]` |
+| `api_auth_header` | Header used for API key auth | `X-API-Key` |
 | `api_rate_limit_enabled` | Enable API rate limiting | `true` |
 | `api_rate_limit_requests` | Requests allowed per rate-limit window | `120` |
 | `api_rate_limit_window_seconds` | Rate-limit window duration (seconds) | `60` |

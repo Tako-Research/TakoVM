@@ -12,6 +12,9 @@ from tako_vm.server.limits import ApiProtectionMiddleware
 def create_client(
     *,
     api_max_payload_bytes: int = 1024,
+    api_auth_enabled: bool = False,
+    api_keys: list[str] | None = None,
+    api_auth_header: str = "X-API-Key",
     api_rate_limit_enabled: bool = True,
     api_rate_limit_requests: int = 2,
     api_rate_limit_window_seconds: int = 60,
@@ -19,6 +22,9 @@ def create_client(
     """Create a minimal app client with API protection middleware."""
     config = TakoVMConfig(
         api_max_payload_bytes=api_max_payload_bytes,
+        api_auth_enabled=api_auth_enabled,
+        api_keys=api_keys or [],
+        api_auth_header=api_auth_header,
         api_rate_limit_enabled=api_rate_limit_enabled,
         api_rate_limit_requests=api_rate_limit_requests,
         api_rate_limit_window_seconds=api_rate_limit_window_seconds,
@@ -99,6 +105,66 @@ class TestApiRateLimiting:
         with create_client(api_rate_limit_enabled=False, api_rate_limit_requests=1) as client:
             for _ in range(5):
                 assert client.get("/limited").status_code == 200
+
+    def test_rate_limit_uses_api_key_identity_when_authenticated(self):
+        """Authenticated clients have independent rate-limit buckets per API key."""
+        keys = ["a" * 16, "b" * 16]
+        with create_client(
+            api_auth_enabled=True,
+            api_keys=keys,
+            api_rate_limit_requests=1,
+            api_rate_limit_window_seconds=60,
+        ) as client:
+            assert client.get("/limited", headers={"X-API-Key": keys[0]}).status_code == 200
+            assert client.get("/limited", headers={"X-API-Key": keys[0]}).status_code == 429
+            assert client.get("/limited", headers={"X-API-Key": keys[1]}).status_code == 200
+
+
+class TestApiAuthentication:
+    """API key authentication behavior."""
+
+    def test_auth_disabled_by_default(self):
+        """Existing deployments remain unauthenticated unless auth is enabled."""
+        with create_client(api_auth_enabled=False) as client:
+            assert client.get("/limited").status_code == 200
+
+    def test_missing_api_key_rejected_when_auth_enabled(self):
+        """Protected routes reject unauthenticated requests."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get("/limited")
+
+        assert response.status_code == 401
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+        payload = response.json()
+        assert "api key" in payload["detail"].lower()
+        assert payload["correlation_id"]
+
+    def test_invalid_api_key_rejected(self):
+        """Protected routes reject invalid API keys."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get("/limited", headers={"X-API-Key": "b" * 16})
+
+        assert response.status_code == 401
+
+    def test_configured_header_api_key_allowed(self):
+        """The configured API key header authenticates requests."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get("/limited", headers={"X-API-Key": "a" * 16})
+
+        assert response.status_code == 200
+
+    def test_authorization_bearer_api_key_allowed(self):
+        """Bearer tokens are accepted for clients that prefer Authorization."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get("/limited", headers={"Authorization": f"Bearer {'a' * 16}"})
+
+        assert response.status_code == 200
+
+    def test_docs_and_health_are_auth_exempt(self):
+        """Operational/docs endpoints remain available without API keys."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            assert client.get("/docs").status_code == 200
+            assert client.get("/openapi.json").status_code == 200
 
 
 class TestApiPayloadLimit:
