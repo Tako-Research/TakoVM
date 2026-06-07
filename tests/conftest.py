@@ -148,6 +148,17 @@ def pytest_collection_modifyitems(config, items):
             if not DOCKER_AVAILABLE:
                 item.add_marker(pytest.mark.skip(reason="Docker not available"))
 
+        # Auto-skip proc exposure tests if Docker/executor image not available
+        if "test_proc_exposure" in item.nodeid:
+            if not DOCKER_AVAILABLE:
+                item.add_marker(pytest.mark.skip(reason="Docker not available"))
+            elif not EXECUTOR_IMAGE_AVAILABLE:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Executor image not built. Run: docker build -t code-executor:latest -f docker/Dockerfile.executor ."
+                    )
+                )
+
         # Skip tests that require host mounts when running in a VM
         if item.get_closest_marker("requires_host_mounts"):
             if RUNNING_IN_VM:
