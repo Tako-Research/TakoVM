@@ -58,7 +58,7 @@ POST /execute
 | `timeout` | integer | No | Code execution timeout in seconds (default: 30). Does not include container startup or dependency installation time. |
 | `startup_timeout` | integer | No | Container startup timeout in seconds (10-600, default: 60). Includes container creation and dependency installation. |
 | `job_type` | string | No | Environment name (default: "default") |
-| `requirements` | array | No | Python packages to install at runtime (e.g., `["pandas", "numpy>=1.20"]`) |
+| `requirements` | array | No | Python packages to install at runtime when `allow_runtime_requirements` is enabled (e.g., `["pandas", "numpy>=1.20"]`). Prefer pre-built images in production. |
 
 ### Example Request
 
@@ -85,7 +85,7 @@ curl -X POST http://localhost:8000/execute \
   }'
 ```
 
-This example sets a 5-minute startup timeout (for installing TensorFlow) and a 1-minute code execution timeout.
+This example requires `allow_runtime_requirements: true`. It sets a 5-minute startup timeout (for installing TensorFlow) and a 1-minute code execution timeout.
 
 ### Example with Input/Output
 
@@ -137,7 +137,7 @@ POST /execute/async
 | `timeout` | integer | No | Code execution timeout in seconds (default: 30). Does not include container startup or dependency installation time. |
 | `startup_timeout` | integer | No | Container startup timeout in seconds (10-600, default: 60). Includes container creation and dependency installation. |
 | `job_type` | string | No | Environment name (default: "default") |
-| `requirements` | array | No | Python packages to install at runtime (e.g., `["pandas", "numpy>=1.20"]`) |
+| `requirements` | array | No | Python packages to install at runtime when `allow_runtime_requirements` is enabled (e.g., `["pandas", "numpy>=1.20"]`). Prefer pre-built images in production. |
 | `idempotency_key` | string | No | Unique key for idempotent submission |
 
 ### Idempotency

@@ -850,6 +850,17 @@ class CodeExecutor:
 
         requirements_file = input_dir / "_requirements.txt"
         if validated_reqs:
+            if not self.config.allow_runtime_requirements:
+                return {
+                    "success": False,
+                    "error": "Runtime dependency installation is disabled",
+                    "stdout": "",
+                    "stderr": (
+                        "Runtime dependency installation is disabled. "
+                        "Use pre-built images or set allow_runtime_requirements=true."
+                    ),
+                    "exit_code": -1,
+                }
             requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
             requirements_file.chmod(0o444)
 
@@ -978,6 +989,9 @@ class CodeExecutor:
                 logger.warning(f"Skipping environment variable with unsafe value: {key}")
                 continue
             cmd.append(f"--env={key}={value}")
+
+        if has_runtime_deps and self.config.dependency_proxy_url:
+            cmd.append(f"--env=TAKO_DEPENDENCY_PROXY_URL={self.config.dependency_proxy_url}")
 
         cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={startup_timeout}")
         cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")

@@ -34,17 +34,29 @@ if [ -s "$REQS_FILE" ]; then
     # Using --target instead of --system to install to /tmp/site-packages
     TARGET_DIR="/tmp/site-packages"
     mkdir -p "$TARGET_DIR"
+    UV_INSTALL_CMD=(uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE")
+
+    if [ -n "$TAKO_DEPENDENCY_PROXY_URL" ]; then
+        UV_INSTALL_CMD=(
+            env
+            "HTTP_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
+            "HTTPS_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
+            "ALL_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
+            "${UV_INSTALL_CMD[@]}"
+        )
+    fi
 
     # Capture install result (don't exit on error yet so we can record timing)
     set +e
     if [ -n "$TAKO_STARTUP_TIMEOUT" ]; then
-        timeout --signal=TERM "${TAKO_STARTUP_TIMEOUT}s" \
-            uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE" 2>&1
+        timeout --signal=TERM "${TAKO_STARTUP_TIMEOUT}s" "${UV_INSTALL_CMD[@]}" 2>&1
     else
-        uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE" 2>&1
+        "${UV_INSTALL_CMD[@]}" 2>&1
     fi
     DEP_EXIT_CODE=$?
     set -e
+
+    unset TAKO_DEPENDENCY_PROXY_URL
 
     # Set PYTHONPATH so Python can find the installed packages
     export PYTHONPATH="$TARGET_DIR:$PYTHONPATH"
@@ -66,6 +78,8 @@ else
     echo "dep_install_started=false" >> "$PHASE_FILE"
     echo "dep_install_ms=0" >> "$PHASE_FILE"
 fi
+
+unset TAKO_DEPENDENCY_PROXY_URL
 
 END_STARTUP=$(get_time_ms)
 echo "startup_ms=$((END_STARTUP - START_STARTUP))" >> "$PHASE_FILE"

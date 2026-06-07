@@ -51,6 +51,8 @@ job_types:
 
 When `network_enabled: true`, containers can access any external host. For strict egress control, use external firewalls or Kubernetes NetworkPolicy.
 
+Runtime dependency installation is disabled by default. This prevents untrusted jobs from fetching packages and running package setup code during execution. Prefer pre-built images; if a trusted deployment needs runtime installs, set `allow_runtime_requirements: true` and route installs through `dependency_proxy_url`.
+
 ### Read-Only Filesystem
 
 ```bash

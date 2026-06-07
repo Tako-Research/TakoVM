@@ -22,12 +22,17 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
 from tako_vm.execution.docker import generate_container_name, kill_container
 from tako_vm.security import validate_pip_requirement
 
 logger = logging.getLogger(__name__)
+
+_SAFE_PROXY_URL_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
+)
 
 
 @dataclass
@@ -62,6 +67,27 @@ def _default_enable_cap_restrictions() -> bool:
     return env_val in ("true", "1", "yes")
 
 
+def _validate_dependency_proxy_url(value: Optional[str]) -> Optional[str]:
+    """Validate optional dependency proxy URL for Docker env usage."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if any(char in normalized for char in ("\n", "\r", "\x00")):
+        raise ValueError("dependency_proxy_url cannot contain control characters")
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in {"http", "https", "socks5"}:
+        raise ValueError("dependency_proxy_url must use http://, https://, or socks5://")
+    if not parsed.hostname:
+        raise ValueError("dependency_proxy_url must include a hostname")
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError("dependency_proxy_url cannot include a path, query, or fragment")
+    if any(char not in _SAFE_PROXY_URL_CHARS for char in normalized):
+        raise ValueError("dependency_proxy_url contains unsupported characters")
+    return normalized
+
+
 @dataclass
 class SandboxConfig:
     """Configuration for the sandbox."""
@@ -80,6 +106,12 @@ class SandboxConfig:
 
     network_enabled: bool = False
     """Whether to allow network access."""
+
+    allow_runtime_requirements: bool = False
+    """Whether to allow installing requirements at runtime."""
+
+    dependency_proxy_url: Optional[str] = None
+    """Optional proxy URL used only during runtime dependency installs."""
 
     package_dirs: List[str] = field(default_factory=list)
     """Local directories to mount as packages (added to PYTHONPATH)."""
@@ -107,7 +139,7 @@ class Sandbox:
             print(result.stdout)  # "2"
 
         # With dependencies
-        with Sandbox() as sb:
+        with Sandbox(allow_runtime_requirements=True) as sb:
             result = sb.run(
                 "import pandas; print(pandas.__version__)",
                 requirements=["pandas"]
@@ -125,6 +157,8 @@ class Sandbox:
         memory_limit: str = "512m",
         cpu_limit: float = 1.0,
         network_enabled: bool = False,
+        allow_runtime_requirements: bool = False,
+        dependency_proxy_url: Optional[str] = None,
         package_dirs: Optional[List[str]] = None,
         auto_build: bool = True,
     ):
@@ -137,6 +171,8 @@ class Sandbox:
             memory_limit: Memory limit (e.g., "512m", "1g")
             cpu_limit: CPU limit (e.g., 1.0 = one CPU)
             network_enabled: Whether to allow network access
+            allow_runtime_requirements: Whether requirements may be installed at runtime
+            dependency_proxy_url: Optional proxy URL for runtime dependency installs
             package_dirs: Local directories to mount as Python packages
             auto_build: Whether to auto-build image if missing
         """
@@ -146,6 +182,8 @@ class Sandbox:
             memory_limit=memory_limit,
             cpu_limit=cpu_limit,
             network_enabled=network_enabled,
+            allow_runtime_requirements=allow_runtime_requirements,
+            dependency_proxy_url=_validate_dependency_proxy_url(dependency_proxy_url),
             package_dirs=package_dirs or [],
         )
         self.auto_build = auto_build
@@ -321,13 +359,16 @@ class Sandbox:
             input_file.chmod(0o444)
 
             # Build docker command
-            cmd, container_name = self._build_docker_command(
-                code_dir=code_dir,
-                input_dir=input_dir,
-                output_dir=output_dir,
-                timeout=timeout,
-                requirements=requirements,
-            )
+            try:
+                cmd, container_name = self._build_docker_command(
+                    code_dir=code_dir,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    timeout=timeout,
+                    requirements=requirements,
+                )
+            except ValueError as e:
+                return SandboxResult(success=False, exit_code=-1, error=str(e))
 
             # Execute
             start_time = time.time()
@@ -405,6 +446,11 @@ class Sandbox:
                     logger.warning("Skipping invalid pip requirement: %s", req)
 
         if validated_reqs:
+            if not self.config.allow_runtime_requirements:
+                raise ValueError(
+                    "Runtime dependency installation is disabled. "
+                    "Use pre-built images or set allow_runtime_requirements=True."
+                )
             requirements_file = input_dir / "_requirements.txt"
             requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
             requirements_file.chmod(0o444)
@@ -484,6 +530,9 @@ class Sandbox:
         if pythonpath_parts:
             pythonpath = ":".join(pythonpath_parts)
             cmd.append(f"--env=PYTHONPATH={pythonpath}")
+
+        if has_requirements and self.config.dependency_proxy_url:
+            cmd.append(f"--env=TAKO_DEPENDENCY_PROXY_URL={self.config.dependency_proxy_url}")
 
         # Image
         cmd.append(self.config.image)

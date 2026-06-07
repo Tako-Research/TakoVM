@@ -46,6 +46,9 @@ api_rate_limit_window_seconds: 60    # Rate limit window in seconds
 default_timeout: 30       # seconds
 max_timeout: 300          # maximum allowed
 
+allow_runtime_requirements: false      # install request/job requirements at runtime
+dependency_proxy_url: null             # optional proxy for runtime dependency installs
+
 max_code_bytes: 102400    # 100KB
 max_input_bytes: 1048576  # 1MB
 max_stdout_bytes: 65536   # 64KB
@@ -107,6 +110,9 @@ max_artifact_bytes: 10485760
 max_total_artifacts_bytes: 52428800
 execution_record_ttl_days: 30
 ```
+
+!!! warning "Runtime dependencies are opt-in"
+    `requirements` are intended for pre-built job images. Runtime installation is disabled by default because it allows outbound package downloads and package setup code execution. Set `allow_runtime_requirements: true` only for trusted deployments, preferably with `dependency_proxy_url` configured.
 
 ## Config File Search Order
 

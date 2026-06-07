@@ -22,6 +22,10 @@ CONFIG_SEARCH_PATHS = [
     Path("/etc/tako_vm/config.yaml"),  # System-wide
 ]
 
+_SAFE_PROXY_URL_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
+)
+
 
 def get_default_data_dir() -> Path:
     """Get default data directory."""
@@ -322,6 +326,16 @@ class TakoVMConfig(BaseModel):
     max_startup_timeout: int = Field(default=600, ge=30, le=1800)
     """Maximum allowed timeout for startup phase (up to 30 minutes for large deps)."""
 
+    # Runtime dependency installation
+    allow_runtime_requirements: bool = Field(
+        default=False,
+        description="Allow jobs to install Python packages at runtime",
+    )
+    dependency_proxy_url: Optional[str] = Field(
+        default=None,
+        description="Optional HTTP(S)/SOCKS proxy URL used only during runtime dependency installs",
+    )
+
     # Retention
     execution_record_ttl_days: int = Field(default=30, ge=1, le=3650)
 
@@ -373,6 +387,28 @@ class TakoVMConfig(BaseModel):
 
     # Job types (new - can be defined in main config)
     job_types: List[JobTypeConfig] = Field(default_factory=list)
+
+    @field_validator("dependency_proxy_url")
+    @classmethod
+    def validate_dependency_proxy_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate optional dependency egress proxy URL."""
+        if v is None:
+            return None
+        normalized = v.strip()
+        if not normalized:
+            return None
+        if any(char in normalized for char in ("\n", "\r", "\x00")):
+            raise ValueError("dependency_proxy_url cannot contain control characters")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https", "socks5"}:
+            raise ValueError("dependency_proxy_url must use http://, https://, or socks5://")
+        if not parsed.hostname:
+            raise ValueError("dependency_proxy_url must include a hostname")
+        if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+            raise ValueError("dependency_proxy_url cannot include a path, query, or fragment")
+        if any(char not in _SAFE_PROXY_URL_CHARS for char in normalized):
+            raise ValueError("dependency_proxy_url contains unsupported characters")
+        return normalized
 
     # Internal: resolved paths (set after validation)
     _resolved_data_dir: Optional[Path] = None
@@ -541,6 +577,16 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         config_dict["api_rate_limit_window_seconds"] = parse_env_int(
             "TAKO_VM_API_RATE_LIMIT_WINDOW_SECONDS"
         )
+    if "TAKO_VM_ALLOW_RUNTIME_REQUIREMENTS" in os.environ:
+        config_dict["allow_runtime_requirements"] = os.environ[
+            "TAKO_VM_ALLOW_RUNTIME_REQUIREMENTS"
+        ].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+    if "TAKO_VM_DEPENDENCY_PROXY_URL" in os.environ:
+        config_dict["dependency_proxy_url"] = os.environ["TAKO_VM_DEPENDENCY_PROXY_URL"]
     # Validate and create config
     try:
         config = TakoVMConfig(**config_dict)
