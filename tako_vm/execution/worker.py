@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -331,13 +332,14 @@ class CodeExecutor:
                 - error: Error message (if failed)
                 - job_type: Name of job type used
         """
-        job_id = _require_safe_execution_id(job.get("id", str(int(time.time() * 1000))))
+        job_id = _require_safe_execution_id(job.get("id", uuid.uuid4().hex))
 
         # Get job type configuration
         job_type = self._get_job_type(job.get("job_type"))
 
         # Use job-specific timeout, or job type default
         timeout = job.get("timeout", job_type.timeout)
+        startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace
         workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
@@ -369,6 +371,7 @@ class CodeExecutor:
                 input_dir=input_dir,
                 output_dir=output_dir,
                 timeout=timeout,
+                startup_timeout=startup_timeout,
                 job_type=job_type,
                 extra_requirements=job.get("requirements"),
                 job_id=job_id,
@@ -456,6 +459,7 @@ class CodeExecutor:
             return record
 
         timeout = job.get("timeout", job_type.timeout)
+        startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace
         workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
@@ -509,6 +513,7 @@ class CodeExecutor:
                         input_dir=input_dir,
                         output_dir=output_dir,
                         timeout=timeout,
+                        startup_timeout=startup_timeout,
                         job_type=job_type,
                         extra_requirements=job.get("requirements"),
                         job_id=job_id,
@@ -580,17 +585,20 @@ class CodeExecutor:
             record.timing = timing
 
             # Determine which phase timed out (if applicable)
-            timeout_phase = determine_timeout_phase(timing, timed_out)
+            internal_timeout = result.get("exit_code") == 124 and determine_timeout_phase(
+                timing, True
+            )
+            timeout_phase = determine_timeout_phase(timing, timed_out) or internal_timeout
 
             # Determine final status with phase-aware timeout handling
-            if timed_out:
+            if timed_out or internal_timeout:
                 record.status = "timeout"
                 if timeout_phase == "startup":
                     startup_time = timing.startup_ms if timing else None
                     time_info = f" (startup took {startup_time}ms)" if startup_time else ""
                     record.error = ExecutionError(
                         type="startup_timeout",
-                        message=f"Startup phase exceeded time limit ({timeout}s){time_info}",
+                        message=f"Startup phase exceeded time limit ({startup_timeout}s){time_info}",
                         phase="startup",
                     )
                 elif timeout_phase == "execution":
@@ -782,6 +790,7 @@ class CodeExecutor:
         input_dir: Path,
         output_dir: Path,
         timeout: int,
+        startup_timeout: int,
         job_type: JobType,
         extra_requirements: Optional[List[str]] = None,
         job_id: Optional[str] = None,
@@ -793,7 +802,8 @@ class CodeExecutor:
             code_dir: Path to directory containing code (will be mounted read-only)
             input_dir: Path to directory containing input data (will be mounted read-only)
             output_dir: Path to directory for output (will be mounted read-write)
-            timeout: Timeout in seconds
+            timeout: Execution timeout in seconds
+            startup_timeout: Startup timeout in seconds
             job_type: Job type configuration for container settings
             extra_requirements: Additional requirements to install (merged with job_type)
 
@@ -960,12 +970,16 @@ class CodeExecutor:
                 reqs_str = ",".join(validated_reqs)
                 cmd.append(f"--env=TAKO_REQUIREMENTS={reqs_str}")
 
+        cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={startup_timeout}")
+        cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")
+
         # Add image name
         cmd.append(image_name)
 
         try:
+            container_timeout = startup_timeout + timeout + 5
             result = subprocess.run(
-                cmd, timeout=timeout, capture_output=True, text=True, check=False
+                cmd, timeout=container_timeout, capture_output=True, text=True, check=False
             )
 
             # Record success with circuit breaker

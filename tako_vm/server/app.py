@@ -17,6 +17,7 @@ except ImportError:
 import asyncio
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Literal, Optional
 
@@ -62,7 +63,12 @@ def _configure_log_level(log_level: str) -> None:
 
 
 def compute_idempotency_fingerprint(
-    code: str, input_data: dict, job_type: Optional[str], timeout: Optional[int]
+    code: str,
+    input_data: dict,
+    job_type: Optional[str],
+    timeout: Optional[int],
+    startup_timeout: Optional[int],
+    requirements: Optional[List[str]],
 ) -> str:
     """
     Compute fingerprint of request parameters for idempotency validation.
@@ -76,8 +82,15 @@ def compute_idempotency_fingerprint(
             "input_hash": sha256_json(input_data),
             "job_type": job_type or "default",
             "timeout": timeout,
+            "startup_timeout": startup_timeout,
+            "requirements": requirements or [],
         }
     )
+
+
+def _generate_sync_job_id() -> str:
+    """Generate a collision-resistant ID for the legacy sync endpoint."""
+    return f"api-{uuid.uuid4()}"
 
 
 # Keyed lock for idempotency (prevents race conditions under concurrent requests)
@@ -750,7 +763,7 @@ async def execute_code(request: ExecuteRequest):
     Returns:
         Execution results including output, stdout, stderr
     """
-    job_id = f"api-{int(time.time() * 1000)}"
+    job_id = _generate_sync_job_id()
 
     logger.info(f"Executing job {job_id}")
     start_time = time.time()
@@ -765,6 +778,9 @@ async def execute_code(request: ExecuteRequest):
 
         if request.timeout is not None:
             job["timeout"] = request.timeout
+
+        if request.startup_timeout is not None:
+            job["startup_timeout"] = request.startup_timeout
 
         if request.requirements is not None:
             job["requirements"] = request.requirements
@@ -839,7 +855,12 @@ async def _submit_async_job(request: ExecuteRequest, http_request: Request) -> A
         if existing:
             # Verify fingerprint matches (detect key reuse with different payload)
             expected_fingerprint = compute_idempotency_fingerprint(
-                request.code, request.input_data, request.job_type, request.timeout
+                request.code,
+                request.input_data,
+                request.job_type,
+                request.timeout,
+                request.startup_timeout,
+                request.requirements,
             )
 
             if (
@@ -861,7 +882,12 @@ async def _submit_async_job(request: ExecuteRequest, http_request: Request) -> A
     idempotency_fingerprint = None
     if request.idempotency_key:
         idempotency_fingerprint = compute_idempotency_fingerprint(
-            request.code, request.input_data, request.job_type, request.timeout
+            request.code,
+            request.input_data,
+            request.job_type,
+            request.timeout,
+            request.startup_timeout,
+            request.requirements,
         )
 
     job_data = {

@@ -45,7 +45,7 @@ def generate_container_name(prefix: str, job_id: Optional[str] = None) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-def kill_container(container_name: str) -> None:
+def kill_container(container_name: str) -> bool:
     """
     Kill and remove a container by name.
 
@@ -58,15 +58,23 @@ def kill_container(container_name: str) -> None:
 
     Args:
         container_name: Name of the container to kill
+
+    Returns:
+        True if Docker reported the container was killed, False otherwise
     """
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["docker", "kill", container_name],
             capture_output=True,
             timeout=10,
             check=False,
         )
-        logger.debug("Killed container %s", container_name)
+        if result.returncode == 0:
+            logger.debug("Killed container %s", container_name)
+            return True
+        logger.debug("Container %s was not running", container_name)
+        return False
     except Exception as e:
         # Ignore errors - container may not exist or already be stopped
         logger.debug("Failed to kill container %s: %s", container_name, e)
+        return False
