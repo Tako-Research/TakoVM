@@ -7,6 +7,7 @@ Provides output capping, error sanitization, and artifact validation.
 import hashlib
 import logging
 import re
+from typing import Sequence
 from pathlib import Path
 from typing import List, Tuple
 
@@ -482,6 +483,10 @@ _SAFE_PIP_VERSION_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.*+!-"
 )
 _SAFE_PIP_OPERATOR_CHARS = frozenset("<>=!~")
+_SAFE_DOCKER_ARG_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    "._:/=,+-[]{}@%"
+)
 
 
 def validate_execution_id(value: str) -> bool:
@@ -584,5 +589,32 @@ def validate_pip_requirement(requirement: str) -> bool:
         if requirement[index] != ",":
             return False
         index += 1
+
+    return True
+
+
+def validate_docker_run_args(args: Sequence[str]) -> bool:
+    """
+    Validate a Docker CLI argv list before execution.
+
+    This is a defense-in-depth check for commands built from validated user and
+    config inputs. It assumes list-style subprocess execution (no shell).
+
+    Args:
+        args: Complete argv list passed to subprocess.run()
+
+    Returns:
+        True if every argument is safe for direct Docker CLI execution
+    """
+    if not args or args[0] != "docker":
+        return False
+
+    for arg in args:
+        if not isinstance(arg, str) or not arg:
+            return False
+        if len(arg) > 4096:
+            return False
+        if any(char not in _SAFE_DOCKER_ARG_CHARS for char in arg):
+            return False
 
     return True

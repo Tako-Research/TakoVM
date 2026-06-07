@@ -37,6 +37,7 @@ from tako_vm.security import (
     compute_file_hash,
     is_safe_filename,
     sanitize_error,
+    validate_docker_run_args,
     validate_docker_image,
     validate_env_key,
     validate_env_value,
@@ -836,6 +837,14 @@ class CodeExecutor:
             image_name = job_type.base_image
         else:
             image_name = self.docker_image
+            if not validate_docker_image(image_name):
+                return {
+                    "success": False,
+                    "error": "Invalid docker_image configuration",
+                    "stdout": "",
+                    "stderr": f"docker_image '{image_name}' failed validation",
+                    "exit_code": -1,
+                }
 
         # Merge job_type requirements with extra_requirements
         all_requirements = list(job_type.requirements) if job_type.requirements else []
@@ -978,6 +987,14 @@ class CodeExecutor:
 
         try:
             container_timeout = startup_timeout + timeout + 5
+            if not validate_docker_run_args(cmd):
+                return {
+                    "success": False,
+                    "error": "Unsafe Docker command rejected",
+                    "stdout": "",
+                    "stderr": "Docker command arguments failed validation",
+                    "exit_code": -1,
+                }
             result = subprocess.run(
                 cmd, timeout=container_timeout, capture_output=True, text=True, check=False
             )
