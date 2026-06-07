@@ -16,7 +16,14 @@ from tako_vm.execution.worker import CodeExecutor
 @pytest.fixture
 def executor():
     """Create a CodeExecutor for testing."""
-    return CodeExecutor(config=TakoVMConfig(allow_runtime_requirements=True))
+    return CodeExecutor(
+        config=TakoVMConfig(
+            allow_runtime_requirements=True,
+            security_mode="permissive",
+            enable_cap_restrictions=False,
+            enable_seccomp=False,
+        )
+    )
 
 
 class TestProcExposure:
