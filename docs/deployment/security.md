@@ -455,7 +455,7 @@ docker run --runtime=runsc ...
 
 ### Does Containerizing the API Server Add Security?
 
-**Short answer: No.** The API server needs Docker socket access to spawn executor containers. Docker socket access effectively grants root privileges on the host, so containerizing the server doesn't create a meaningful security boundary.
+**Short answer: only partially.** The Docker Compose deployment avoids mounting `/var/run/docker.sock` into the public API container directly; instead it uses an internal `docker-socket-proxy` service and sets `DOCKER_HOST=tcp://docker-socket-proxy:2375`. This reduces accidental exposure of the raw socket and limits Docker API sections, but it does not create the same privilege boundary as a separate policy-enforcing executor service.
 
 ```
 Current Model (adequate for most cases):
