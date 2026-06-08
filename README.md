@@ -35,7 +35,7 @@ curl -X POST http://localhost:8000/execute \
 
 ## Why Tako VM?
 
-Sandbox solutions like [e2b](https://e2b.dev) and [microsandbox](https://github.com/microsandbox/microsandbox) give you isolated code execution—but that's it. You still need to build:
+Sandbox solutions like [e2b](https://e2b.dev), [daytona](https://daytona.dev) and [microsandbox](https://github.com/microsandbox/microsandbox) give you isolated code execution—but that's it. You still need to build:
 
 | You build | With sandbox-only | With Tako VM |
 |-----------|-------------------|--------------|
