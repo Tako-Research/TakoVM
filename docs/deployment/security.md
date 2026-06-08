@@ -1,3 +1,7 @@
+---
+description: "Tako VM security: defense-in-depth layers — input validation, container isolation, gVisor syscall sandboxing, and seccomp — for untrusted code."
+---
+
 # Security
 
 Tako VM implements defense-in-depth to safely execute untrusted code.

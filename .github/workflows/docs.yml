@@ -20,8 +20,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install image libraries for social cards
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
+
       - name: Install dependencies
-        run: pip install mkdocs-material mkdocs-git-revision-date-localized-plugin
+        run: pip install "mkdocs-material[imaging]" mkdocs-git-revision-date-localized-plugin
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force

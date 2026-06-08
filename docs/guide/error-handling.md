@@ -1,3 +1,7 @@
+---
+description: "Handle errors in Tako VM — error response format, timeouts, out-of-memory, and the built-in retry and resilience features."
+---
+
 # Error Handling
 
 This guide covers handling various error scenarios in Tako VM, including the built-in resilience features.

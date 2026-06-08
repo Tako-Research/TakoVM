@@ -1,5 +1,5 @@
 site_name: Tako VM
-site_description: Job queue infrastructure for Python AI agents
+site_description: Secure Python code execution and job queue infrastructure for AI agents — run untrusted code in gVisor-isolated Docker containers with workers, retries, and replay.
 site_url: https://las7.github.io/TakoVM/
 site_author: Tako VM
 
@@ -70,6 +70,10 @@ nav:
 
 plugins:
   - search
+  - social:
+      # Set CARDS=false to skip social-card image generation locally
+      # (avoids needing the Cairo/Pango imaging libraries during `mkdocs serve`).
+      cards: !ENV [CARDS, true]
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -99,6 +103,10 @@ markdown_extensions:
   - def_list
 
 extra:
+  # Uncomment and set your Google Analytics 4 property ID to enable analytics.
+  # analytics:
+  #   provider: google
+  #   property: G-XXXXXXXXXX
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/las7/TakoVM

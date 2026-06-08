@@ -1,3 +1,7 @@
+---
+description: "Tako VM job types: pre-configured execution environments with preinstalled packages and resource limits for faster, repeatable runs."
+---
+
 # Job Types (Environments)
 
 Job types are pre-configured execution environments with specific packages and resource limits.

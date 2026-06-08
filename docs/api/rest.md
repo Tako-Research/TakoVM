@@ -1,3 +1,7 @@
+---
+description: "Tako VM REST API reference — endpoints for synchronous and asynchronous Python code execution, job status, results, and artifact downloads."
+---
+
 # REST API Reference
 
 Complete reference for the Tako VM HTTP API.

@@ -1,3 +1,7 @@
+---
+description: "Tako VM security documentation index — threat-model assessment, /proc exposure analysis, and proposed mitigations."
+---
+
 # Tako VM Security Documentation
 
 ## Quick Links

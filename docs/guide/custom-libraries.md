@@ -1,3 +1,7 @@
+---
+description: "Pre-install custom Python libraries into Tako VM executor images — internal packages, patched builds, and complex build-time dependencies."
+---
+
 # Custom Libraries
 
 Tako VM supports pre-installing custom Python libraries into executor images. This is useful for:

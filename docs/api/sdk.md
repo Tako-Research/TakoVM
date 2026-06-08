@@ -1,3 +1,7 @@
+---
+description: "Tako VM Python SDK reference — the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers."
+---
+
 # Python SDK Reference
 
 The Tako VM Python SDK provides two ways to execute code:

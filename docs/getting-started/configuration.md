@@ -1,3 +1,7 @@
+---
+description: "Configure Tako VM with YAML — security modes, timeouts, worker pools, resource limits, and runtime dependencies, with sensible defaults explained."
+---
+
 # Configuration
 
 Tako VM uses YAML configuration with sensible defaults.

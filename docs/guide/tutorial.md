@@ -1,3 +1,7 @@
+---
+description: "Step-by-step Tako VM tutorial: build a CSV data-processing pipeline that runs in an isolated container and returns computed statistics."
+---
+
 # Tutorial: Build a Data Processing Pipeline
 
 This tutorial walks through building a complete application with Tako VM — from setup to processing results.
