@@ -1,3 +1,7 @@
+---
+description: "Tako VM is job queue infrastructure for AI agents — secure Python code execution in gVisor-isolated Docker containers, with queue, workers, retries, and replay."
+---
+
 # Tako VM
 
 **Job queue infrastructure for AI agents. Not just a sandbox.**

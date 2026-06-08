@@ -1,3 +1,7 @@
+---
+description: "How Tako VM works: the FastAPI server, worker pool, Docker executor, and gVisor sandbox boundary that isolate untrusted Python code execution."
+---
+
 # Tako VM Architecture
 
 ## System Overview

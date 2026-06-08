@@ -1,3 +1,7 @@
+---
+description: "Get started with Tako VM in minutes — install, pull the executor image, start the server, and run your first sandboxed Python job."
+---
+
 # Quick Start
 
 Get Tako VM running and execute your first code.

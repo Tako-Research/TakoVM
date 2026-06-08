@@ -1,3 +1,7 @@
+---
+description: "Tako VM operations runbook — diagnostic endpoints and procedures to detect and recover from common production failures."
+---
+
 # Operations Runbook
 
 Procedures for diagnosing and recovering from common production issues.

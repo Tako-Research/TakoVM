@@ -1,3 +1,7 @@
+---
+description: "Deploy Tako VM: single-tenant deployment options, Docker Compose, and the security model for running untrusted code safely."
+---
+
 # How to Deploy Tako VM
 
 This guide covers common deployment scenarios for Tako VM.

@@ -1,3 +1,7 @@
+---
+description: "Learn the Tako VM execution model — how containers are created, files mounted read-only, code run, and results captured for each job."
+---
+
 # Basic Execution
 
 This guide covers the fundamentals of executing code in Tako VM.

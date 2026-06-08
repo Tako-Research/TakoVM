@@ -1,3 +1,7 @@
+---
+description: "An honest security assessment of Tako VM — strong isolation for trusted code, and the real-world limits for untrusted AI-generated code."
+---
+
 # Honest Security Assessment: Tako VM
 
 **TL;DR:** Tako VM provides strong isolation for **trusted code execution**. If you're running your own code, CI/CD pipelines, or data processing jobs, the current security is good. The `/proc` exposure and env var concerns are mostly relevant for **untrusted AI-generated code**, which is a different threat model.

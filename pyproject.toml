@@ -7,7 +7,7 @@ name = "tako-vm"
 version = "0.1.4"
 description = "Secure Python code execution in isolated Docker containers"
 readme = "README.md"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
 authors = [
     { name = "Tako VM Team" }
@@ -23,7 +23,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -64,7 +64,8 @@ dev = [
 # Documentation
 docs = [
     "mkdocs>=1.5.0",
-    "mkdocs-material>=9.0.0",
+    "mkdocs-material[imaging]>=9.0.0",  # [imaging] pulls cairosvg+pillow for social cards
+    "mkdocs-git-revision-date-localized-plugin>=1.2.0",
 ]
 
 [project.urls]

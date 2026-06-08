@@ -1,3 +1,7 @@
+---
+description: "Production deployment guide for Tako VM — hardened configuration, persistence, and operational settings for running at scale."
+---
+
 # Production Deployment
 
 Guide for deploying Tako VM in production environments.

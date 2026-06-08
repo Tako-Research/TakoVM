@@ -1,3 +1,7 @@
+---
+description: "Mitigating environment-variable exposure in Tako VM — why /proc/self/environ leaks secrets and how to reduce the risk."
+---
+
 # Environment Variable Mitigation
 
 ## Problem

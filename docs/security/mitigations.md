@@ -1,3 +1,7 @@
+---
+description: "Security mitigations for the Tako VM /proc filesystem exposure — current protections and options like AppArmor, gVisor, and env-var migration."
+---
+
 # Security Mitigations
 
 This document describes mitigations for the [/proc filesystem exposure vulnerability](proc-exposure-vulnerability.md) identified in the [Equixly security research](https://equixly.com/blog/2025/11/04/path-traversal-ai-containers/).

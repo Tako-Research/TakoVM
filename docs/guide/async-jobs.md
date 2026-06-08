@@ -1,3 +1,7 @@
+---
+description: "Run long tasks with Tako VM async jobs — submit work to the queue, poll job status, and retrieve results without blocking the request."
+---
+
 # Async Jobs
 
 For long-running tasks, use async execution to avoid blocking.
