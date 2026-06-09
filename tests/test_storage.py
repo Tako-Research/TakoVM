@@ -533,3 +533,103 @@ class TestDeadLetterQueue:
         remaining = storage.list_dlq_entries()
         assert len(remaining) == 1
         assert remaining[0].job_id == "recent-job"
+
+
+class TestReconcileStaleRecords:
+    """Tests for startup reconciliation of stale queued/running records."""
+
+    @staticmethod
+    def _make_record(execution_id: str, status: str, **kwargs) -> ExecutionRecord:
+        return ExecutionRecord(
+            execution_id=execution_id,
+            status=status,
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            **kwargs,
+        )
+
+    def test_reconcile_marks_queued_and_running_as_failed(self, storage):
+        """Stale queued/running records become failed with an interrupted error."""
+        storage.save_record(self._make_record("stale-queued", "queued"))
+        storage.save_record(self._make_record("stale-running", "running"))
+
+        count = storage.reconcile_stale_records()
+        assert count == 2
+
+        for execution_id in ("stale-queued", "stale-running"):
+            record = storage.get_record(execution_id)
+            assert record is not None
+            assert record.status == "failed"
+            assert record.ended_at is not None
+            assert record.error is not None
+            assert record.error.type == "interrupted"
+            assert "interrupted by server restart" in record.error.message
+
+    def test_reconcile_leaves_terminal_records_untouched(self, storage):
+        """Records already in a terminal state are not modified."""
+        storage.save_record(self._make_record("done-ok", "succeeded", exit_code=0, stdout="ok"))
+        storage.save_record(
+            self._make_record(
+                "done-cancelled",
+                "cancelled",
+                error=ExecutionError(type="cancelled", message="cancelled by user"),
+            )
+        )
+        storage.save_record(self._make_record("stale-queued-2", "queued"))
+
+        count = storage.reconcile_stale_records()
+        assert count == 1
+
+        succeeded = storage.get_record("done-ok")
+        assert succeeded.status == "succeeded"
+        assert succeeded.error is None
+
+        cancelled = storage.get_record("done-cancelled")
+        assert cancelled.status == "cancelled"
+        assert cancelled.error.type == "cancelled"
+
+    def test_reconcile_with_no_stale_records(self, storage):
+        """Reconcile returns 0 when nothing is stale."""
+        storage.save_record(self._make_record("done", "succeeded", exit_code=0))
+        assert storage.reconcile_stale_records() == 0
+
+
+class TestMarkRecordRunning:
+    """Tests for persisting the queued -> running transition."""
+
+    def test_mark_running_updates_queued_record(self, storage):
+        """A queued record transitions to running with dequeued_at/worker_id set."""
+        record = ExecutionRecord(
+            execution_id="run-me",
+            status="queued",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+        )
+        storage.save_record(record)
+
+        updated = storage.mark_record_running("run-me", worker_id="worker-3")
+        assert updated is True
+
+        retrieved = storage.get_record("run-me")
+        assert retrieved.status == "running"
+        assert retrieved.dequeued_at is not None
+        assert retrieved.worker_id == "worker-3"
+
+    def test_mark_running_skips_non_queued_records(self, storage):
+        """Terminal records are never moved back to running."""
+        record = ExecutionRecord(
+            execution_id="already-done",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            exit_code=0,
+        )
+        storage.save_record(record)
+
+        updated = storage.mark_record_running("already-done", worker_id="worker-1")
+        assert updated is False
+        assert storage.get_record("already-done").status == "succeeded"
+
+    def test_mark_running_missing_record(self, storage):
+        """Marking a nonexistent record returns False."""
+        assert storage.mark_record_running("nope") is False

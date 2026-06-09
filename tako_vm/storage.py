@@ -390,6 +390,70 @@ class ExecutionStorage:
 
         return [self._row_to_record(cast(RowMapping, row)) for row in rows]
 
+    async def reconcile_stale_records(self) -> int:
+        """
+        Mark stale 'queued'/'running' records as failed after a restart.
+
+        The job queue is in-memory (asyncio.Queue), so it does not survive a
+        process restart: any record still marked 'queued' or 'running' when the
+        server starts belongs to a job that was lost in a crash or shutdown and
+        will never complete. Without this reconciliation, clients poll those
+        records forever.
+
+        NOTE: This assumes a single-server deployment (the only supported
+        topology). There is no multi-server coordination anywhere in Tako VM,
+        so no other live server process can legitimately own in-flight records
+        when this runs at startup.
+
+        Returns:
+            Number of records transitioned to 'failed'.
+        """
+        now = datetime.now(timezone.utc)
+        error_json = ExecutionError(
+            type="interrupted",
+            message="job interrupted by server restart before completion",
+        ).model_dump()
+
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE execution_records
+                SET status = 'failed',
+                    ended_at = %s,
+                    error_json = %s
+                WHERE status IN ('queued', 'running')
+                """,
+                (now, Jsonb(error_json)),
+            )
+            return cursor.rowcount
+
+    async def mark_record_running(self, execution_id: str, worker_id: Optional[str] = None) -> bool:
+        """
+        Persist the queued -> running transition for an execution record.
+
+        Targeted UPDATE so the in-flight state is visible in the database
+        during execution (and reconcilable after a crash) without rewriting
+        the whole row.
+
+        Returns:
+            True if a queued record was transitioned to running.
+        """
+        now = datetime.now(timezone.utc)
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE execution_records
+                SET status = 'running',
+                    dequeued_at = %s,
+                    worker_id = %s
+                WHERE execution_id = %s AND status = 'queued'
+                """,
+                (now, worker_id, execution_id),
+            )
+            return cursor.rowcount > 0
+
     async def cleanup_old_records(self, ttl_days: int) -> int:
         """Delete records older than TTL."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)

@@ -198,6 +198,7 @@ ErrorType = Literal[
     "service_unavailable",  # Circuit breaker open
     "config_error",  # Configuration error
     "internal_error",  # Internal Tako VM error
+    "interrupted",  # Job interrupted by server restart/shutdown
     "runtime_error",  # Generic runtime error
     "unknown",  # Unknown error type
 ]

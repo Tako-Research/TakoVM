@@ -223,6 +223,16 @@ async def lifespan(app: FastAPI):
     state.executor = CodeExecutor(registry=state.registry, config=state.config)
     state.storage = ExecutionStorage(state.config.database_url)
     await state.storage.init()
+
+    # Reconcile records orphaned by a previous crash/restart before workers
+    # start. The job queue is in-memory, so any record still 'queued' or
+    # 'running' at this point can never complete; mark it failed so clients
+    # stop polling into the void. Safe because Tako VM runs as a single
+    # server (no multi-server coordination exists).
+    stale_records = await state.storage.reconcile_stale_records()
+    if stale_records > 0:
+        logger.warning(f"Startup: marked {stale_records} interrupted execution record(s) as failed")
+
     state.worker_pool = WorkerPool(
         executor=state.executor,
         storage=state.storage,
