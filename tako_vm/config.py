@@ -5,6 +5,7 @@ Uses Pydantic for validation with strict bounds checking.
 Loads configuration from YAML file with optional env var overrides.
 """
 
+import logging
 import os
 from importlib.resources import files as _resource_files
 from pathlib import Path
@@ -12,7 +13,9 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 # Default config file locations (searched in order)
 CONFIG_SEARCH_PATHS = [
@@ -25,6 +28,22 @@ CONFIG_SEARCH_PATHS = [
 _SAFE_PROXY_URL_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
 )
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "::1", "[::1]"})
+
+
+def _sanitize_validation_error(e: ValidationError) -> str:
+    """
+    Format a pydantic ValidationError WITHOUT echoing input values.
+
+    Default str(ValidationError) embeds ``input_value=...``, which can leak
+    secrets (database passwords, API keys) into CLI output and logs.
+    """
+    lines: List[str] = []
+    for err in e.errors(include_input=False, include_url=False):
+        loc = ".".join(str(part) for part in err.get("loc", ())) or "config"
+        lines.append(f"field {loc}: {err.get('msg', 'invalid value')}")
+    return "; ".join(lines) or "validation failed"
 
 
 def get_default_data_dir() -> Path:
@@ -232,14 +251,26 @@ class TakoVMConfig(BaseModel):
     )
 
     # Server
-    server_host: str = Field(default="0.0.0.0", description="Server host to bind to")
+    server_host: str = Field(
+        default="0.0.0.0",
+        description=(
+            "Server host to bind to. The default (0.0.0.0, all interfaces) is "
+            "development-friendly; production should bind to a loopback or internal interface"
+        ),
+    )
     server_port: int = Field(default=8000, ge=1, le=65535, description="Server port to bind to")
 
     # API-layer request protection
     api_max_payload_bytes: int = Field(
         default=2097152, ge=1024, le=104857600, description="Maximum HTTP request payload size"
     )
-    api_auth_enabled: bool = Field(default=False, description="Require API key authentication")
+    api_auth_enabled: bool = Field(
+        default=False,
+        description=(
+            "Require API key authentication. The default (false) is development-friendly; "
+            "production deployments should enable this"
+        ),
+    )
     api_keys: List[str] = Field(
         default_factory=list,
         description="Accepted API keys when api_auth_enabled is true",
@@ -411,7 +442,11 @@ class TakoVMConfig(BaseModel):
     # Security mode
     security_mode: str = Field(
         default="permissive",
-        description="Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback to runc",
+        description=(
+            "Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback "
+            "to runc. The default (permissive) is development-friendly; production should use "
+            "'strict'"
+        ),
     )
 
     @field_validator("container_runtime")
@@ -516,6 +551,35 @@ class TakoVMConfig(BaseModel):
     @property
     def seccomp_profile_path_resolved(self) -> Path:
         return self.seccomp_profile_path
+
+    def security_warnings(self) -> List[str]:
+        """
+        Return human-readable warnings for insecure (development-default) settings.
+
+        The defaults make Tako VM easy to try locally, but combined they expose an
+        unauthenticated, network-reachable code-execution service that may silently
+        fall back from gVisor to runc. Surface that loudly.
+        """
+        warnings: List[str] = []
+
+        host = self.server_host.strip().lower()
+        is_loopback = host in _LOOPBACK_HOSTS or host.startswith("127.")
+        if not self.api_auth_enabled and not is_loopback:
+            warnings.append(
+                f"API authentication is disabled (api_auth_enabled=false) while the server "
+                f"binds to non-loopback host '{self.server_host}': anyone who can reach the "
+                "port can execute code. Enable api_auth_enabled and set api_keys, or bind "
+                "server_host to 127.0.0.1."
+            )
+
+        if self.security_mode == "permissive":
+            warnings.append(
+                "security_mode is 'permissive': execution may silently fall back from gVisor "
+                "(runsc) to runc if gVisor is unavailable, weakening sandbox isolation. Use "
+                "security_mode='strict' in production."
+            )
+
+        return warnings
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value by key (for backward compatibility)."""
@@ -663,9 +727,17 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
     try:
         config = TakoVMConfig(**config_dict)
         config.resolve_paths()
-        return config
+    except ValidationError as e:
+        # Use sanitized formatting: str(ValidationError) embeds input values,
+        # which can leak secrets (e.g. database_url passwords) into logs/CLI output.
+        raise ConfigurationError(f"Invalid configuration: {_sanitize_validation_error(e)}") from e
     except Exception as e:
         raise ConfigurationError(f"Invalid configuration: {e}") from e
+
+    for warning in config.security_warnings():
+        logger.warning(warning)
+
+    return config
 
 
 # Global config instance (lazy loaded)
@@ -725,6 +797,9 @@ def validate_config_file(path: Path) -> List[str]:
         errors.append(f"Config file not found: {path}")
     except yaml.YAMLError as e:
         errors.append(f"Invalid YAML: {e}")
+    except ValidationError as e:
+        # Sanitized: str(ValidationError) embeds input values (potential secrets).
+        errors.append(_sanitize_validation_error(e))
     except Exception as e:
         errors.append(str(e))
     return errors
