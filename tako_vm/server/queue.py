@@ -254,7 +254,12 @@ class WorkerPool:
             raise KeyError(f"Job {job_id} has no future (internal error)")
 
         if timeout:
-            return await asyncio.wait_for(job.future, timeout=timeout)
+            # Shield the job future: asyncio.wait_for cancels the awaited
+            # future on timeout, which would make the worker loop treat the
+            # job as user-cancelled (never executing it) and surface
+            # CancelledError to any concurrent waiters. A read-only wait
+            # timing out must never affect the job itself.
+            return await asyncio.wait_for(asyncio.shield(job.future), timeout=timeout)
         else:
             return await job.future
 
@@ -280,10 +285,24 @@ class WorkerPool:
             if job_id in self._active_jobs:
                 job = self._active_jobs[job_id]
                 if job.future and job.future.done():
+                    # Derive a real terminal status from the finished future.
+                    # "completed" is not a valid QueueStatus and would fail
+                    # response validation in the API layer.
+                    if job.future.cancelled():
+                        status = "cancelled"
+                        duration_ms = None
+                    elif job.future.exception() is not None:
+                        status = "failed"
+                        duration_ms = None
+                    else:
+                        record = job.future.result()
+                        status = record.status
+                        duration_ms = record.duration_ms
                     return {
                         "job_id": job_id,
-                        "status": "completed",
+                        "status": status,
                         "created_at": job.created_at.isoformat(),
+                        "duration_ms": duration_ms,
                     }
                 queue_position = self._estimate_queue_position_unlocked(job_id)
                 return {
