@@ -75,6 +75,65 @@ def _resolve_run_path(data_dir: Path, execution_id: str, *parts: str) -> Path:
     return resolved
 
 
+def prune_stale_workspaces(max_age_seconds: int) -> int:
+    """Remove stale per-run workspace dirs stranded under WORKSPACE_DIR.
+
+    Each execution creates a temp dir (``job-*`` / ``sandbox-*``) that is
+    normally removed in a finally block, but a hard crash or an rmtree failure
+    leaks it — and there is no other reaper, so host disk grows unbounded. This
+    removes such dirs whose mtime is older than ``max_age_seconds`` (chosen to
+    sit well past any run's max timeout). Fail-soft: per-dir errors are logged
+    and skipped. Returns the number of dirs removed.
+    """
+    workspace_root = Path(WORKSPACE_DIR)
+    if not workspace_root.is_dir():
+        return 0
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for entry in workspace_root.iterdir():
+        # Whole body in the try: a concurrent run can delete an entry between
+        # iterdir() and these checks, and stat()/is_dir() would then raise.
+        try:
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            if not (entry.name.startswith("job-") or entry.name.startswith("sandbox-")):
+                continue
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+        except OSError as e:
+            logger.warning("Failed to prune stale workspace %s: %s", entry, e)
+    return removed
+
+
+def prune_old_run_dirs(data_dir: Path, ttl_days: int) -> int:
+    """Remove on-disk run artifact dirs (``data_dir/runs/<id>``) past the TTL.
+
+    The DB record cleanup deletes rows but not the on-disk code/input/output
+    artifacts, so they survive the configured retention indefinitely — disk
+    growth plus a retention/compliance gap (the stored source code and inputs
+    outlive their record). This removes ``runs/<id>`` dirs whose mtime is older
+    than ``ttl_days``. Fail-soft per dir. Returns the number of dirs removed.
+    """
+    runs_root = data_dir / "runs"
+    if not runs_root.is_dir():
+        return 0
+    cutoff = time.time() - ttl_days * 86400
+    removed = 0
+    for entry in runs_root.iterdir():
+        try:
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+        except OSError as e:
+            logger.warning("Failed to prune old run dir %s: %s", entry, e)
+    return removed
+
+
 def check_gvisor_available() -> bool:
     """
     Check if gVisor (runsc) runtime is available.
