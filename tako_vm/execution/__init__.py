@@ -6,6 +6,7 @@ Provides code execution in isolated containers with gVisor isolation by default.
 
 from tako_vm.execution.builder import ContainerBuilder
 from tako_vm.execution.docker import (
+    base_isolation_args,
     generate_container_name,
     is_native_linux,
     kill_container,
@@ -31,4 +32,5 @@ __all__ = [
     "generate_container_name",
     "kill_container",
     "is_native_linux",
+    "base_isolation_args",
 ]

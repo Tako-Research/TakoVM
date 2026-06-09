@@ -27,7 +27,11 @@ from urllib.parse import urlsplit
 from tako_vm.config import get_config
 from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
 from tako_vm.execution import resolve_runtime
-from tako_vm.execution.docker import generate_container_name, kill_container
+from tako_vm.execution.docker import (
+    base_isolation_args,
+    generate_container_name,
+    kill_container,
+)
 from tako_vm.security import validate_pip_requirement
 
 logger = logging.getLogger(__name__)
@@ -466,37 +470,15 @@ class Sandbox:
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
-        cmd = [
-            "docker",
-            "run",
-            "--rm",
-            f"--name={container_name}",
-            "--init",  # Faster signal handling with tini
-            "--read-only",
-        ]
-
-        # Apply the resolved container runtime via the shared resolver, so the
-        # library path enforces gVisor identically to CodeExecutor. runc is
-        # docker's default (and some daemons reject `--runtime=runc`), so only
-        # pass the flag for gVisor; strict mode fails closed when gVisor is
-        # unavailable.
-        if resolve_runtime(get_config()) == "runsc":
-            cmd.append("--runtime=runsc")
-
-        # Capability restrictions (can be disabled in CI environments where Docker
-        # can't modify capability bounding sets)
-        if self.config.enable_cap_restrictions:
-            cmd.extend(
-                [
-                    "--cap-drop=ALL",
-                    "--cap-add=SETUID",  # Required for gosu to switch user
-                    "--cap-add=SETGID",  # Required for gosu to switch user
-                ]
-            )
-            # Security note: We don't use --security-opt=no-new-privileges because gosu requires
-            # setuid to drop from root to sandbox user (uid 1000). This is a one-way privilege drop:
-            # after gosu exec's the user code, the process runs as unprivileged sandbox user with
-            # no capability to regain root. The container also has all other caps dropped.
+        # Shared isolation base: --rm/--init/--read-only, capability drops, and
+        # the gVisor --runtime flag, resolved via the shared resolver so the
+        # library path enforces the same posture as CodeExecutor (and fails
+        # closed in strict mode when gVisor is unavailable).
+        cmd = base_isolation_args(
+            container_name,
+            runtime=resolve_runtime(get_config()),
+            enable_cap_restrictions=self.config.enable_cap_restrictions,
+        )
 
         # Network isolation
         has_requirements = bool(validated_reqs)
