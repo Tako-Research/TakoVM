@@ -17,7 +17,12 @@ from typing import Any, Dict, List, Optional
 
 from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.constants import MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
-from tako_vm.execution.docker import generate_container_name, is_native_linux, kill_container
+from tako_vm.execution.docker import (
+    base_isolation_args,
+    generate_container_name,
+    is_native_linux,
+    kill_container,
+)
 from tako_vm.execution.health import get_circuit_breaker
 from tako_vm.execution.retry import RetryConfig, RetryContext, is_transient_error
 from tako_vm.job_types import JobType, JobTypeRegistry
@@ -908,35 +913,11 @@ class CodeExecutor:
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako", job_id)
 
-        cmd = [
-            "docker",
-            "run",
-            "--rm",
-            f"--name={container_name}",
-            "--init",  # Faster signal handling with tini
-            "--read-only",
-        ]
-
-        # Capability restrictions (can be disabled in CI environments where Docker
-        # can't modify capability bounding sets)
-        if self.config.enable_cap_restrictions:
-            cmd.extend(
-                [
-                    "--cap-drop=ALL",
-                    "--cap-add=SETUID",  # Required for gosu to switch user
-                    "--cap-add=SETGID",  # Required for gosu to switch user
-                ]
-            )
-            # Security note: We don't use --security-opt=no-new-privileges because gosu requires
-            # setuid to drop from root to sandbox user (uid 1000). This is a one-way privilege drop:
-            # after gosu exec's the user code, the process runs as unprivileged sandbox user with
-            # no capability to regain root. The container also has all other caps dropped.
-
-        # Only specify runtime explicitly for gVisor (runsc)
-        # runc is the default Docker runtime, so we don't need to specify it explicitly
-        # (and some Docker configurations may not accept --runtime=runc)
-        if self._runtime == "runsc":
-            cmd.append(f"--runtime={self._runtime}")
+        cmd = base_isolation_args(
+            container_name,
+            runtime=self._runtime,
+            enable_cap_restrictions=self.config.enable_cap_restrictions,
+        )
 
         # Mount uv cache volume for faster repeated installs
         if has_runtime_deps:

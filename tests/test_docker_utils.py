@@ -8,6 +8,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from tako_vm.execution.docker import (
+    base_isolation_args,
     generate_container_name,
     is_native_linux,
     kill_container,
@@ -128,3 +129,39 @@ class TestContainerNameValidation:
         # Docker has a max container name length, but we don't enforce it
         # Just verify it's not empty
         assert len(name) > 0
+
+
+class TestBaseIsolationArgs:
+    """Tests for the shared isolation-base argument builder."""
+
+    def test_always_on_flags_present(self):
+        """The fixed isolation flags are always emitted, in order."""
+        args = base_isolation_args("c1", runtime="runc")
+        assert args[:6] == [
+            "docker",
+            "run",
+            "--rm",
+            "--name=c1",
+            "--init",
+            "--read-only",
+        ]
+
+    def test_caps_dropped_by_default(self):
+        """Capabilities are dropped and only SETUID/SETGID re-added by default."""
+        args = base_isolation_args("c1", runtime="runc")
+        assert "--cap-drop=ALL" in args
+        assert "--cap-add=SETUID" in args
+        assert "--cap-add=SETGID" in args
+
+    def test_caps_can_be_disabled(self):
+        """Disabling cap restrictions omits the cap-drop/add flags."""
+        args = base_isolation_args("c1", runtime="runc", enable_cap_restrictions=False)
+        assert not any(a.startswith("--cap-") for a in args)
+
+    def test_runsc_adds_runtime_flag(self):
+        """gVisor is passed explicitly via --runtime=runsc."""
+        assert "--runtime=runsc" in base_isolation_args("c1", runtime="runsc")
+
+    def test_runc_is_implicit(self):
+        """runc is docker's default and is not passed explicitly."""
+        assert not any(a.startswith("--runtime") for a in base_isolation_args("c1", runtime="runc"))
