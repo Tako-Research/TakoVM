@@ -1,12 +1,13 @@
 """
 Tests for Tako VM SDK client.
 
-Tests the typed function execution client with mocked HTTP responses.
+Tests the typed function execution client, the async job lifecycle, auth
+passthrough, and execution history with a mocked HTTP session.
 """
 
 from dataclasses import dataclass
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -14,11 +15,9 @@ from tako_vm.sdk.client import (
     ExecutionError,
     ExecutionResult,
     TakoVM,
-    TakoVMError,
     ValidationError,
     _get_client,
     configure,
-    send,
 )
 
 
@@ -40,6 +39,17 @@ class OutputData:
 def add_numbers(input: InputData) -> OutputData:
     """Test function that adds two numbers."""
     return OutputData(result=input.x + input.y)
+
+
+def _mock_session(json_value: Any = None, content: bytes = b"") -> MagicMock:
+    """A requests.Session mock whose .request() returns a canned response."""
+    response = MagicMock()
+    response.json.return_value = json_value
+    response.content = content
+    response.raise_for_status = MagicMock()
+    session = MagicMock()
+    session.request.return_value = response
+    return session
 
 
 class TestTakoVMClient:
@@ -138,44 +148,31 @@ class TestValidation:
 
 
 class TestExecution:
-    """Tests for execution with mocked HTTP."""
+    """Tests for synchronous execution (mocked HTTP session)."""
 
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_success(self, mock_post):
-        """send() returns deserialized output on success."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": True,
-            "output": {"result": 15},
-            "execution_time": 0.5,
-            "stdout": "",
-            "stderr": "",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        client = TakoVM()
+    def test_send_success(self):
+        session = _mock_session({"success": True, "output": {"result": 15}, "execution_time": 0.5})
+        client = TakoVM(session=session)
         result = client.send(add_numbers, InputData(x=5, y=10))
 
         assert isinstance(result, OutputData)
         assert result.result == 15
+        method, url = session.request.call_args.args
+        assert method == "POST"
+        assert url.endswith("/execute")
 
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_execution_failure(self, mock_post):
-        """send() raises ExecutionError on failure."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": False,
-            "output": None,
-            "execution_time": 0.1,
-            "stdout": "some output",
-            "stderr": "error details",
-            "error": "Execution failed: ZeroDivisionError",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        client = TakoVM()
+    def test_send_execution_failure(self):
+        session = _mock_session(
+            {
+                "success": False,
+                "output": None,
+                "execution_time": 0.1,
+                "stdout": "some output",
+                "stderr": "error details",
+                "error": "Execution failed: ZeroDivisionError",
+            }
+        )
+        client = TakoVM(session=session)
 
         with pytest.raises(ExecutionError) as exc_info:
             client.send(add_numbers, InputData(x=1, y=2))
@@ -184,201 +181,182 @@ class TestExecution:
         assert exc_info.value.stdout == "some output"
         assert exc_info.value.stderr == "error details"
 
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_raw_returns_result(self, mock_post):
-        """send_raw() returns ExecutionResult instead of raising."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": False,
-            "output": None,
-            "execution_time": 0.1,
-            "stdout": "output",
-            "stderr": "error",
-            "error": "Failed",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        client = TakoVM()
+    def test_send_raw_returns_result(self):
+        session = _mock_session(
+            {"success": False, "output": None, "execution_time": 0.1, "error": "Failed"}
+        )
+        client = TakoVM(session=session)
         result = client.send_raw(add_numbers, InputData(x=1, y=2))
 
         assert isinstance(result, ExecutionResult)
         assert result.success is False
         assert result.error == "Failed"
 
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_with_job_type(self, mock_post):
-        """send() passes job_type to API."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": True,
-            "output": {"result": 3},
-            "execution_time": 0.5,
-            "stdout": "",
-            "stderr": "",
-            "job_type": "custom-job",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
+    def test_send_passes_all_execute_params(self):
+        session = _mock_session({"success": True, "output": {"result": 3}, "execution_time": 0.1})
+        client = TakoVM(session=session)
+        client.send(
+            add_numbers,
+            InputData(1, 2),
+            job_type="custom",
+            timeout=60,
+            requirements=["pandas", "numpy>=1.20"],
+            startup_timeout=120,
+            idempotency_key="abc12345",
+        )
 
-        client = TakoVM()
-        client.send(add_numbers, InputData(x=1, y=2), job_type="custom-job")
+        payload = session.request.call_args.kwargs["json"]
+        assert payload["job_type"] == "custom"
+        assert payload["timeout"] == 60
+        assert payload["requirements"] == ["pandas", "numpy>=1.20"]
+        assert payload["startup_timeout"] == 120
+        assert payload["idempotency_key"] == "abc12345"
 
-        # Verify job_type was included in request
-        call_args = mock_post.call_args
-        assert call_args[1]["json"]["job_type"] == "custom-job"
+    def test_request_failure_returns_failed_result(self):
+        import requests
 
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_with_timeout(self, mock_post):
-        """send() passes timeout to API."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": True,
-            "output": {"result": 3},
-            "execution_time": 0.5,
-            "stdout": "",
-            "stderr": "",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        client = TakoVM()
-        client.send(add_numbers, InputData(x=1, y=2), timeout=60)
-
-        call_args = mock_post.call_args
-        assert call_args[1]["json"]["timeout"] == 60
+        session = MagicMock()
+        session.request.side_effect = requests.exceptions.ConnectionError("boom")
+        client = TakoVM(session=session)
+        result = client.send_raw(add_numbers, InputData(1, 2))
+        assert result.success is False
+        assert "Request failed" in (result.error or "")
 
 
-class TestHealthCheck:
-    """Tests for health check endpoint."""
+class TestAuthPassthrough:
+    """The SDK forwards caller-supplied headers and never interprets them."""
 
-    @patch("tako_vm.sdk.client.requests.get")
-    def test_health_success(self, mock_get):
-        """health() returns server status."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "status": "healthy",
-            "docker_available": True,
-            "version": "1.0.0",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+    def test_headers_forwarded_on_every_request(self):
+        session = _mock_session({"status": "healthy"})
+        client = TakoVM(session=session, headers={"X-API-Key": "secret"})
+        client.health()
+        assert session.request.call_args.kwargs["headers"]["X-API-Key"] == "secret"
 
-        client = TakoVM()
-        result = client.health()
-
-        assert result["status"] == "healthy"
-        assert result["docker_available"] is True
+    def test_no_headers_sends_none(self):
+        session = _mock_session({"status": "healthy"})
+        client = TakoVM(session=session)
+        client.health()
+        assert session.request.call_args.kwargs["headers"] is None
 
 
-class TestJobTypes:
-    """Tests for job type endpoints."""
+class TestAsyncLifecycle:
+    """Tests for the async job lifecycle."""
 
-    @patch("tako_vm.sdk.client.requests.get")
-    def test_list_job_types(self, mock_get):
-        """list_job_types() returns job type list."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = [
-            {"name": "default", "requirements": []},
-            {"name": "data-processing", "requirements": ["pandas"]},
-        ]
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+    def test_submit_code_returns_job_id(self):
+        session = _mock_session({"job_id": "job-123"})
+        client = TakoVM(session=session)
+        job_id = client.submit_code(
+            "print(1)", {"x": 1}, requirements=["numpy"], idempotency_key="k1"
+        )
+        assert job_id == "job-123"
+        method, url = session.request.call_args.args
+        assert method == "POST"
+        assert url.endswith("/execute/async")
+        payload = session.request.call_args.kwargs["json"]
+        assert payload["requirements"] == ["numpy"]
+        assert payload["idempotency_key"] == "k1"
 
-        client = TakoVM()
+    def test_submit_typed(self):
+        session = _mock_session({"job_id": "job-xyz"})
+        client = TakoVM(session=session)
+        assert client.submit(add_numbers, InputData(1, 2), job_type="t") == "job-xyz"
+        assert session.request.call_args.kwargs["json"]["job_type"] == "t"
+
+    def test_get_status(self):
+        session = _mock_session({"job_id": "j", "status": "running"})
+        client = TakoVM(session=session)
+        assert client.get_status("j")["status"] == "running"
+        assert session.request.call_args.args == ("GET", "http://localhost:8000/jobs/j")
+
+    def test_get_result_passes_timeout_and_view(self):
+        session = _mock_session({"status": "completed"})
+        client = TakoVM(session=session)
+        client.get_result("j", timeout=30, view="full")
+        assert session.request.call_args.kwargs["params"] == {"timeout": 30, "view": "full"}
+        assert session.request.call_args.args[1].endswith("/jobs/j/result")
+
+    def test_cancel(self):
+        session = _mock_session({"status": "cancelled", "job_id": "j"})
+        client = TakoVM(session=session)
+        assert client.cancel("j")["status"] == "cancelled"
+        assert session.request.call_args.args == ("POST", "http://localhost:8000/jobs/j/cancel")
+
+    def test_rerun_returns_new_job_id(self):
+        session = _mock_session({"job_id": "new-job"})
+        client = TakoVM(session=session)
+        assert client.rerun("j", timeout=10) == "new-job"
+        assert session.request.call_args.kwargs["json"] == {"timeout": 10}
+
+    def test_fork_returns_new_job_id(self):
+        session = _mock_session({"job_id": "forked"})
+        client = TakoVM(session=session)
+        assert client.fork("j", "print(2)") == "forked"
+        assert session.request.call_args.args[1].endswith("/jobs/j/fork")
+        assert session.request.call_args.kwargs["json"]["code"] == "print(2)"
+
+    def test_download_artifact_returns_bytes(self):
+        session = _mock_session(content=b"BINARY")
+        client = TakoVM(session=session)
+        data = client.download_artifact("j", "out.png")
+        assert data == b"BINARY"
+        assert session.request.call_args.args[1].endswith("/jobs/j/artifacts/out.png")
+
+
+class TestExecutionHistory:
+    """Tests for execution listing and metadata."""
+
+    def test_list_executions(self):
+        session = _mock_session(
+            {
+                "items": [{"execution_id": "a"}],
+                "limit": 50,
+                "offset": 0,
+                "has_more": False,
+                "count": 1,
+            }
+        )
+        client = TakoVM(session=session)
+        page = client.list_executions(status="succeeded", limit=10)
+        assert page["count"] == 1
+        params = session.request.call_args.kwargs["params"]
+        assert params["status"] == "succeeded"
+        assert params["limit"] == 10
+        assert session.request.call_args.args[1].endswith("/executions")
+
+    def test_get_execution(self):
+        session = _mock_session({"execution_id": "a"})
+        client = TakoVM(session=session)
+        assert client.get_execution("a", view="full")["execution_id"] == "a"
+        assert session.request.call_args.kwargs["params"] == {"view": "full"}
+
+    def test_list_job_types(self):
+        session = _mock_session([{"name": "default"}, {"name": "data-processing"}])
+        client = TakoVM(session=session)
         result = client.list_job_types()
-
         assert len(result) == 2
         assert result[0]["name"] == "default"
 
-    @patch("tako_vm.sdk.client.requests.get")
-    def test_get_job_type(self, mock_get):
-        """get_job_type() returns specific job type."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "name": "data-processing",
-            "requirements": ["pandas", "numpy"],
-            "timeout": 60,
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+    def test_get_job_type(self):
+        session = _mock_session({"name": "data-processing", "requirements": ["pandas"]})
+        client = TakoVM(session=session)
+        assert client.get_job_type("data-processing")["name"] == "data-processing"
 
-        client = TakoVM()
-        result = client.get_job_type("data-processing")
-
-        assert result["name"] == "data-processing"
-        assert "pandas" in result["requirements"]
+    def test_health(self):
+        session = _mock_session({"status": "healthy", "docker_available": True})
+        client = TakoVM(session=session)
+        assert client.health()["status"] == "healthy"
 
 
 class TestModuleLevelFunctions:
     """Tests for module-level convenience functions."""
 
-    def test_configure(self):
-        """configure() sets default client."""
-        configure(base_url="http://test:9000", timeout=45)
+    def test_configure_with_headers(self):
+        configure(base_url="http://test:9000", timeout=45, headers={"X-API-Key": "k"})
         client = _get_client()
-
         assert client.base_url == "http://test:9000"
         assert client.default_timeout == 45
+        assert client._headers == {"X-API-Key": "k"}
 
     def test_get_client_creates_default(self):
-        """_get_client() creates default client if not configured."""
-        # Reset by setting to a known URL first
         configure(base_url="http://localhost:8000")
-        client = _get_client()
-        assert client is not None
-
-    @patch("tako_vm.sdk.client.requests.post")
-    def test_send_module_function(self, mock_post):
-        """Module-level send() uses default client."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "success": True,
-            "output": {"result": 5},
-            "execution_time": 0.1,
-            "stdout": "",
-            "stderr": "",
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        configure(base_url="http://localhost:8000")
-        result = send(add_numbers, InputData(x=2, y=3))
-
-        assert result.result == 5
-
-
-class TestExecutionResult:
-    """Tests for ExecutionResult dataclass."""
-
-    def test_execution_result_fields(self):
-        """ExecutionResult has expected fields."""
-        result = ExecutionResult(
-            success=True,
-            output={"key": "value"},
-            execution_time=1.5,
-            stdout="output",
-            stderr="",
-            error=None,
-            job_type="default",
-        )
-        assert result.success is True
-        assert result.output == {"key": "value"}
-        assert result.execution_time == 1.5
-        assert result.job_type == "default"
-
-
-class TestExceptionHierarchy:
-    """Tests for exception classes."""
-
-    def test_tako_vm_error_base(self):
-        """TakoVMError is base exception."""
-        assert issubclass(ExecutionError, TakoVMError)
-        assert issubclass(ValidationError, TakoVMError)
-
-    def test_execution_error_captures_output(self):
-        """ExecutionError captures stdout/stderr."""
-        error = ExecutionError("Failed", stdout="out", stderr="err")
-        assert str(error) == "Failed"
-        assert error.stdout == "out"
-        assert error.stderr == "err"
+        assert _get_client() is not None

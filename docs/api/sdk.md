@@ -21,7 +21,7 @@ tako-vm server                  # start server (auto-starts PostgreSQL via Docke
 
 ## TakoVM Client (Server Mode)
 
-For production deployments with job queuing, persistence, and audit trails, use the HTTP server and client.
+For deployments with job queuing, persistence, and audit trails, use the HTTP server and the `TakoVM` client.
 
 ### Quick Start
 
@@ -47,97 +47,122 @@ result = tako_vm.send(add, Input(10, 20))
 print(result.result)  # 30
 ```
 
----
+The module-level helpers (`tako_vm.send`, `send_raw`, `list_job_types`, `get_job_type`) use a default client configured via `tako_vm.configure()`. For authentication, multiple clients, or the async job lifecycle, instantiate `TakoVM` directly.
 
-## Functions
-
-### `tako_vm.configure()`
-
-Configure the default client.
+### The `TakoVM` client
 
 ```python
-tako_vm.configure(
+from tako_vm import TakoVM
+
+client = TakoVM(
     base_url="http://localhost:8000",
-    timeout=30
+    timeout=30,
+    headers={"X-API-Key": "..."},  # forwarded on every request
+    session=None,                   # optional preconfigured requests.Session
 )
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `base_url` | str | `"http://localhost:8000"` | Server URL |
-| `timeout` | int | 30 | Default execution timeout |
+| `timeout` | int | 30 | Default execution timeout (seconds) |
+| `headers` | dict | `None` | Headers forwarded on every request |
+| `session` | requests.Session | `None` | Preconfigured session (retries, mTLS, proxies, pooling) |
+
+### Authentication
+
+The SDK does **not** implement authentication — it forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a `session` for transport-level auth (mTLS).
+
+```python
+# API key (matches the server's api_auth_header, default "X-API-Key")
+client = TakoVM("https://tako.internal", headers={"X-API-Key": API_KEY})
+
+# Bearer token
+client = TakoVM("https://tako.internal", headers={"Authorization": f"Bearer {token}"})
+
+# mTLS / custom transport
+import requests
+sess = requests.Session(); sess.cert = ("client.crt", "client.key")
+client = TakoVM("https://tako.internal", session=sess)
+```
+
+`tako_vm.configure(..., headers=...)` does the same for the module-level helpers.
 
 ---
 
-### `tako_vm.send()`
+## Synchronous execution
 
-Execute a typed function and return the result.
+### `send()` / `send_raw()`
+
+Execute a typed function and wait for the result. `send()` returns the output dataclass (raising `ExecutionError` on failure); `send_raw()` returns an `ExecutionResult` and never raises on execution failure.
 
 ```python
-result = tako_vm.send(func, input_data, timeout=None, job_type=None)
+result = client.send(
+    func, input_data,
+    timeout=None,           # execution timeout (s)
+    job_type=None,          # job type name (default: "default")
+    requirements=None,      # runtime packages, e.g. ["pandas", "numpy>=1.20"]
+    startup_timeout=None,   # startup phase timeout (container + deps)
+    idempotency_key=None,   # client key for idempotent submission
+)
 ```
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `func` | Callable | Yes | Function with type hints |
-| `input_data` | dataclass | Yes | Input dataclass instance |
-| `timeout` | int | No | Timeout in seconds |
-| `job_type` | str | No | Environment name |
-
-**Returns**: Output dataclass instance
-
-**Raises**:
-- `ValidationError`: Invalid input/output types
-- `ExecutionError`: Execution failed
+**Raises**: `ValidationError` (invalid input/output types), `ExecutionError` (`send` only).
 
 !!! important "How `send()` works"
-    The function you pass to `send()` does **not** run locally. Instead:
-
-    1. The function's source code is extracted via `inspect.getsource()`
-    2. The input dataclass is serialized to JSON and written to `/input/data.json`
-    3. The code is sent to the Tako VM server and executed in an isolated Docker container
-    4. The output is deserialized back into your output dataclass
-
-    This means:
-
-    - **Do not reference local variables** outside the function — they won't exist in the container
-    - **Imports must be inside the function** or available in the container's Python environment
-    - **The return type annotation** determines how `/output/result.json` is parsed back
+    The function you pass does **not** run locally. Its source is extracted via `inspect.getsource()`, the input dataclass is written to `/input/data.json`, the code runs in an isolated container, and `/output/result.json` is parsed back into your output dataclass. Therefore: **don't reference local variables** outside the function, **put imports inside** the function (or in the job type's image), and the **return annotation** drives output parsing.
 
 ---
 
-### `tako_vm.send_raw()`
+## Async jobs
 
-Execute a function and return raw result (doesn't raise on failure).
+Submit work without blocking, then poll or wait for the result.
 
 ```python
-result = tako_vm.send_raw(func, input_data, timeout=None, job_type=None)
+job_id = client.submit(func, input_data, requirements=["pandas"])   # typed
+job_id = client.submit_code("print(1)", {"x": 1})                   # raw code
+
+client.get_status(job_id)                       # {"status": "running", ...}
+record = client.get_result(job_id, timeout=60)  # waits up to 60s; view="full" for artifacts
+client.cancel(job_id)                           # cancel a queued/running job
+
+new_id = client.rerun(job_id)                   # re-run same code+input
+new_id = client.fork(job_id, "print(2)")        # re-run the input with new code
+
+data = client.download_artifact(job_id, "plot.png")   # -> bytes
 ```
 
-**Returns**: `ExecutionResult` object
+| Method | Endpoint | Returns |
+|--------|----------|---------|
+| `submit(func, input, ...)` / `submit_code(code, input_data, ...)` | `POST /execute/async` | `job_id` (str) |
+| `get_status(job_id)` | `GET /jobs/{id}` | status dict |
+| `get_result(job_id, timeout=, view=)` | `GET /jobs/{id}/result` | execution record |
+| `cancel(job_id)` | `POST /jobs/{id}/cancel` | cancel dict |
+| `rerun(job_id, job_type=, timeout=)` | `POST /jobs/{id}/rerun` | new `job_id` |
+| `fork(job_id, code, job_type=, timeout=)` | `POST /jobs/{id}/fork` | new `job_id` |
+| `download_artifact(job_id, name)` | `GET /jobs/{id}/artifacts/{name}` | `bytes` |
 
 ---
 
-### `tako_vm.list_job_types()`
-
-List available environments.
+## Execution history & metadata
 
 ```python
-job_types = tako_vm.list_job_types()
-for jt in job_types:
-    print(jt["name"], jt["requirements"])
+page = client.list_executions(status="succeeded", job_type=None, limit=50, offset=0, view=None)
+record = client.get_execution(execution_id, view="full")
+
+client.list_job_types()              # available job types
+client.get_job_type("data-processing")
+client.build_job_type("data-processing")   # build its image
+
+client.health()                      # server health
+client.pool_stats()                  # worker pool stats
+client.dlq_stats()                   # dead-letter-queue stats
 ```
 
----
+`list_executions()` returns a paginated response (`{"items": [...], "limit", "offset", "has_more", "count"}`).
 
-### `tako_vm.get_job_type()`
-
-Get a specific environment.
-
-```python
-jt = tako_vm.get_job_type("data-processing")
-print(jt["memory_limit"])  # "1g"
-```
+!!! note "Sessions"
+    A long-lived **session** API is in development and not yet part of this client. Until it lands, drive any session endpoints through `client._request(...)` or raw HTTP.
 
 ---
 
