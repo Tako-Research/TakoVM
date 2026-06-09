@@ -4,6 +4,7 @@ Tests for Tako VM configuration module.
 Tests config loading, validation, and environment variable overrides.
 """
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -371,6 +372,55 @@ class TestTakoVMConfig:
             TakoVMConfig.model_validate({"unknown_field": "value"})
 
 
+class TestSecurityWarnings:
+    """Tests for TakoVMConfig.security_warnings()."""
+
+    def test_security_warnings_default_config(self):
+        """Default config warns about disabled auth and permissive mode."""
+        warnings = TakoVMConfig().security_warnings()
+
+        assert len(warnings) == 2
+        assert any("api_auth_enabled" in w for w in warnings)
+        assert any("permissive" in w for w in warnings)
+
+    def test_security_warnings_empty_for_locked_down_config(self):
+        """Auth enabled + strict mode produces no warnings."""
+        config = TakoVMConfig(
+            api_auth_enabled=True,
+            api_keys=["aaaaaaaaaaaaaaaa"],
+            security_mode="strict",
+        )
+        assert config.security_warnings() == []
+
+    def test_security_warnings_empty_for_loopback_strict_config(self):
+        """Loopback host suppresses the auth warning even without auth."""
+        config = TakoVMConfig(server_host="127.0.0.1", security_mode="strict")
+        assert config.security_warnings() == []
+
+        config = TakoVMConfig(server_host="localhost", security_mode="strict")
+        assert config.security_warnings() == []
+
+    def test_security_warnings_permissive_only(self):
+        """Auth-enabled config in permissive mode warns about gVisor fallback only."""
+        config = TakoVMConfig(
+            api_auth_enabled=True,
+            api_keys=["aaaaaaaaaaaaaaaa"],
+            security_mode="permissive",
+        )
+        warnings = config.security_warnings()
+
+        assert len(warnings) == 1
+        assert "permissive" in warnings[0]
+
+    def test_load_config_logs_security_warnings(self, caplog):
+        """load_config emits security warnings via logging."""
+        with caplog.at_level(logging.WARNING, logger="tako_vm.config"):
+            load_config()
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("permissive" in message for message in messages)
+
+
 class TestConfigLoading:
     """Tests for config file loading."""
 
@@ -475,6 +525,59 @@ max_workers: -1  # Invalid: must be >= 1
                 load_config(config_path)
         finally:
             config_path.unlink()
+
+    def test_load_config_redacts_database_password_from_errors(self):
+        """ConfigurationError must not echo secrets embedded in invalid values."""
+        password = "sup3r-s3cret-hunter2"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'database_url: "mysql://tako:{password}@db.internal:3306/tako"\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigurationError) as exc_info:
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+        message = str(exc_info.value)
+        assert password not in message
+        assert "database_url" in message
+
+    def test_load_config_redacts_api_keys_from_errors(self):
+        """Too-short API keys are not echoed back in the error message."""
+        secret_key = "hunter2secret"  # < 16 chars, fails validation
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'api_keys: ["{secret_key}"]\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigurationError) as exc_info:
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+        message = str(exc_info.value)
+        assert secret_key not in message
+        assert "api_keys" in message
+
+    def test_validate_config_file_redacts_secrets(self):
+        """validate_config_file errors must not echo secret input values."""
+        password = "sup3r-s3cret-hunter2"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'database_url: "mysql://tako:{password}@db.internal:3306/tako"\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            errors = validate_config_file(config_path)
+        finally:
+            config_path.unlink()
+
+        assert len(errors) > 0
+        assert all(password not in error for error in errors)
+        assert any("database_url" in error for error in errors)
 
     def test_validate_config_file_valid(self):
         """validate_config_file returns empty list for valid file."""
