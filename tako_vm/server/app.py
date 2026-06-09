@@ -30,7 +30,12 @@ from pydantic import BaseModel, Field, field_validator
 from tako_vm import __version__
 from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
-from tako_vm.execution.worker import CodeExecutor, check_gvisor_available
+from tako_vm.execution.worker import (
+    CodeExecutor,
+    check_gvisor_available,
+    prune_old_run_dirs,
+    prune_stale_workspaces,
+)
 from tako_vm.job_types import JobTypeRegistry, merge_config_job_types
 from tako_vm.models import ExecutionRecord, sha256_content, sha256_json
 from tako_vm.security import sanitize_error
@@ -163,8 +168,14 @@ def _get_runtime_config() -> TakoVMConfig:
     return get_config()
 
 
-async def _periodic_cleanup(storage: ExecutionStorage, record_ttl_days: int, dlq_ttl_days: int = 7):
-    """Background task for periodic database cleanup."""
+async def _periodic_cleanup(
+    storage: ExecutionStorage,
+    record_ttl_days: int,
+    data_dir: Path,
+    workspace_max_age_seconds: int,
+    dlq_ttl_days: int = 7,
+):
+    """Background task for periodic database + on-disk cleanup."""
     cleanup_interval = 3600  # Run every hour
     while True:
         try:
@@ -177,6 +188,13 @@ async def _periodic_cleanup(storage: ExecutionStorage, record_ttl_days: int, dlq
             dlq_deleted = await storage.cleanup_old_dlq_entries(dlq_ttl_days)
             if dlq_deleted > 0:
                 logger.info(f"Cleanup: deleted {dlq_deleted} old DLQ entries")
+            # Reclaim stranded workspaces and on-disk artifacts past retention
+            stale_ws = prune_stale_workspaces(workspace_max_age_seconds)
+            if stale_ws > 0:
+                logger.info(f"Cleanup: pruned {stale_ws} stale workspace dir(s)")
+            old_runs = prune_old_run_dirs(data_dir, record_ttl_days)
+            if old_runs > 0:
+                logger.info(f"Cleanup: pruned {old_runs} expired run artifact dir(s)")
         except asyncio.CancelledError:
             logger.info("Periodic cleanup task cancelled")
             break
@@ -214,9 +232,24 @@ async def lifespan(app: FastAPI):
     )
     await state.worker_pool.start()
 
+    # A workspace exists only while its run is alive (created right before the
+    # container, removed in the run's finally block); its container budget is at
+    # most max_startup_timeout + max_timeout (+ grace). So a dir whose mtime is
+    # older than that provably cannot belong to a live run and is safe to reclaim
+    # -- never key the sweep on max_timeout alone (it ignores the startup phase).
+    workspace_max_age = max(3600, state.config.max_startup_timeout + state.config.max_timeout + 300)
+    stranded = prune_stale_workspaces(workspace_max_age)
+    if stranded > 0:
+        logger.info(f"Startup: pruned {stranded} stale workspace dir(s)")
+
     # Start periodic cleanup task
     cleanup_task = asyncio.create_task(
-        _periodic_cleanup(state.storage, state.config.execution_record_ttl_days)
+        _periodic_cleanup(
+            state.storage,
+            state.config.execution_record_ttl_days,
+            state.config.data_dir,
+            workspace_max_age,
+        )
     )
 
     logger.info(f"Tako VM ready (production_mode={state.config.production_mode})")
