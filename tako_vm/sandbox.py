@@ -40,6 +40,22 @@ _SAFE_PROXY_URL_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
 )
 
+DEFAULT_STARTUP_TIMEOUT = 120
+"""Default startup (dependency install) timeout in seconds, matching server defaults."""
+
+
+def _decode_stream(value: Any) -> str:
+    """Decode partial subprocess output that may be None, bytes, or str.
+
+    subprocess.TimeoutExpired carries raw bytes even when subprocess.run
+    was invoked with text=True.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
 
 @dataclass
 class SandboxResult:
@@ -103,6 +119,9 @@ class SandboxConfig:
 
     timeout: int = 30
     """Default timeout in seconds."""
+
+    startup_timeout: int = DEFAULT_STARTUP_TIMEOUT
+    """Timeout in seconds for the startup phase (runtime dependency installation)."""
 
     memory_limit: str = "512m"
     """Memory limit for containers."""
@@ -171,6 +190,7 @@ class Sandbox:
         enable_runtime_dependency_cache: bool = False,
         package_dirs: Optional[List[str]] = None,
         auto_build: bool = True,
+        startup_timeout: int = DEFAULT_STARTUP_TIMEOUT,
     ):
         """
         Initialize the sandbox.
@@ -186,10 +206,12 @@ class Sandbox:
             enable_runtime_dependency_cache: Whether to use a shared uv cache volume
             package_dirs: Local directories to mount as Python packages
             auto_build: Whether to auto-build image if missing
+            startup_timeout: Timeout in seconds for runtime dependency installation
         """
         self.config = SandboxConfig(
             image=image,
             timeout=timeout,
+            startup_timeout=startup_timeout,
             memory_limit=memory_limit,
             cpu_limit=cpu_limit,
             network_enabled=network_enabled,
@@ -382,12 +404,20 @@ class Sandbox:
             except ValueError as e:
                 return SandboxResult(success=False, exit_code=-1, error=str(e))
 
-            # Execute
+            # Execute. The container enforces its own timeouts via
+            # TAKO_STARTUP_TIMEOUT / TAKO_EXECUTION_TIMEOUT; this subprocess
+            # timeout is a backstop with a grace period for container overhead.
+            # Dependency installation happens before code runs, so budget the
+            # startup phase separately when requirements are present.
+            subprocess_timeout = timeout + 5
+            if requirements:
+                subprocess_timeout += self.config.startup_timeout
+
             start_time = time.time()
             try:
                 proc = subprocess.run(
                     cmd,
-                    timeout=timeout + 5,  # Grace period for container overhead
+                    timeout=subprocess_timeout,
                     capture_output=True,
                     text=True,
                     check=False,
@@ -412,13 +442,13 @@ class Sandbox:
                     duration_ms=duration_ms,
                 )
 
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
                 # Kill the orphaned container (subprocess died but container keeps running)
                 kill_container(container_name)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return SandboxResult(
-                    stdout="",
-                    stderr="",
+                    stdout=_decode_stream(exc.stdout),
+                    stderr=_decode_stream(exc.stderr),
                     exit_code=-1,
                     success=False,
                     error=f"Execution timed out after {timeout}s",
@@ -447,22 +477,23 @@ class Sandbox:
         """
         validated_reqs = []
         if requirements:
-            if len(requirements) > MAX_REQUIREMENTS:
-                raise ValueError(
-                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
-                )
-            for req in requirements:
-                if validate_pip_requirement(req):
-                    validated_reqs.append(req)
-                else:
-                    logger.warning("Skipping invalid pip requirement: %s", req)
-
-        if validated_reqs:
+            # Enforce the policy before validation so an all-invalid list
+            # cannot bypass the allow_runtime_requirements check.
             if not self.config.allow_runtime_requirements:
                 raise ValueError(
                     "Runtime dependency installation is disabled. "
                     "Use pre-built images or set allow_runtime_requirements=True."
                 )
+            if len(requirements) > MAX_REQUIREMENTS:
+                raise ValueError(
+                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
+                )
+            for req in requirements:
+                if not validate_pip_requirement(req):
+                    raise ValueError(f"Invalid pip requirement: {req!r}")
+                validated_reqs.append(req)
+
+        if validated_reqs:
             requirements_file = input_dir / "_requirements.txt"
             requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
             requirements_file.chmod(0o444)
@@ -535,6 +566,12 @@ class Sandbox:
 
         if has_requirements and self.config.dependency_proxy_url:
             cmd.append(f"--env=TAKO_DEPENDENCY_PROXY_URL={self.config.dependency_proxy_url}")
+
+        # In-container timeout enforcement (entrypoint.sh wraps each phase in
+        # timeout(1)). Without these the container would run forever if the
+        # parent process died before its subprocess timeout fired.
+        cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={self.config.startup_timeout}")
+        cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")
 
         # Image
         cmd.append(self.config.image)
