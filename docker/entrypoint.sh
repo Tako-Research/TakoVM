@@ -46,12 +46,16 @@ if [ -s "$REQS_FILE" ]; then
         )
     fi
 
-    # Capture install result (don't exit on error yet so we can record timing)
+    # Capture install result (don't exit on error yet so we can record timing).
+    # uv output goes to stderr (1>&2): user stdout stays clean, and the server
+    # classifies dependency_error patterns against stderr only.
+    # --kill-after sends SIGKILL if the process survives SIGTERM, so a hung
+    # installer cannot outlive the timeout.
     set +e
     if [ -n "$TAKO_STARTUP_TIMEOUT" ]; then
-        timeout --signal=TERM "${TAKO_STARTUP_TIMEOUT}s" "${UV_INSTALL_CMD[@]}" 2>&1
+        timeout --signal=TERM --kill-after=10s "${TAKO_STARTUP_TIMEOUT}s" "${UV_INSTALL_CMD[@]}" 1>&2
     else
-        "${UV_INSTALL_CMD[@]}" 2>&1
+        "${UV_INSTALL_CMD[@]}" 1>&2
     fi
     DEP_EXIT_CODE=$?
     set -e
@@ -63,6 +67,16 @@ if [ -s "$REQS_FILE" ]; then
 
     # Record dep install completion
     END_DEP=$(get_time_ms)
+
+    # GNU timeout exits 124 when the command stops on SIGTERM, but 137 when the
+    # --kill-after SIGKILL was needed. Tako VM treats 124 as an internal timeout
+    # and 137 as an OOM kill, so map kill-after deaths back to 124 when this
+    # phase ran for at least the full time limit.
+    if [ -n "$TAKO_STARTUP_TIMEOUT" ] && [ "$DEP_EXIT_CODE" -eq 137 ] \
+        && [ $((END_DEP - START_STARTUP)) -ge $((TAKO_STARTUP_TIMEOUT * 1000)) ]; then
+        DEP_EXIT_CODE=124
+    fi
+
     echo "dep_install_ms=$((END_DEP - START_STARTUP))" >> "$PHASE_FILE"
     echo "dep_install_exit_code=$DEP_EXIT_CODE" >> "$PHASE_FILE"
 
@@ -92,10 +106,12 @@ START_EXEC=$(get_time_ms)
 echo "execution_start_ms=$START_EXEC" >> "$PHASE_FILE"
 
 # Drop privileges and run user code as sandbox user
-# Using exec replaces this process, so we need a wrapper to capture timing
+# Using exec replaces this process, so we need a wrapper to capture timing.
+# --kill-after sends SIGKILL after a grace period so untrusted code that
+# ignores/traps SIGTERM (signal.SIG_IGN) cannot outlive the timeout.
 set +e
 if [ -n "$TAKO_EXECUTION_TIMEOUT" ]; then
-    timeout --signal=TERM "${TAKO_EXECUTION_TIMEOUT}s" gosu sandbox python -u /code/main.py
+    timeout --signal=TERM --kill-after=10s "${TAKO_EXECUTION_TIMEOUT}s" gosu sandbox python -u /code/main.py
 else
     gosu sandbox python -u /code/main.py
 fi
@@ -104,6 +120,16 @@ set -e
 
 # Record execution completion
 END_EXEC=$(get_time_ms)
+
+# GNU timeout exits 124 when the command stops on SIGTERM, but 137 when the
+# --kill-after SIGKILL was needed. Tako VM treats 124 as an internal timeout
+# and 137 as an OOM kill, so map kill-after deaths back to 124 when this
+# phase ran for at least the full time limit.
+if [ -n "$TAKO_EXECUTION_TIMEOUT" ] && [ "$EXEC_EXIT_CODE" -eq 137 ] \
+    && [ $((END_EXEC - START_EXEC)) -ge $((TAKO_EXECUTION_TIMEOUT * 1000)) ]; then
+    EXEC_EXIT_CODE=124
+fi
+
 echo "execution_ms=$((END_EXEC - START_EXEC))" >> "$PHASE_FILE"
 echo "execution_exit_code=$EXEC_EXIT_CODE" >> "$PHASE_FILE"
 
