@@ -55,6 +55,29 @@ logger = logging.getLogger(__name__)
 # Cache for runtime availability check
 _gvisor_available: Optional[bool] = None
 
+# stderr patterns that indicate the docker CLI could not reach the daemon.
+# These are infrastructure failures, never the fault of the user's code.
+_DOCKER_INFRA_STDERR_PATTERNS = (
+    "cannot connect to the docker daemon",
+    "error during connect",
+    "docker daemon is not running",
+)
+
+
+def _coerce_output(value: Any) -> str:
+    """Coerce captured subprocess output to ``str``.
+
+    ``subprocess.TimeoutExpired.stdout``/``.stderr`` hold the raw ``bytes``
+    captured before the kill even when ``subprocess.run`` was invoked with
+    ``text=True`` (CPython populates them from the byte buffers), so this
+    must handle ``str``, ``bytes``, and ``None``.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
 
 def _require_safe_execution_id(execution_id: str) -> str:
     """Reject execution IDs that are unsafe for filesystem-backed storage."""
@@ -597,6 +620,12 @@ class CodeExecutor:
                         job_id=job_id,
                     )
 
+                    # Host-level timeout: the job already consumed its full
+                    # time budget, so never retry it.
+                    if result.get("timed_out"):
+                        timed_out = True
+                        break
+
                     # Check for transient Docker errors in result
                     if not result.get("success") and result.get("error"):
                         error_msg = result.get("error", "").lower()
@@ -605,6 +634,7 @@ class CodeExecutor:
                             for pattern in [
                                 "circuit breaker",
                                 "docker daemon",
+                                "docker infrastructure failure",
                                 "connection refused",
                             ]
                         ):
@@ -615,12 +645,15 @@ class CodeExecutor:
                     break  # Success or non-transient error
 
                 except subprocess.TimeoutExpired:
+                    # Safety net only: _run_container catches TimeoutExpired
+                    # itself and returns a dict with timed_out=True instead.
                     timed_out = True
                     result = {
                         "success": False,
                         "stdout": "",
                         "stderr": "",
                         "exit_code": -1,
+                        "timed_out": True,
                     }
                     break  # Timeout is not retriable
 
@@ -694,10 +727,13 @@ class CodeExecutor:
                         phase="execution",
                     )
                 else:
-                    # Fallback to generic timeout if we can't determine phase
+                    # Fallback to generic timeout if we can't determine phase.
+                    # For a host-level timeout, _run_container already built
+                    # the message (e.g. "Execution timeout exceeded (Ns)").
                     record.error = ExecutionError(
                         type="timeout",
-                        message=f"Execution exceeded time limit ({timeout}s)",
+                        message=result.get("error")
+                        or f"Execution exceeded time limit ({timeout}s)",
                         phase=timing.phase_at_exit if timing else None,
                     )
             elif result.get("exit_code") == 137:
@@ -712,11 +748,23 @@ class CodeExecutor:
                 record.status = "succeeded"
             else:
                 record.status = "failed"
-                error_type, error_msg = classify_error(
-                    result.get("exit_code", 1), result.get("stderr", ""), timed_out
-                )
                 phase = timing.phase_at_exit if timing else None
-                record.error = ExecutionError(type=error_type, message=error_msg, phase=phase)
+                if result.get("infra_failure"):
+                    # Docker-level failure (daemon down, circuit breaker open):
+                    # don't run classify_error on daemon stderr — it would
+                    # misattribute the failure to the user's code.
+                    record.error = ExecutionError(
+                        type="service_unavailable",
+                        message=sanitize_error(
+                            result.get("error") or "Docker infrastructure failure"
+                        ),
+                        phase=phase,
+                    )
+                else:
+                    error_type, error_msg = classify_error(
+                        result.get("exit_code", 1), result.get("stderr", ""), timed_out
+                    )
+                    record.error = ExecutionError(type=error_type, message=error_msg, phase=phase)
 
             return record
 
@@ -911,6 +959,7 @@ class CodeExecutor:
                 "stdout": "",
                 "stderr": "Circuit breaker is open due to repeated Docker failures. Service will retry automatically.",
                 "exit_code": -1,
+                "infra_failure": True,
             }
 
         # Validate runtime requirements before deciding network and tmpfs policy.
@@ -1084,7 +1133,38 @@ class CodeExecutor:
                 cmd, timeout=container_timeout, capture_output=True, text=True, check=False
             )
 
-            # Record success with circuit breaker
+            # `docker run` reserves exit code 125 for failures of docker itself
+            # (daemon unreachable, image pull failure, bad flags); container
+            # exit codes pass through unchanged otherwise, and our entrypoint
+            # never exits 125 in normal operation. Treat 125 — or daemon
+            # connectivity errors on stderr of a failed run — as infrastructure
+            # failures: they must count against the circuit breaker, be marked
+            # retriable via the "error" key, and never be attributed to the
+            # user's code by classify_error.
+            stderr_lower = (result.stderr or "").lower()
+            is_infra_failure = result.returncode == 125 or (
+                result.returncode != 0
+                and any(pattern in stderr_lower for pattern in _DOCKER_INFRA_STDERR_PATTERNS)
+            )
+            if is_infra_failure:
+                stderr_lines = (result.stderr or "").strip().splitlines()
+                detail = (
+                    stderr_lines[0]
+                    if stderr_lines
+                    else f"docker run exited with code {result.returncode}"
+                )
+                circuit_breaker.record_failure(detail)
+                return {
+                    "success": False,
+                    "error": sanitize_error(f"Docker infrastructure failure: {detail}"),
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "infra_failure": True,
+                }
+
+            # The container ran to completion: any exit code here (including a
+            # non-zero exit from user code) means Docker itself is healthy.
             circuit_breaker.record_success()
 
             return {
@@ -1094,17 +1174,22 @@ class CodeExecutor:
                 "exit_code": result.returncode,
             }
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             # Timeout is not a Docker failure, don't record with circuit breaker
             # Kill the orphaned container (subprocess died but container keeps running)
             kill_container(container_name)
             return {
                 "success": False,
                 "error": f"Execution timeout exceeded ({timeout}s)",
-                "stdout": "",
-                "stderr": "",
+                # Preserve partial output captured up to the kill so the user
+                # can see how far their code got before the host-level kill.
+                "stdout": _coerce_output(e.stdout),
+                "stderr": _coerce_output(e.stderr),
                 "exit_code": -1,
                 "timeout": timeout,
+                # Marker for the caller: this run hit the host-level timeout,
+                # must be recorded as status="timeout", and must not retry.
+                "timed_out": True,
             }
         except FileNotFoundError:
             # Docker command not found - record failure
