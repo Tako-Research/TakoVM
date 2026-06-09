@@ -227,7 +227,11 @@ CMD ["python", "-u", "/code/main.py"]
                 raise BuildError(f"Failed to build {job_type.name}: {error_msg}") from e
 
     def build_all(
-        self, registry: JobTypeRegistry, no_cache: bool = False, quiet: bool = False
+        self,
+        registry: JobTypeRegistry,
+        no_cache: bool = False,
+        quiet: bool = False,
+        skip_existing: bool = False,
     ) -> dict[str, bool]:
         """
         Build images for all registered job types.
@@ -236,12 +240,20 @@ CMD ["python", "-u", "/code/main.py"]
             registry: Job type registry
             no_cache: If True, build without Docker cache
             quiet: If True, suppress build output
+            skip_existing: If True, skip job types whose image already exists
+                on the Docker daemon instead of rebuilding it. Useful for
+                long-running callers that pre-build images at startup and only
+                want to build what is missing.
 
         Returns:
             Dict mapping job type name to build success
         """
         results = {}
         for job_type in registry.list():
+            if skip_existing and self.image_exists(job_type):
+                logger.info(f"Image for {job_type.name} already exists; skipping build")
+                results[job_type.name] = True
+                continue
             try:
                 self.build(job_type, no_cache=no_cache, quiet=quiet)
                 results[job_type.name] = True
