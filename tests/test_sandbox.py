@@ -4,14 +4,26 @@ Tests for the Sandbox class (library mode).
 These tests verify the direct Docker sandbox execution without a server.
 """
 
+import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from tako_vm.constants import UV_CACHE_VOLUME
-from tako_vm.sandbox import Sandbox, SandboxResult
+from tako_vm.sandbox import DEFAULT_STARTUP_TIMEOUT, Sandbox, SandboxResult
 from tako_vm.sandbox import run as sandbox_run
+
+
+def _make_workspace_dirs(tmp_path):
+    """Create code/input/output dirs for _build_docker_command unit tests."""
+    code_dir = tmp_path / "code"
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    code_dir.mkdir()
+    input_dir.mkdir()
+    output_dir.mkdir()
+    return code_dir, input_dir, output_dir
 
 
 class TestSandboxResult:
@@ -328,6 +340,39 @@ print(f"version: {requests.__version__}")
 
         assert not any(arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in cmd)
 
+    def test_sandbox_rejects_invalid_requirement(self, tmp_path):
+        """Invalid pip requirements raise instead of being silently dropped."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox(allow_runtime_requirements=True)
+        with pytest.raises(ValueError, match="Invalid pip requirement") as excinfo:
+            sb._build_docker_command(
+                code_dir=code_dir,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                timeout=30,
+                requirements=["requests", "evil`touch /tmp/pwned`"],
+            )
+
+        # The error names the offending requirement
+        assert "evil`touch /tmp/pwned`" in str(excinfo.value)
+        # Nothing was written before the validation failure
+        assert not (input_dir / "_requirements.txt").exists()
+
+    def test_sandbox_policy_checked_before_validation(self, tmp_path):
+        """An all-invalid requirements list cannot bypass the policy check."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()  # allow_runtime_requirements=False
+        with pytest.raises(ValueError, match="Runtime dependency installation is disabled"):
+            sb._build_docker_command(
+                code_dir=code_dir,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                timeout=30,
+                requirements=["evil`touch /tmp/pwned`"],
+            )
+
     @pytest.mark.parametrize(
         ("cache_enabled", "expect_cache_mount"),
         [(False, False), (True, True)],
@@ -357,6 +402,99 @@ print(f"version: {requests.__version__}")
         expected_cache_dir = "/root/.cache/uv" if cache_enabled else "/tmp/uv-cache"
         assert (cache_mount in cmd) is expect_cache_mount
         assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in cmd
+
+
+class TestSandboxTimeoutEnforcement:
+    """Unit tests for in-container timeout enforcement (no container needed)."""
+
+    def test_docker_command_includes_timeout_env_vars(self, tmp_path):
+        """Both timeout env vars are passed so the container self-enforces limits."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox(startup_timeout=90)
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=7,
+        )
+
+        assert "--env=TAKO_STARTUP_TIMEOUT=90" in cmd
+        assert "--env=TAKO_EXECUTION_TIMEOUT=7" in cmd
+        # Env vars must come before the image name to be docker run options
+        assert cmd.index("--env=TAKO_EXECUTION_TIMEOUT=7") < cmd.index(sb.config.image)
+
+    def test_docker_command_default_startup_timeout(self, tmp_path):
+        """Default startup timeout matches the server default (120s)."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()
+        assert sb.config.startup_timeout == DEFAULT_STARTUP_TIMEOUT
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+        )
+
+        assert f"--env=TAKO_STARTUP_TIMEOUT={DEFAULT_STARTUP_TIMEOUT}" in cmd
+        assert "--env=TAKO_EXECUTION_TIMEOUT=30" in cmd
+
+    def test_subprocess_budget_includes_startup_timeout_with_requirements(self, monkeypatch):
+        """Dependency install time is budgeted separately from code timeout."""
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            recorded["timeout"] = kwargs.get("timeout")
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        sb = Sandbox(allow_runtime_requirements=True, startup_timeout=100)
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+
+        sb.run("print('hi')", timeout=10, requirements=["requests"])
+        assert recorded["timeout"] == 100 + 10 + 5
+
+        sb.run("print('hi')", timeout=10)
+        assert recorded["timeout"] == 10 + 5
+
+    def test_timeout_preserves_partial_output(self, monkeypatch):
+        """Partial stdout/stderr from TimeoutExpired is surfaced in the result."""
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(
+                cmd,
+                kwargs.get("timeout"),
+                output=b"partial stdout",
+                stderr=b"partial stderr",
+            )
+
+        killed = {}
+        sb = Sandbox()
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "tako_vm.sandbox.kill_container", lambda name: killed.setdefault("name", name)
+        )
+
+        result = sb.run("print('hi')", timeout=2)
+
+        assert result.success is False
+        assert result.exit_code == -1
+        assert result.stdout == "partial stdout"
+        assert result.stderr == "partial stderr"
+        assert "timed out" in result.error.lower()
+        assert killed["name"] == "fake-container"
 
 
 @pytest.mark.requires_host_mounts
