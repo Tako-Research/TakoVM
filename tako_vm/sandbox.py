@@ -24,7 +24,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from tako_vm.config import get_config
 from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
+from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import generate_container_name, kill_container
 from tako_vm.security import validate_pip_requirement
 
@@ -472,6 +474,14 @@ class Sandbox:
             "--init",  # Faster signal handling with tini
             "--read-only",
         ]
+
+        # Apply the resolved container runtime via the shared resolver, so the
+        # library path enforces gVisor identically to CodeExecutor. runc is
+        # docker's default (and some daemons reject `--runtime=runc`), so only
+        # pass the flag for gVisor; strict mode fails closed when gVisor is
+        # unavailable.
+        if resolve_runtime(get_config()) == "runsc":
+            cmd.append("--runtime=runsc")
 
         # Capability restrictions (can be disabled in CI environments where Docker
         # can't modify capability bounding sets)
