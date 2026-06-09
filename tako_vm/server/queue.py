@@ -642,25 +642,125 @@ class WorkerPool:
             job: Job to execute
 
         Returns:
-            ExecutionRecord with results
-
-        Raises:
-            asyncio.TimeoutError: If execution exceeds timeout + buffer
+            ExecutionRecord with results (including a terminal "timeout" record
+            if the watchdog budget is exceeded)
         """
         loop = asyncio.get_running_loop()
 
         # Include both startup and execution budgets, plus buffer for Docker orchestration.
-        job_timeout = job.job_data.get("timeout", 30)
-        startup_timeout = job.job_data.get("startup_timeout", 120)
+        job_timeout, startup_timeout = self._resolve_timeout_budget(job)
         executor_timeout = startup_timeout + job_timeout + 60
 
         # Run synchronous execution in thread pool with timeout protection
-        record = await asyncio.wait_for(
-            loop.run_in_executor(self._thread_pool, self._run_job_sync, job),
-            timeout=executor_timeout,
-        )
+        try:
+            record = await asyncio.wait_for(
+                loop.run_in_executor(self._thread_pool, self._run_job_sync, job),
+                timeout=executor_timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            return await self._handle_watchdog_timeout(job, executor_timeout)
 
         return record
+
+    def _resolve_timeout_budget(self, job: QueuedJob) -> tuple:
+        """
+        Resolve the (job_timeout, startup_timeout) budget for the watchdog.
+
+        Mirrors the executor's own resolution (CodeExecutor falls back to the
+        job type's timeout/startup_timeout when the job omits them), so the
+        watchdog never undercuts a legitimate job-type budget. Falls back to
+        the executor's built-in defaults when the job type is missing or the
+        registry lookup fails.
+
+        Args:
+            job: Job whose budget to resolve
+
+        Returns:
+            Tuple of (job_timeout, startup_timeout) in seconds
+        """
+        # Matches CodeExecutor's DEFAULT_JOB_TYPE (timeout=30, startup_timeout=120).
+        default_timeout: float = 30
+        default_startup_timeout: float = 120
+
+        job_type_name = job.job_data.get("job_type")
+        if job_type_name:
+            try:
+                # Strip version specifier (job_type@version), like the executor does.
+                name = job_type_name.split("@", 1)[0]
+                registry = getattr(self.executor, "registry", None)
+                job_type = registry.get(name) if registry is not None else None
+                if job_type is not None:
+                    default_timeout = float(job_type.timeout)
+                    default_startup_timeout = float(job_type.startup_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"Could not resolve job-type budget for job {job.job_id} "
+                    f"(job_type={job_type_name!r}): {e}; using built-in defaults"
+                )
+
+        job_timeout = job.job_data.get("timeout", default_timeout)
+        startup_timeout = job.job_data.get("startup_timeout", default_startup_timeout)
+        return job_timeout, startup_timeout
+
+    async def _handle_watchdog_timeout(
+        self, job: QueuedJob, executor_timeout: float
+    ) -> ExecutionRecord:
+        """
+        Handle a watchdog (wait_for) timeout for a job.
+
+        The asyncio timeout only cancels the awaiting wrapper -- the executor
+        thread keeps running. Kill the container immediately so the sandboxed
+        workload stops now instead of when the thread's subprocess backstop
+        eventually fires, and return a terminal "timeout" record (this is a
+        budget overrun, not an internal error, so it must not be DLQ'd).
+
+        Args:
+            job: Job that exceeded the watchdog budget
+            executor_timeout: Budget in seconds that was exceeded
+
+        Returns:
+            ExecutionRecord with status "timeout"
+        """
+        container_name = generate_container_name("tako", job.job_id)
+        killed = await asyncio.to_thread(kill_container, container_name)
+        if killed:
+            logger.warning(
+                f"Job {job.job_id} exceeded watchdog budget of {executor_timeout}s; "
+                f"killed container {container_name}"
+            )
+        else:
+            logger.warning(
+                f"Job {job.job_id} exceeded watchdog budget of {executor_timeout}s; "
+                f"container {container_name} was not running (already exited?)"
+            )
+        logger.warning(
+            f"Executor thread for job {job.job_id} is stranded until its subprocess "
+            "timeout backstop fires; the worker slot is freed now"
+        )
+
+        job_type_name = job.job_data.get("job_type") or "default"
+        return ExecutionRecord(
+            execution_id=job.job_id,
+            status="timeout",
+            job_type=job_type_name,
+            job_ref=f"{job_type_name}@latest",
+            created_at=job.created_at,
+            queued_at=job.created_at,
+            code_hash=sha256_content(job.job_data.get("code", "")),
+            input_hash=sha256_json(job.job_data.get("input_data", {})),
+            client_ip=job.client_ip,
+            error=ExecutionError(
+                type="execution_timeout",
+                message=(
+                    f"Execution exceeded the watchdog budget of {executor_timeout}s "
+                    "(startup + execution + orchestration buffer); container was killed"
+                ),
+            ),
+            idempotency_key=job.job_data.get("idempotency_key"),
+            idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
+            parent_execution_id=job.job_data.get("parent_execution_id"),
+            relationship=job.job_data.get("relationship"),
+        )
 
     def _run_job_sync(self, job: QueuedJob) -> ExecutionRecord:
         """
