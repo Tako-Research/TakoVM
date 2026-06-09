@@ -123,14 +123,28 @@ class WorkerPool:
 
         self._shutdown = True
 
-        # Cancel all pending jobs
+        # Cancel all pending jobs, persisting a terminal record first so their
+        # DB rows don't stay stuck at 'queued' after a graceful restart/deploy.
         while not self._queue.empty():
             try:
                 job = self._queue.get_nowait()
-                if job.future and not job.future.done():
-                    job.future.cancel()
             except asyncio.QueueEmpty:
                 break
+
+            # Best-effort: a storage failure during shutdown must not
+            # prevent shutdown (startup reconciliation covers the gap).
+            try:
+                record = self._build_cancelled_record(
+                    job, message="Job cancelled: server shut down before execution started"
+                )
+                await self.storage.save_record(record)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to persist shutdown record for pending job {job.job_id}: {e}"
+                )
+
+            if job.future and not job.future.done():
+                job.future.cancel()
 
         # Wait for workers with timeout
         if self._workers:
@@ -367,7 +381,9 @@ class WorkerPool:
 
         return True
 
-    def _build_cancelled_record(self, job: QueuedJob) -> ExecutionRecord:
+    def _build_cancelled_record(
+        self, job: QueuedJob, message: str = "Execution was cancelled by user"
+    ) -> ExecutionRecord:
         """Create a final cancelled record for a job."""
         job_type_name = job.job_data.get("job_type") or "default"
         return ExecutionRecord(
@@ -380,7 +396,7 @@ class WorkerPool:
             code_hash=sha256_content(job.job_data.get("code", "")),
             input_hash=sha256_json(job.job_data.get("input_data", {})),
             client_ip=job.client_ip,
-            error=ExecutionError(type="cancelled", message="Execution was cancelled by user"),
+            error=ExecutionError(type="cancelled", message=message),
             idempotency_key=job.job_data.get("idempotency_key"),
             idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
             parent_execution_id=job.job_data.get("parent_execution_id"),
@@ -467,6 +483,18 @@ class WorkerPool:
                 # Move to running
                 async with self._jobs_lock:
                     self._running_jobs[job.job_id] = job
+
+                # Persist the queued -> running transition before executing so
+                # the DB reflects in-flight work: if the server crashes mid-run,
+                # forensics see 'running' (not a misleading 'queued') and startup
+                # reconciliation marks it failed. Best-effort: execution proceeds
+                # even if this write fails.
+                try:
+                    await self.storage.mark_record_running(
+                        job.job_id, worker_id=f"worker-{worker_id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to persist running state for job {job.job_id}: {e}")
 
                 # Set correlation ID from job data for logging
                 correlation_id = job.job_data.get("correlation_id")

@@ -214,3 +214,150 @@ async def test_get_job_status_cancelled_future_reports_cancelled():
 
     assert status is not None
     assert status["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_stop_persists_terminal_records_for_drained_jobs():
+    """Graceful shutdown must persist a terminal record for each pending job."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    pool = WorkerPool(executor=MagicMock(), storage=storage)
+    pool._started = True  # simulate a started pool without real worker tasks
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-shutdown",
+        job_data={"code": "print('hi')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._queue.put_nowait(job)
+    pool._active_jobs[job.job_id] = job
+
+    await pool.stop(timeout=0.1)
+
+    storage.save_record.assert_awaited_once()
+    record = storage.save_record.await_args.args[0]
+    assert record.execution_id == "job-shutdown"
+    assert record.status == "cancelled"
+    assert record.error is not None
+    assert record.error.type == "cancelled"
+    assert "server shut down" in record.error.message
+    # Record is persisted before the future is resolved/cancelled
+    assert job.future.cancelled() is True
+
+
+@pytest.mark.asyncio
+async def test_stop_storage_failure_does_not_prevent_shutdown():
+    """Persistence errors during shutdown are best-effort: shutdown completes."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock(side_effect=RuntimeError("db unavailable"))
+    pool = WorkerPool(executor=MagicMock(), storage=storage)
+    pool._started = True
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-db-down",
+        job_data={"code": "print('hi')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._queue.put_nowait(job)
+
+    await pool.stop(timeout=0.1)
+
+    assert pool._started is False
+    assert pool._queue.empty()
+    assert job.future.cancelled() is True
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_persists_running_transition_before_execute():
+    """The worker must persist queued -> running before executing the job."""
+    call_order = []
+
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+
+    async def record_running(*args, **kwargs):
+        call_order.append("mark_running")
+        return True
+
+    storage.mark_record_running = AsyncMock(side_effect=record_running)
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    async def fake_execute(job):
+        call_order.append("execute")
+        return ExecutionRecord(
+            execution_id=job.job_id,
+            status="succeeded",
+            created_at=datetime.now(timezone.utc),
+            queued_at=datetime.now(timezone.utc),
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+        )
+
+    pool._execute_job = fake_execute
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-running",
+        job_data={"code": "print('hi')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._active_jobs[job.job_id] = job
+    pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        record = await asyncio.wait_for(job.future, timeout=2.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=2.0)
+
+    assert record.status == "succeeded"
+    assert call_order == ["mark_running", "execute"]
+    storage.mark_record_running.assert_awaited_once_with("job-running", worker_id="worker-0")
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_executes_even_if_running_persist_fails():
+    """A failure persisting the running state must not block execution."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    storage.mark_record_running = AsyncMock(side_effect=RuntimeError("db unavailable"))
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    async def fake_execute(job):
+        return ExecutionRecord(
+            execution_id=job.job_id,
+            status="succeeded",
+            created_at=datetime.now(timezone.utc),
+            queued_at=datetime.now(timezone.utc),
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+        )
+
+    pool._execute_job = fake_execute
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-persist-fail",
+        job_data={"code": "print('hi')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._active_jobs[job.job_id] = job
+    pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        record = await asyncio.wait_for(job.future, timeout=2.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=2.0)
+
+    assert record.status == "succeeded"
