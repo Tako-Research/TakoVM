@@ -1046,6 +1046,7 @@ class CodeExecutor:
             container_name,
             runtime=self._runtime,
             enable_cap_restrictions=self.config.enable_cap_restrictions,
+            execution_id=job_id,
         )
 
         # Mount uv cache volume for faster repeated installs

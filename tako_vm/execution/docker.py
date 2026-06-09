@@ -12,6 +12,16 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Label applied to every executor container at `docker run` time. Cleanup
+# (DockerCleanup.cleanup_orphaned_containers) matches on this label, so it must
+# be applied by every launch path — base_isolation_args() does this centrally.
+CONTAINER_LABEL = "tako-vm-executor"
+
+# Label key carrying the execution/job ID, so an orphaned container can be
+# mapped back to its ExecutionRecord (e.g. `docker ps --filter
+# label=tako-vm.execution-id=<id>`).
+EXECUTION_ID_LABEL = "tako-vm.execution-id"
+
 
 def is_native_linux() -> bool:
     """
@@ -85,6 +95,7 @@ def base_isolation_args(
     *,
     runtime: str,
     enable_cap_restrictions: bool = True,
+    execution_id: Optional[str] = None,
 ) -> list[str]:
     """Leading ``docker run`` args shared by every isolated-execution path.
 
@@ -105,6 +116,9 @@ def base_isolation_args(
         enable_cap_restrictions: Drop all capabilities and re-add only SETUID/
             SETGID (needed by gosu to drop to the unprivileged sandbox user).
             Can be disabled in CI where Docker can't modify capability sets.
+        execution_id: Optional execution/job ID recorded as the
+            ``tako-vm.execution-id`` label so orphaned containers can be traced
+            back to their execution records.
 
     Returns:
         The leading argument list, ready to have path-specific flags and the
@@ -115,9 +129,14 @@ def base_isolation_args(
         "run",
         "--rm",
         f"--name={container_name}",
+        # Identify the container as ours so startup cleanup can find orphans.
+        f"--label={CONTAINER_LABEL}",
         "--init",  # Faster signal handling with tini
         "--read-only",
     ]
+
+    if execution_id:
+        args.append(f"--label={EXECUTION_ID_LABEL}={execution_id}")
 
     # Capability restrictions (can be disabled in CI environments where Docker
     # can't modify capability bounding sets)
