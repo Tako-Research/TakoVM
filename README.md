@@ -12,6 +12,10 @@
   <a href="https://github.com/las7/TakoVM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
 </p>
 
+<p align="center">
+  <strong>English</strong> | <a href="README.ja.md">日本語</a>
+</p>
+
 Run AI-generated code in isolated Docker containers with optional gVisor sandboxing.
 Job queues, retries, and execution history included.
 
