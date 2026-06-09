@@ -362,6 +362,10 @@ class ExecuteResponse(BaseModel):
     exit_code: Optional[int] = None
     error: Optional[str] = None
     job_type: Optional[str] = None
+    execution_id: Optional[str] = Field(
+        default=None,
+        description="Execution ID correlating this run with /executions records and logs",
+    )
 
 
 # Status type aliases for API type safety
@@ -806,7 +810,7 @@ async def health_check():
 
 
 @app.post("/execute", response_model=ExecuteResponse)
-async def execute_code(request: ExecuteRequest):
+async def execute_code(request: ExecuteRequest, http_request: Request):
     """
     Execute Python code synchronously (legacy endpoint).
 
@@ -818,9 +822,10 @@ async def execute_code(request: ExecuteRequest):
 
     Args:
         request: Execution request with code, input_data, and timeout
+        http_request: Incoming HTTP request (used for client IP auditing)
 
     Returns:
-        Execution results including output, stdout, stderr
+        Execution results including output, stdout, stderr, and execution_id
     """
     job_id = _generate_sync_job_id()
 
@@ -829,7 +834,6 @@ async def execute_code(request: ExecuteRequest):
 
     try:
         job = {
-            "id": job_id,
             "code": request.code,
             "input_data": request.input_data,
             "job_type": request.job_type,
@@ -844,20 +848,46 @@ async def execute_code(request: ExecuteRequest):
         if request.requirements is not None:
             job["requirements"] = request.requirements
 
-        result = state.executor.execute_job(job)
+        client_ip = http_request.client.host if http_request.client else None
+
+        # Docker execution is fully synchronous (blocking subprocess) and can
+        # take up to startup_timeout + timeout. Run it off the event loop so a
+        # sync request cannot freeze /health, job polling, and the worker pool.
+        # CodeExecutor is already invoked from threads by the async worker pool
+        # (WorkerPool thread_pool), so threaded use is consistent.
+        record = await asyncio.to_thread(
+            state.executor.execute_job_with_record,
+            job_id=job_id,
+            job=job,
+            client_ip=client_ip,
+        )
         execution_time = time.time() - start_time
+
+        # Persist the audit record, best-effort: the code already ran, so a
+        # storage failure must not turn a completed execution into an error.
+        # Log a warning and still return the result to the client.
+        try:
+            await state.storage.save_record(record)
+        except Exception as storage_err:
+            logger.warning(
+                "Failed to persist execution record %s: %s",
+                job_id,
+                storage_err,
+                exc_info=True,
+            )
 
         logger.info(f"Job {job_id} completed in {execution_time:.2f}s")
 
         return ExecuteResponse(
-            success=result["success"],
-            output=result.get("output"),
+            success=record.status == "succeeded",
+            output=record.result_json,
             execution_time=execution_time,
-            stdout=result.get("stdout", ""),
-            stderr=result.get("stderr", ""),
-            exit_code=result.get("exit_code"),
-            error=result.get("error"),
-            job_type=result.get("job_type"),
+            stdout=record.stdout,
+            stderr=record.stderr,
+            exit_code=record.exit_code,
+            error=record.error.message if record.error else None,
+            job_type=record.job_type,
+            execution_id=record.execution_id,
         )
 
     except Exception as e:
