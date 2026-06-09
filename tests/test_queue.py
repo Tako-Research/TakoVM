@@ -361,3 +361,223 @@ async def test_worker_loop_executes_even_if_running_persist_fails():
         await asyncio.wait_for(worker, timeout=2.0)
 
     assert record.status == "succeeded"
+
+
+def _patch_budget_probe(monkeypatch, job_id: str) -> dict:
+    """Capture the watchdog timeout passed to asyncio.wait_for in _execute_job."""
+    captured = {}
+
+    class DummyLoop:
+        def run_in_executor(self, executor, fn, arg):
+            return asyncio.sleep(0, result=make_record(job_id))
+
+    async def fake_wait_for(awaitable, timeout):
+        captured["timeout"] = timeout
+        return await awaitable
+
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: DummyLoop())
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_watchdog_budget_uses_job_type_defaults(monkeypatch):
+    """When job_data omits timeouts, the watchdog must use the job type's budget."""
+    from tako_vm.job_types import JobType
+
+    executor = MagicMock()
+    executor.registry = MagicMock()
+    executor.registry.get.return_value = JobType(
+        name="ml-inference", timeout=120, startup_timeout=180
+    )
+    pool = WorkerPool(executor=executor, storage=MagicMock())
+    pool._thread_pool = MagicMock()
+    job = QueuedJob(
+        job_id="job-jt",
+        job_data={"job_type": "ml-inference", "code": "print('hi')", "input_data": {}},
+        client_ip=None,
+    )
+
+    captured = _patch_budget_probe(monkeypatch, "job-jt")
+
+    record = await pool._execute_job(job)
+
+    assert record.execution_id == "job-jt"
+    # 180 (startup) + 120 (execution) + 60 (orchestration buffer)
+    assert captured["timeout"] == 360
+    executor.registry.get.assert_called_once_with("ml-inference")
+
+
+@pytest.mark.asyncio
+async def test_watchdog_budget_strips_version_specifier(monkeypatch):
+    """job_type@version must resolve the registry entry by bare name."""
+    from tako_vm.job_types import JobType
+
+    executor = MagicMock()
+    executor.registry = MagicMock()
+    executor.registry.get.return_value = JobType(
+        name="data-processing", timeout=60, startup_timeout=180
+    )
+    pool = WorkerPool(executor=executor, storage=MagicMock())
+    pool._thread_pool = MagicMock()
+    job = QueuedJob(
+        job_id="job-ver",
+        job_data={"job_type": "data-processing@v2", "code": "x", "input_data": {}},
+        client_ip=None,
+    )
+
+    captured = _patch_budget_probe(monkeypatch, "job-ver")
+
+    await pool._execute_job(job)
+
+    assert captured["timeout"] == 300
+    executor.registry.get.assert_called_once_with("data-processing")
+
+
+@pytest.mark.asyncio
+async def test_watchdog_budget_explicit_timeouts_win(monkeypatch):
+    """Explicit job_data timeouts override the job type's defaults."""
+    from tako_vm.job_types import JobType
+
+    executor = MagicMock()
+    executor.registry = MagicMock()
+    executor.registry.get.return_value = JobType(
+        name="ml-inference", timeout=120, startup_timeout=180
+    )
+    pool = WorkerPool(executor=executor, storage=MagicMock())
+    pool._thread_pool = MagicMock()
+    job = QueuedJob(
+        job_id="job-explicit",
+        job_data={
+            "job_type": "ml-inference",
+            "timeout": 30,
+            "startup_timeout": 90,
+            "code": "x",
+            "input_data": {},
+        },
+        client_ip=None,
+    )
+
+    captured = _patch_budget_probe(monkeypatch, "job-explicit")
+
+    await pool._execute_job(job)
+
+    assert captured["timeout"] == 180
+
+
+@pytest.mark.asyncio
+async def test_watchdog_budget_unknown_job_type_falls_back(monkeypatch):
+    """Unknown job types fall back to the executor's built-in defaults."""
+    executor = MagicMock()
+    executor.registry = MagicMock()
+    executor.registry.get.return_value = None
+    pool = WorkerPool(executor=executor, storage=MagicMock())
+    pool._thread_pool = MagicMock()
+    job = QueuedJob(
+        job_id="job-unknown",
+        job_data={"job_type": "does-not-exist", "code": "x", "input_data": {}},
+        client_ip=None,
+    )
+
+    captured = _patch_budget_probe(monkeypatch, "job-unknown")
+
+    await pool._execute_job(job)
+
+    # DEFAULT_JOB_TYPE budget: 120 (startup) + 30 (execution) + 60 (buffer)
+    assert captured["timeout"] == 210
+
+
+@pytest.mark.asyncio
+async def test_watchdog_timeout_kills_container_and_returns_timeout_record(monkeypatch):
+    """A watchdog timeout must kill the container and yield status='timeout'."""
+    pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
+    pool._thread_pool = MagicMock()
+    job = QueuedJob(
+        job_id="job-wd",
+        job_data={"timeout": 1, "startup_timeout": 1, "code": "x", "input_data": {}},
+        client_ip=None,
+    )
+
+    kill_calls = []
+    monkeypatch.setattr(
+        "tako_vm.server.queue.kill_container", lambda name: kill_calls.append(name) or True
+    )
+
+    class DummyLoop:
+        def run_in_executor(self, executor, fn, arg):
+            return asyncio.sleep(0, result=make_record("job-wd"))
+
+    async def fake_wait_for(awaitable, timeout):
+        awaitable.close()  # avoid 'coroutine never awaited' warning
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: DummyLoop())
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    record = await pool._execute_job(job)
+
+    assert record.status == "timeout"
+    assert record.error is not None
+    assert record.error.type == "execution_timeout"
+    assert "watchdog budget" in record.error.message
+    assert kill_calls == ["tako-job-wd"]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
+    """End-to-end through the worker loop: watchdog timeout is not an internal error.
+
+    The persisted record must have status 'timeout' (not failed/internal_error)
+    and the job must NOT be pushed to the dead letter queue.
+    """
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    storage.mark_record_running = AsyncMock()
+    storage.add_to_dlq = AsyncMock()
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    kill_calls = []
+    monkeypatch.setattr(
+        "tako_vm.server.queue.kill_container", lambda name: kill_calls.append(name) or True
+    )
+
+    real_wait_for = asyncio.wait_for
+
+    async def fake_wait_for(awaitable, timeout):
+        # The worker loop's queue wait and the test's own waits use small
+        # timeouts; only the watchdog budget is >= 60s.
+        if timeout >= 60:
+            if asyncio.isfuture(awaitable):
+                awaitable.cancel()
+            raise asyncio.TimeoutError()
+        return await real_wait_for(awaitable, timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-dlq",
+        job_data={"code": "x", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._active_jobs[job.job_id] = job
+    pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        record = await asyncio.wait_for(job.future, timeout=5.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=5.0)
+
+    assert record.status == "timeout"
+    assert record.error is not None
+    assert record.error.type == "execution_timeout"
+    assert kill_calls == ["tako-job-dlq"]
+
+    # Watchdog timeouts are budget overruns, not internal errors: no DLQ entry.
+    storage.add_to_dlq.assert_not_awaited()
+    saved = storage.save_record.await_args.args[0]
+    assert saved.status == "timeout"
