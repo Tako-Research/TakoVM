@@ -6,6 +6,7 @@ Provides async CRUD operations for ExecutionRecords and JobVersions.
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Mapping, Optional, cast
 
@@ -28,6 +29,15 @@ logger = logging.getLogger(__name__)
 
 MIGRATION_LOCK_ID = 94857231
 RowMapping = Mapping[str, Any]
+
+# Minimum digest prefix length accepted by get_version_by_digest. Shorter
+# prefixes are too ambiguous to resolve safely (and an empty prefix would
+# match every stored version).
+MIN_DIGEST_PREFIX_LEN = 12
+
+# Full digests and digest prefixes must be lowercase hex (sha256 hexdigest).
+# This also guarantees the value cannot contain SQL LIKE wildcards ('%'/'_').
+_DIGEST_RE = re.compile(rf"^[0-9a-f]{{{MIN_DIGEST_PREFIX_LEN},64}}$")
 
 
 MIGRATIONS: list[tuple[str, str]] = [
@@ -467,8 +477,13 @@ class ExecutionStorage:
 
     def _row_to_record(self, row: RowMapping) -> ExecutionRecord:
         """Convert database row to ExecutionRecord."""
+        # All ResourceUsage fields are independently nullable, so rebuild the
+        # model if ANY metric column was stored — gating on wall_time_ms alone
+        # would silently drop records saved with only max_rss_mb/cpu_time_ms.
         resource_usage = None
-        if row.get("wall_time_ms") is not None:
+        if any(
+            row.get(column) is not None for column in ("max_rss_mb", "cpu_time_ms", "wall_time_ms")
+        ):
             resource_usage = ResourceUsage(
                 max_rss_mb=row.get("max_rss_mb"),
                 cpu_time_ms=row.get("cpu_time_ms"),
@@ -481,8 +496,11 @@ class ExecutionStorage:
             try:
                 input_artifacts = [InputArtifact(**a) for a in input_artifacts_data]
             except (TypeError, ValueError) as e:
-                logger.warning(
-                    "Failed to parse input_artifacts_json for %s: %s", row["execution_id"], e
+                logger.error(
+                    "Corrupt stored field input_artifacts_json for execution %s; "
+                    "degrading to empty list: %s",
+                    row["execution_id"],
+                    e,
                 )
 
         artifacts = []
@@ -491,7 +509,12 @@ class ExecutionStorage:
             try:
                 artifacts = [Artifact(**a) for a in artifacts_data]
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse artifacts_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field artifacts_json for execution %s; "
+                    "degrading to empty list: %s",
+                    row["execution_id"],
+                    e,
+                )
 
         error = None
         error_data = _decode_json_field(row.get("error_json"))
@@ -499,7 +522,19 @@ class ExecutionStorage:
             try:
                 error = ExecutionError(**error_data)
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse error_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field error_json for execution %s; "
+                    "substituting fallback internal_error: %s",
+                    row["execution_id"],
+                    e,
+                )
+                # Surface the corruption loudly rather than presenting the
+                # record as error-free: a stored error payload existed but no
+                # longer matches the ExecutionError model.
+                error = ExecutionError(
+                    type="internal_error",
+                    message="stored error payload could not be decoded",
+                )
 
         result_json = _decode_json_field(row.get("result_json"))
 
@@ -509,7 +544,11 @@ class ExecutionStorage:
             try:
                 timing = ExecutionTiming(**timing_data)
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse timing_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field timing_json for execution %s; degrading to None: %s",
+                    row["execution_id"],
+                    e,
+                )
 
         return ExecutionRecord(
             execution_id=row["execution_id"],
@@ -580,25 +619,56 @@ class ExecutionStorage:
             )
 
     async def get_version_by_digest(self, job_type_name: str, digest: str) -> Optional[JobVersion]:
-        """Get version by digest."""
+        """
+        Get version by full digest or an unambiguous digest prefix.
+
+        Args:
+            job_type_name: Job type name.
+            digest: Full 64-character hex digest, or a prefix of at least
+                MIN_DIGEST_PREFIX_LEN hex characters.
+
+        Returns:
+            Matching JobVersion, or None if no version matches.
+
+        Raises:
+            ValueError: If the digest is empty, shorter than
+                MIN_DIGEST_PREFIX_LEN, not lowercase hex (which also rejects
+                SQL LIKE wildcards), or if a prefix matches more than one
+                stored version.
+        """
+        if not _DIGEST_RE.fullmatch(digest):
+            raise ValueError(
+                f"Invalid digest {digest!r}: must be {MIN_DIGEST_PREFIX_LEN}-64 "
+                "lowercase hex characters"
+            )
+
         pool = self._get_pool()
         async with pool.connection() as conn:
             if len(digest) < 64:
+                # The digest is validated as hex above, so it cannot contain
+                # LIKE wildcards ('%'/'_'); the prefix match is literal.
                 cursor = await conn.execute(
                     """
                     SELECT * FROM job_versions
                     WHERE job_type_name = %s AND digest LIKE %s
-                    ORDER BY built_at DESC
-                    LIMIT 1
+                    LIMIT 2
                     """,
                     (job_type_name, digest + "%"),
                 )
+                rows = await cursor.fetchall()
+                if len(rows) > 1:
+                    raise ValueError(
+                        f"Ambiguous digest prefix {digest!r} for job type "
+                        f"{job_type_name!r}: matches multiple versions; "
+                        "provide a longer prefix or the full digest"
+                    )
+                row = rows[0] if rows else None
             else:
                 cursor = await conn.execute(
                     "SELECT * FROM job_versions WHERE job_type_name = %s AND digest = %s",
                     (job_type_name, digest),
                 )
-            row = await cursor.fetchone()
+                row = await cursor.fetchone()
 
         if not row:
             return None

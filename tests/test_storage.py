@@ -344,7 +344,7 @@ class TestJobVersions:
         )
         storage.save_version(version)
 
-        retrieved = storage.get_version_by_digest("test-job", "abcdef")
+        retrieved = storage.get_version_by_digest("test-job", "abcdef123456")
         assert retrieved is not None
         assert retrieved.version_tag == "v1.0.0"
 
@@ -633,3 +633,146 @@ class TestMarkRecordRunning:
     def test_mark_running_missing_record(self, storage):
         """Marking a nonexistent record returns False."""
         assert storage.mark_record_running("nope") is False
+
+
+class TestRecordHydrationRobustness:
+    """Tests for robust hydration of stored execution records."""
+
+    def test_resource_usage_round_trip_with_only_max_rss(self, storage):
+        """ResourceUsage survives a round-trip when only max_rss_mb is set."""
+        record = ExecutionRecord(
+            execution_id="rss-only",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            exit_code=0,
+            resource_usage=ResourceUsage(max_rss_mb=64.5),
+        )
+        storage.save_record(record)
+
+        retrieved = storage.get_record("rss-only")
+        assert retrieved is not None
+        assert retrieved.resource_usage is not None
+        assert retrieved.resource_usage.max_rss_mb == 64.5
+        assert retrieved.resource_usage.cpu_time_ms is None
+        assert retrieved.resource_usage.wall_time_ms is None
+
+    def test_resource_usage_absent_stays_none(self, storage):
+        """A record saved without resource usage still loads with None."""
+        record = ExecutionRecord(
+            execution_id="no-usage",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            exit_code=0,
+        )
+        storage.save_record(record)
+
+        retrieved = storage.get_record("no-usage")
+        assert retrieved is not None
+        assert retrieved.resource_usage is None
+
+    def test_corrupted_error_json_loads_with_fallback(self, storage):
+        """A record whose stored error payload no longer parses still loads,
+        with a loud internal_error fallback instead of a silent None."""
+        from psycopg.types.json import Jsonb
+
+        record = ExecutionRecord(
+            execution_id="corrupt-error",
+            status="failed",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            exit_code=1,
+            error=ExecutionError(type="runtime_error", message="boom"),
+        )
+        storage.save_record(record)
+
+        async def _corrupt():
+            pool = storage._inner._get_pool()
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "UPDATE execution_records SET error_json = %s WHERE execution_id = %s",
+                    (Jsonb({"type": "no-such-error-type", "bogus": True}), "corrupt-error"),
+                )
+
+        storage._run(_corrupt())
+
+        retrieved = storage.get_record("corrupt-error")
+        assert retrieved is not None  # record must still load
+        assert retrieved.error is not None
+        assert retrieved.error.type == "internal_error"
+        assert "stored error payload could not be decoded" in retrieved.error.message
+
+
+class TestDigestResolutionStrictness:
+    """Tests for strict digest prefix resolution in get_version_by_digest."""
+
+    @staticmethod
+    def _make_version(digest: str, tag: str, built_at=None) -> JobVersion:
+        kwargs = {"built_at": built_at} if built_at is not None else {}
+        return JobVersion(
+            digest=digest,
+            job_type_name="digest-job",
+            version_tag=tag,
+            dockerfile_hash="",
+            requirements_hash="",
+            image_ref=f"digest-job:{tag}",
+            **kwargs,
+        )
+
+    def test_empty_digest_rejected(self, storage):
+        """An empty digest raises instead of matching every version."""
+        storage.save_version(self._make_version("a" * 64, "v1"))
+
+        with pytest.raises(ValueError, match="Invalid digest"):
+            storage.get_version_by_digest("digest-job", "")
+
+    def test_short_prefix_rejected(self, storage):
+        """Prefixes shorter than 12 hex chars are rejected."""
+        storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
+
+        with pytest.raises(ValueError, match="Invalid digest"):
+            storage.get_version_by_digest("digest-job", "abcdef12345")  # 11 chars
+
+    def test_non_hex_digest_rejected(self, storage):
+        """Non-hex digests (including SQL LIKE wildcards) are rejected, so a
+        wildcard never matches everything."""
+        storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
+
+        # '%' would previously act as an unescaped LIKE wildcard.
+        with pytest.raises(ValueError, match="Invalid digest"):
+            storage.get_version_by_digest("digest-job", "abc%def12345")
+
+        with pytest.raises(ValueError, match="Invalid digest"):
+            storage.get_version_by_digest("digest-job", "abcdef_2345678")
+
+    def test_valid_prefix_resolves(self, storage):
+        """A 12+ hex char unique prefix resolves to the matching version."""
+        storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
+
+        retrieved = storage.get_version_by_digest("digest-job", "abcdef123456")
+        assert retrieved is not None
+        assert retrieved.version_tag == "v1"
+
+    def test_unmatched_prefix_returns_none(self, storage):
+        """A valid prefix that matches nothing returns None."""
+        storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
+
+        assert storage.get_version_by_digest("digest-job", "f" * 12) is None
+
+    def test_ambiguous_prefix_raises(self, storage):
+        """A prefix matching multiple versions raises instead of silently
+        resolving to the newest one."""
+        old_time = datetime.now(timezone.utc) - timedelta(days=1)
+        new_time = datetime.now(timezone.utc)
+        shared_prefix = "deadbeef0123"
+        storage.save_version(self._make_version(shared_prefix + "a" * 52, "v1", built_at=old_time))
+        storage.save_version(self._make_version(shared_prefix + "b" * 52, "v2", built_at=new_time))
+
+        with pytest.raises(ValueError, match="Ambiguous digest prefix"):
+            storage.get_version_by_digest("digest-job", shared_prefix)
+
+        # Full digests still resolve unambiguously.
+        retrieved = storage.get_version_by_digest("digest-job", shared_prefix + "a" * 52)
+        assert retrieved is not None
+        assert retrieved.version_tag == "v1"
