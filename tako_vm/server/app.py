@@ -99,6 +99,21 @@ def _generate_sync_job_id() -> str:
     return f"api-{uuid.uuid4()}"
 
 
+def _resolve_under_data_dir(data_dir: Path, storage_key: str) -> Path:
+    """Resolve a stored artifact key under data_dir, rejecting traversal.
+
+    ``storage_key`` is persisted and is not re-validated on read, so a poisoned
+    or legacy record with ``..``, an absolute path, or a symlink must not
+    escape. ``resolve()`` canonicalizes symlinks and ``is_relative_to()`` checks
+    the real target against ``data_dir``. Both the artifact download and the
+    rerun/fork replay path go through this.
+    """
+    candidate = (data_dir / storage_key).resolve()
+    if not candidate.is_relative_to(data_dir):
+        raise HTTPException(status_code=400, detail="Invalid artifact path")
+    return candidate
+
+
 # Keyed lock for idempotency (prevents race conditions under concurrent requests)
 class IdempotencyLockManager:
     """
@@ -1071,14 +1086,14 @@ def _get_replay_data(record: ExecutionRecord) -> tuple:
     """
     import json
 
-    data_dir = state.config.data_dir
+    data_dir = state.config.data_dir.resolve()
 
     # Find _code.py in input_artifacts
     code_artifact = next((a for a in record.input_artifacts if a.name == "_code.py"), None)
     if not code_artifact:
         raise HTTPException(status_code=400, detail="Original code not available for replay")
 
-    code_path = data_dir / code_artifact.storage_key
+    code_path = _resolve_under_data_dir(data_dir, code_artifact.storage_key)
     if not code_path.exists():
         raise HTTPException(status_code=400, detail="Original code file not found")
     code = code_path.read_text(encoding="utf-8")
@@ -1088,7 +1103,7 @@ def _get_replay_data(record: ExecutionRecord) -> tuple:
     if not input_artifact:
         raise HTTPException(status_code=400, detail="Original input not available for replay")
 
-    input_path = data_dir / input_artifact.storage_key
+    input_path = _resolve_under_data_dir(data_dir, input_artifact.storage_key)
     if not input_path.exists():
         raise HTTPException(status_code=400, detail="Original input file not found")
     input_data = json.loads(input_path.read_text(encoding="utf-8"))
@@ -1228,13 +1243,9 @@ async def download_artifact(job_id: str, artifact_name: str):
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # PATH TRAVERSAL PREVENTION: resolve and verify path stays under data_dir
-    # Using is_relative_to() for robust path validation (handles symlinks properly)
+    # PATH TRAVERSAL PREVENTION: resolve and verify the path stays under data_dir.
     data_dir = state.config.data_dir.resolve()
-    artifact_path = (data_dir / artifact.storage_key).resolve()
-
-    if not artifact_path.is_relative_to(data_dir):
-        raise HTTPException(status_code=400, detail="Invalid artifact path")
+    artifact_path = _resolve_under_data_dir(data_dir, artifact.storage_key)
 
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="Artifact file not found")

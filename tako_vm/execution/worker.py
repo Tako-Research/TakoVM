@@ -200,6 +200,10 @@ def parse_phase_file(output_dir: Path) -> Optional[ExecutionTiming]:
         ExecutionTiming with parsed timing info, or None if file not found
     """
     phase_file = output_dir / ".tako_phase"
+    # Untrusted code could point .tako_phase at a host file; never follow it.
+    if phase_file.is_symlink():
+        logger.warning("Phase file is a symlink, ignoring")
+        return None
     if not phase_file.exists():
         return None
 
@@ -453,7 +457,10 @@ class CodeExecutor:
 
             # Read output
             output_file = output_dir / "result.json"
-            if output_file.exists():
+            # Untrusted code could point result.json at a host file; never follow it.
+            if output_file.is_symlink():
+                logger.warning("result.json is a symlink, ignoring")
+            elif output_file.exists():
                 try:
                     output_data = json.loads(output_file.read_text())
                     result["output"] = output_data
@@ -645,7 +652,10 @@ class CodeExecutor:
 
             # Read main JSON result (if present)
             output_file = output_dir / "result.json"
-            if output_file.exists():
+            # Untrusted code could point result.json at a host file; never follow it.
+            if output_file.is_symlink():
+                logger.warning("result.json is a symlink, ignoring")
+            elif output_file.exists():
                 try:
                     record.result_json = json.loads(output_file.read_text(encoding="utf-8"))
                 except json.JSONDecodeError:
@@ -751,6 +761,14 @@ class CodeExecutor:
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         for path in output_dir.iterdir():
+            # Reject symlinks before any stat/read/copy: untrusted code in the
+            # container can point a symlink in /output at a host-readable file
+            # (the config file with api_keys, /proc/self/environ, other runs'
+            # data) to exfiltrate it through artifact collection. is_file(),
+            # stat(), and copy2() all follow symlinks; is_symlink() does not.
+            if path.is_symlink():
+                logger.warning("Artifact %s is a symlink, skipping", path.name)
+                continue
             if not path.is_file():
                 continue
 
@@ -777,7 +795,10 @@ class CodeExecutor:
 
                 # Copy file to permanent storage
                 dest_path = _resolve_run_path(self.config.data_dir, job_id, "artifacts", path.name)
-                shutil.copy2(path, dest_path)
+                # follow_symlinks=False guards against a TOCTOU swap of a regular
+                # file for a symlink after the is_symlink() check above (copy2
+                # follows symlinks by default).
+                shutil.copy2(path, dest_path, follow_symlinks=False)
 
                 artifacts.append(
                     Artifact(
