@@ -15,6 +15,7 @@ from tako_vm.execution.worker import (
     RuntimeUnavailableError,
     check_gvisor_available,
     reset_gvisor_check,
+    resolve_runtime,
 )
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "RuntimeUnavailableError",
     "check_gvisor_available",
     "reset_gvisor_check",
+    "resolve_runtime",
     # Builder
     "ContainerBuilder",
     # Docker utilities
