@@ -65,29 +65,6 @@
         "count": null,
         "device_ids": []
       }
-    },
-    {
-      "name": "test-with-secrets",
-      "requirements": [],
-      "python_version": "3.11",
-      "base_image": null,
-      "shared_code": [],
-      "environment": {
-        "API_KEY": "sk-secret-api-key-12345",
-        "DATABASE_URL": "postgresql://user:password@db.internal:5432/app"
-      },
-      "memory_limit": "256m",
-      "cpu_limit": 0.5,
-      "timeout": 10,
-      "startup_timeout": 120,
-      "network_enabled": false,
-      "session_enabled": false,
-      "gpu": {
-        "enabled": false,
-        "vendor": null,
-        "count": null,
-        "device_ids": []
-      }
     }
   ]
 }
