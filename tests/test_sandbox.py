@@ -456,6 +456,9 @@ class TestSandboxTimeoutEnforcement:
             lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
         )
         monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        # The post-run container removal makes its own subprocess.run call;
+        # stub it out so it doesn't clobber the recorded docker-run timeout.
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", lambda name: True)
 
         sb.run("print('hi')", timeout=10, requirements=["requests"])
         assert recorded["timeout"] == 100 + 10 + 5
@@ -474,7 +477,7 @@ class TestSandboxTimeoutEnforcement:
                 stderr=b"partial stderr",
             )
 
-        killed = {}
+        removed = {}
         sb = Sandbox()
         sb._image_checked = True  # Skip docker image inspect
         monkeypatch.setattr(
@@ -484,7 +487,7 @@ class TestSandboxTimeoutEnforcement:
         )
         monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
         monkeypatch.setattr(
-            "tako_vm.sandbox.kill_container", lambda name: killed.setdefault("name", name)
+            "tako_vm.sandbox.remove_container", lambda name: removed.setdefault("name", name)
         )
 
         result = sb.run("print('hi')", timeout=2)
@@ -494,7 +497,150 @@ class TestSandboxTimeoutEnforcement:
         assert result.stdout == "partial stdout"
         assert result.stderr == "partial stderr"
         assert "timed out" in result.error.lower()
-        assert killed["name"] == "fake-container"
+        # The container is no longer started with --rm, so the timeout path
+        # must kill+remove it (docker rm -f) itself.
+        assert removed["name"] == "fake-container"
+
+
+class TestSandboxOOMDetection:
+    """Unit tests for exit-137 OOM verification and container removal.
+
+    The sandbox no longer runs containers with ``--rm``: a 137 exit is
+    checked against ``docker inspect .State.OOMKilled`` (the only
+    authoritative OOM signal) and the container is removed in a finally on
+    every exit path. These tests monkeypatch subprocess.run and the docker
+    helpers, so no container is needed.
+    """
+
+    @staticmethod
+    def _make_sandbox(monkeypatch, returncode, events, oom_killed):
+        """Build a Sandbox whose docker run is faked to exit with returncode."""
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=returncode, stdout="", stderr=""
+            )
+
+        def fake_inspect(name):
+            events.append(("inspect", name))
+            return oom_killed
+
+        def fake_remove(name):
+            events.append(("remove", name))
+            return True
+
+        sb = Sandbox(memory_limit="256m")
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        monkeypatch.setattr("tako_vm.sandbox.inspect_oom_killed", fake_inspect)
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", fake_remove)
+        return sb
+
+    def test_exit_137_oom_killed_reports_oom(self, monkeypatch):
+        """137 + State.OOMKilled=true -> OOM error including the memory limit."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=True)
+
+        result = sb.run("x = 'a' * 10**9")
+
+        assert result.success is False
+        assert result.exit_code == 137
+        assert "out of memory" in result.error
+        assert "memory_limit=256m" in result.error
+        # Inspect must happen before the finally removes the container
+        assert events == [("inspect", "fake-container"), ("remove", "fake-container")]
+
+    def test_exit_137_not_oom_reports_sigkill(self, monkeypatch):
+        """137 + State.OOMKilled=false -> killed-but-not-OOM error."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=False)
+
+        result = sb.run("import sys; sys.exit(137)")
+
+        assert result.success is False
+        assert result.exit_code == 137
+        assert "killed (SIGKILL)" in result.error
+        assert "not by the memory limit" in result.error
+        assert "out of memory" not in result.error
+        assert ("remove", "fake-container") in events
+
+    def test_exit_137_inspect_failure_falls_back_to_oom(self, monkeypatch):
+        """137 + inspect failed (None) -> assume OOM so a flaky inspect never loses one."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=None)
+
+        result = sb.run("x = 'a' * 10**9")
+
+        assert result.success is False
+        assert "out of memory" in result.error
+
+    def test_container_removed_on_success(self, monkeypatch):
+        """Without --rm, the sandbox must remove the container after a clean exit."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=0, events=events, oom_killed=False)
+
+        result = sb.run("print('hi')")
+
+        assert result.success is True
+        assert result.error is None
+        assert ("remove", "fake-container") in events
+        # No 137, so no inspect round-trip
+        assert ("inspect", "fake-container") not in events
+
+    def test_container_removed_on_failure(self, monkeypatch):
+        """The container is removed after a non-zero, non-137 exit too."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=1, events=events, oom_killed=False)
+
+        result = sb.run("raise RuntimeError('boom')")
+
+        assert result.success is False
+        assert result.exit_code == 1
+        assert result.error is None
+        assert ("remove", "fake-container") in events
+        assert ("inspect", "fake-container") not in events
+
+    def test_no_container_removal_when_validation_fails(self, monkeypatch):
+        """ValueError before docker run means there is no container to remove."""
+        events = []
+
+        def fake_remove(name):
+            events.append(("remove", name))
+            return True
+
+        sb = Sandbox(memory_limit="256m")  # runtime requirements disabled
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", fake_remove)
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", _fail_if_called)
+
+        result = sb.run("print('hi')", requirements=["pandas"])
+
+        assert result.success is False
+        assert "disabled" in result.error
+        assert events == []
+
+    def test_docker_command_omits_rm(self, tmp_path):
+        """The run command must not use --rm so the exited container can be inspected."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+        )
+
+        assert "--rm" not in cmd
+
+
+def _fail_if_called(*args, **kwargs):
+    raise AssertionError("docker run must not be attempted when validation fails")
 
 
 @pytest.mark.requires_host_mounts
