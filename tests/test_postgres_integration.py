@@ -12,8 +12,11 @@ import tako_vm.storage as storage_module
 from tako_vm.models import ExecutionRecord, sha256_content, sha256_json
 from tako_vm.storage import ExecutionStorage
 
+# Never skip in CI: temp_data_dir provides the database URL there and fails
+# loudly if postgres is unreachable, so DB coverage cannot silently vanish.
 pytestmark = pytest.mark.skipif(
-    "TAKO_VM_DATABASE_URL" not in os.environ,
+    "TAKO_VM_DATABASE_URL" not in os.environ
+    and not (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
     reason="Set TAKO_VM_DATABASE_URL to run PostgreSQL integration tests",
 )
 

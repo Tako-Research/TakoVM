@@ -17,13 +17,46 @@ Example:
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 from dataclasses import dataclass, field
 from importlib.resources import files as _resource_files
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from tako_vm.config import JobTypeConfig
+
+logger = logging.getLogger(__name__)
+
+
+def _default_registry_path() -> Path:
+    """
+    Default location for the writable job type registry file.
+
+    Lives under the Tako VM data directory (TAKO_VM_DATA_DIR or
+    ~/.tako_vm), never inside the installed package: site-packages may be
+    read-only and is shared by every consumer of the same environment.
+    """
+    from tako_vm.config import get_default_data_dir
+
+    data_dir = os.environ.get("TAKO_VM_DATA_DIR")
+    base = Path(data_dir) if data_dir else get_default_data_dir()
+    return base / "job_types.json"
+
+
+def _legacy_registry_path() -> Optional[Path]:
+    """Legacy registry location inside the installed package (read-only)."""
+    try:
+        return Path(str(_resource_files("tako_vm").joinpath("job_types.json")))
+    except (ModuleNotFoundError, TypeError):  # pragma: no cover - defensive
+        return None
 
 
 @dataclass
@@ -108,10 +141,17 @@ class JobType:
 
     @classmethod
     def from_dict(cls, data: dict) -> JobType:
-        """Create from dictionary."""
+        """
+        Create from dictionary, validating against JobTypeConfig bounds.
+
+        Raw registry JSON is untrusted (hand-edited or tampered files feed
+        directly into container launches), so entries are validated with the
+        same pydantic constraints as the YAML config path. Raises
+        pydantic.ValidationError on out-of-bounds or malformed values.
+        """
         gpu = data.get("gpu") or {}
 
-        return cls(
+        candidate = cls(
             name=data["name"],
             requirements=list(data.get("requirements", [])),
             python_version=data.get("python_version", "3.11"),
@@ -129,6 +169,10 @@ class JobType:
             gpu_count=data.get("gpu_count", gpu.get("count")),
             gpu_device_ids=list(data.get("gpu_device_ids", gpu.get("device_ids", []))),
         )
+        # Round-trip through the pydantic model to enforce bounds (memory_limit
+        # format, cpu_limit/timeout ranges, GPU cross-field rules) and pick up
+        # normalized values.
+        return cls.from_config(candidate.to_config())
 
     @classmethod
     def from_config(cls, config: JobTypeConfig) -> JobType:
@@ -203,28 +247,77 @@ class JobTypeRegistry:
         Initialize the registry.
 
         Args:
-            config_path: Path to config file. Defaults to job_types.json in package dir.
+            config_path: Path to config file. Defaults to job_types.json in the
+                Tako VM data directory (TAKO_VM_DATA_DIR or ~/.tako_vm).
         """
+        self._legacy_path: Optional[Path] = None
         if config_path is None:
-            config_path = Path(str(_resource_files("tako_vm").joinpath("job_types.json")))
+            config_path = _default_registry_path()
+            # Older releases stored the registry inside site-packages. Read
+            # from there once if the data-dir file does not exist yet, but
+            # never write back to the package directory.
+            self._legacy_path = _legacy_registry_path()
         self.config_path = config_path
         self._job_types: dict[str, JobType] = {}
         self._load()
 
     def _load(self):
         """Load job types from config file."""
-        if self.config_path.exists():
-            with open(self.config_path, encoding="utf-8") as f:
-                data = json.load(f)
-                for item in data.get("job_types", []):
-                    jt = JobType.from_dict(item)
-                    self._job_types[jt.name] = jt
+        path = self.config_path
+        if not path.exists() and self._legacy_path is not None and self._legacy_path.exists():
+            path = self._legacy_path
+
+        if not path.exists():
+            return
+
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+
+        for item in data.get("job_types", []):
+            try:
+                jt = JobType.from_dict(item)
+            except Exception as exc:
+                name = item.get("name", "<unknown>") if isinstance(item, dict) else "<unknown>"
+                logger.error(
+                    "Skipping invalid job type %r in %s: %s",
+                    name,
+                    path,
+                    exc,
+                )
+                continue
+            self._job_types[jt.name] = jt
 
     def _save(self):
-        """Save job types to config file."""
+        """Save job types to config file atomically."""
         data = {"job_types": [jt.to_dict() for jt in self._job_types.values()]}
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        directory = self.config_path.parent
+        directory.mkdir(parents=True, exist_ok=True)
+
+        lock_path = self.config_path.with_name(self.config_path.name + ".lock")
+        with open(lock_path, "a", encoding="utf-8") as lock_file:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                # Write to a temp file in the same directory, then atomically
+                # replace, so readers never observe a torn/partial file.
+                fd, tmp_name = tempfile.mkstemp(
+                    dir=directory, prefix=self.config_path.name + ".", suffix=".tmp"
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(tmp_name, self.config_path)
+                except BaseException:
+                    try:
+                        os.unlink(tmp_name)
+                    except OSError:
+                        pass
+                    raise
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def register(self, job_type: JobType, persist: bool = True) -> None:
         """

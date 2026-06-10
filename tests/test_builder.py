@@ -1,14 +1,19 @@
 """
-Tests for ContainerBuilder.build_all image build orchestration.
+Tests for ContainerBuilder.
 
-Covers the opt-in ``skip_existing`` behavior: ``build_all`` skips job types
-whose image is already present instead of rebuilding it, while the default
-still builds every registered job type.
+Covers the opt-in ``skip_existing`` behavior of ``build_all`` (skip job types
+whose image is already present) and the generated Dockerfile's executor
+entrypoint contract: built images must derive from the executor base image
+(inheriting ``ENTRYPOINT /entrypoint.sh``) and must not override USER/CMD —
+otherwise the worker refuses to run them (see CodeExecutor._resolve_image).
 """
 
 from pathlib import Path
 
-from tako_vm.execution.builder import ContainerBuilder
+import pytest
+
+from tako_vm.execution.builder import BuildError, ContainerBuilder
+from tako_vm.execution.docker import DEFAULT_EXECUTOR_IMAGE
 from tako_vm.job_types import JobType, JobTypeRegistry
 
 
@@ -65,3 +70,60 @@ class TestBuildAllSkipExisting:
 
         assert built == ["alpha", "beta"]
         assert results == {"alpha": True, "beta": True}
+
+
+class TestGenerateDockerfileEntrypointContract:
+    """Built images must keep the executor entrypoint contract."""
+
+    def test_default_base_is_executor_image(self):
+        """Without a base_image the build derives from the executor base, so
+        ENTRYPOINT /entrypoint.sh (timeouts, phase file, gosu drop, running
+        /code/main.py) is inherited."""
+        dockerfile = ContainerBuilder().generate_dockerfile(JobType(name="jt"))
+
+        assert f"FROM {DEFAULT_EXECUTOR_IMAGE}" in dockerfile
+        assert "FROM python:" not in dockerfile
+
+    def test_custom_base_image_is_honored(self):
+        dockerfile = ContainerBuilder().generate_dockerfile(
+            JobType(name="jt", base_image="my-executor:latest")
+        )
+
+        assert "FROM my-executor:latest" in dockerfile
+
+    def test_no_user_cmd_or_entrypoint_overrides(self):
+        """USER sandbox would prevent the entrypoint from installing extra
+        requirements and gosu-dropping; a CMD would mask the contract."""
+        dockerfile = ContainerBuilder().generate_dockerfile(JobType(name="jt"))
+
+        for line in dockerfile.splitlines():
+            stripped = line.strip()
+            assert not stripped.startswith("USER "), line
+            assert not stripped.startswith("CMD "), line
+            assert not stripped.startswith("ENTRYPOINT "), line
+
+    def test_requirements_are_baked_at_build_time(self):
+        dockerfile = ContainerBuilder().generate_dockerfile(
+            JobType(name="jt", requirements=["pandas", "numpy>=1.26"])
+        )
+
+        assert 'RUN uv pip install --system --no-cache "pandas" "numpy>=1.26"' in dockerfile
+
+    def test_sandbox_user_creation_is_guarded(self):
+        """useradd must be a no-op on the executor base (user already exists)
+        or the build would fail with 'user sandbox exists'."""
+        dockerfile = ContainerBuilder().generate_dockerfile(JobType(name="jt"))
+
+        assert "id -u sandbox >/dev/null 2>&1 || useradd -m -u 1000 sandbox" in dockerfile
+
+    def test_invalid_python_version_raises(self):
+        with pytest.raises(BuildError, match="Invalid python_version"):
+            ContainerBuilder().generate_dockerfile(
+                JobType(name="jt", python_version="3.11; rm -rf /")
+            )
+
+    def test_invalid_base_image_raises(self):
+        with pytest.raises(BuildError, match="Invalid base_image"):
+            ContainerBuilder().generate_dockerfile(
+                JobType(name="jt", base_image="bad image\nFROM evil")
+            )

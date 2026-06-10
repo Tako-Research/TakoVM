@@ -11,8 +11,11 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Optional
+
+from tako_vm.execution.docker import CONTAINER_LABEL as EXECUTOR_CONTAINER_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -168,16 +171,51 @@ class DockerCircuitBreaker:
 class DockerCleanup:
     """Utilities for cleaning up Docker resources."""
 
-    CONTAINER_LABEL = "tako-vm-executor"
-    """Label used to identify Tako VM executor containers."""
+    CONTAINER_LABEL = EXECUTOR_CONTAINER_LABEL
+    """Label used to identify Tako VM executor containers (shared with docker.py,
+    where launch paths apply it via ``base_isolation_args``)."""
+
+    @staticmethod
+    def _parse_created_at(created_at: str) -> Optional[float]:
+        """Parse a ``docker ps {{.CreatedAt}}`` value into a Unix timestamp.
+
+        Docker formats it as ``2024-01-15 10:30:00 +0000 UTC``. The trailing
+        timezone *name* is dropped before parsing because ``%Z`` only accepts
+        a few well-known names; the numeric ``%z`` offset is what matters.
+
+        Returns:
+            Unix timestamp, or None if the value cannot be parsed.
+        """
+        try:
+            fields = created_at.strip().split(" ")
+            dt = datetime.strptime(" ".join(fields[:3]), "%Y-%m-%d %H:%M:%S %z")
+            return dt.timestamp()
+        except (ValueError, IndexError):
+            return None
 
     @classmethod
     def cleanup_orphaned_containers(cls, max_age_seconds: int = 3600) -> int:
         """
         Remove orphaned Tako VM executor containers.
 
+        Containers are matched by the ``tako-vm-executor`` label, which every
+        launch path applies via ``base_isolation_args`` (worker and library
+        sandbox alike). Matching is label-only by design: name-pattern filters
+        do substring matching and could sweep up unrelated user containers.
+        (Containers launched by versions that predate the label are not
+        matched — a one-time concern, accepted to keep matching unambiguous.)
+
+        This runs at server startup, so any labeled container still *running*
+        was launched by a previous (now dead) server process — its supervising
+        subprocess is gone and nothing will ever reap it. Exited/dead labeled
+        containers are removed unconditionally; running ones are only removed
+        once older than ``max_age_seconds``, as a safety guard against killing
+        in-flight work from another live Tako VM instance sharing the same
+        Docker daemon.
+
         Args:
-            max_age_seconds: Remove containers older than this age
+            max_age_seconds: Only force-remove *running* labeled containers
+                older than this age. Non-running containers are always removed.
 
         Returns:
             Number of containers removed
@@ -194,7 +232,7 @@ class DockerCleanup:
                     "--filter",
                     f"label={cls.CONTAINER_LABEL}",
                     "--format",
-                    "{{.ID}}\t{{.CreatedAt}}\t{{.Status}}",
+                    "{{.ID}}\t{{.CreatedAt}}\t{{.State}}",
                 ],
                 capture_output=True,
                 text=True,
@@ -206,29 +244,38 @@ class DockerCleanup:
                 logger.warning(f"Failed to list containers: {result.stderr}")
                 return 0
 
-            # Also find containers with our naming pattern (job-*)
-            result_pattern = subprocess.run(
-                ["docker", "ps", "-a", "--filter", "name=job-", "--format", "{{.ID}}"],
-                capture_output=True,
-                text=True,
-                timeout=30.0,
-                check=False,
-            )
+            now = time.time()
+            containers_to_remove = []
 
-            containers_to_remove = set()
-
-            # Parse labeled containers
             for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
                 parts = line.split("\t")
-                if len(parts) >= 1:
-                    containers_to_remove.add(parts[0])
+                if len(parts) < 3:
+                    continue
+                container_id, created_at, state = parts[0], parts[1], parts[2]
 
-            # Add pattern-matched containers
-            for container_id in result_pattern.stdout.strip().split("\n"):
-                if container_id:
-                    containers_to_remove.add(container_id)
+                if state in ("running", "restarting", "paused"):
+                    # Age guard: only treat live containers as orphans once
+                    # they exceed max_age_seconds. Unparseable timestamps are
+                    # skipped (fail safe: never kill a container whose age we
+                    # cannot determine).
+                    created_ts = cls._parse_created_at(created_at)
+                    if created_ts is None:
+                        logger.warning(
+                            f"Skipping running container {container_id}: "
+                            f"unparseable CreatedAt {created_at!r}"
+                        )
+                        continue
+                    age = now - created_ts
+                    if age < max_age_seconds:
+                        logger.debug(
+                            f"Skipping running container {container_id} "
+                            f"(age {age:.0f}s < {max_age_seconds}s)"
+                        )
+                        continue
+
+                containers_to_remove.append(container_id)
 
             # Remove containers
             for container_id in containers_to_remove:
@@ -318,7 +365,9 @@ def startup_cleanup() -> dict:
     results["docker_healthy"] = breaker.check_docker_health()
 
     if results["docker_healthy"]:
-        # Clean up orphaned containers
+        # Clean up orphaned executor containers: exited ones unconditionally,
+        # running ones only past the default 1h age guard (see
+        # cleanup_orphaned_containers for the rationale).
         results["containers_removed"] = DockerCleanup.cleanup_orphaned_containers()
 
     return results

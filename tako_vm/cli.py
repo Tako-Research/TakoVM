@@ -56,11 +56,27 @@ def main():
 
     # Server command
     server_parser = subparsers.add_parser("server", help="Start the Tako VM server")
-    server_parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    server_parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
-    server_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     server_parser.add_argument(
-        "--workers", type=int, help="Number of worker processes (overrides config)"
+        "--host", default=None, help="Host to bind to (default: from config, 0.0.0.0)"
+    )
+    server_parser.add_argument(
+        "--port", type=int, default=None, help="Port to bind to (default: from config, 8000)"
+    )
+    server_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload (cannot be combined with --workers > 1)",
+    )
+    server_parser.add_argument(
+        "--workers",
+        type=int,
+        help=(
+            "Number of worker processes (default: 1; cannot be combined with --reload). "
+            "WARNING: each process runs its own in-memory worker pool, so async job "
+            "polling relies on database fallbacks and wait=true result streaming only "
+            "works on the submitting worker; prefer a single worker behind a load "
+            "balancer."
+        ),
     )
     server_parser.set_defaults(auto_start_postgres=True)
     server_parser.add_argument(
@@ -79,8 +95,12 @@ def main():
         action="store_true",
         help="Start API server after PostgreSQL is ready",
     )
-    dev_up_parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    dev_up_parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    dev_up_parser.add_argument(
+        "--host", default=None, help="Host to bind to (default: from config, 0.0.0.0)"
+    )
+    dev_up_parser.add_argument(
+        "--port", type=int, default=None, help="Port to bind to (default: from config, 8000)"
+    )
     dev_up_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     dev_up_parser.set_defaults(auto_start_postgres=True)
     dev_subparsers.add_parser("status", help="Show local PostgreSQL status")
@@ -269,14 +289,47 @@ def run_server(args):
         sys.exit(1)
 
     # Use CLI args if provided, otherwise fall back to config values
-    host = args.host if args.host != "0.0.0.0" else config.server_host
-    port = args.port if args.port != 8000 else config.server_port
+    host = args.host if args.host is not None else config.server_host
+    port = args.port if args.port is not None else config.server_port
+
+    workers = getattr(args, "workers", None)
+    if workers is None:
+        workers = 1
+    if workers < 1:
+        print("Error: --workers must be >= 1", file=sys.stderr)
+        sys.exit(1)
+    if args.reload and workers > 1:
+        print(
+            "Error: --reload cannot be combined with --workers > 1 "
+            "(uvicorn's reloader manages a single worker process)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if workers > 1:
+        print(
+            f"WARNING: --workers {workers} runs {workers} independent worker pools; "
+            "async job polling relies on database fallbacks and wait=true result "
+            "streaming only works on the submitting worker. Prefer a single worker "
+            "behind a load balancer unless you know you need this.",
+            file=sys.stderr,
+        )
+
+    # uvicorn requires the app as an import string for --reload or multiple
+    # workers (it silently disables them when given an app object). Those modes
+    # spawn subprocesses that re-import the app, so carry an explicit --config
+    # through the environment for get_config() in the child processes.
+    use_import_string = args.reload or workers > 1
+    if use_import_string:
+        explicit_config = getattr(args, "config", None)
+        if explicit_config:
+            os.environ["TAKO_VM_CONFIG"] = str(explicit_config)
 
     uvicorn.run(
-        app,
+        "tako_vm.server.app:app" if use_import_string else app,
         host=host,
         port=port,
         reload=args.reload,
+        workers=workers,
     )
 
 
@@ -329,7 +382,7 @@ def _ensure_managed_postgres() -> None:
                 "-e",
                 "POSTGRES_DB=tako_vm",
                 "-p",
-                "55432:5432",
+                "127.0.0.1:55432:5432",
                 "-v",
                 f"{MANAGED_POSTGRES_VOLUME}:/var/lib/postgresql/data",
                 "postgres:16-alpine",

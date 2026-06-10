@@ -4,6 +4,7 @@ Tests for Tako VM configuration module.
 Tests config loading, validation, and environment variable overrides.
 """
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -25,8 +26,15 @@ from tako_vm.config import (
 
 
 @pytest.fixture(autouse=True)
-def reset_config_fixture():
-    """Reset config before and after each test."""
+def reset_config_fixture(monkeypatch):
+    """Reset config and scrub config env overrides before and after each test.
+
+    Other test modules legitimately mutate process env (e.g. the CLI's managed
+    postgres helper sets TAKO_VM_DATABASE_URL); if those leak in, load_config's
+    env override layer silently replaces values under test.
+    """
+    for var in ("TAKO_VM_CONFIG", "TAKO_VM_DATABASE_URL", "TAKO_VM_SECURITY_MODE"):
+        monkeypatch.delenv(var, raising=False)
     reset_config()
     yield
     reset_config()
@@ -371,6 +379,55 @@ class TestTakoVMConfig:
             TakoVMConfig.model_validate({"unknown_field": "value"})
 
 
+class TestSecurityWarnings:
+    """Tests for TakoVMConfig.security_warnings()."""
+
+    def test_security_warnings_default_config(self):
+        """Default config warns about disabled auth and permissive mode."""
+        warnings = TakoVMConfig().security_warnings()
+
+        assert len(warnings) == 2
+        assert any("api_auth_enabled" in w for w in warnings)
+        assert any("permissive" in w for w in warnings)
+
+    def test_security_warnings_empty_for_locked_down_config(self):
+        """Auth enabled + strict mode produces no warnings."""
+        config = TakoVMConfig(
+            api_auth_enabled=True,
+            api_keys=["aaaaaaaaaaaaaaaa"],
+            security_mode="strict",
+        )
+        assert config.security_warnings() == []
+
+    def test_security_warnings_empty_for_loopback_strict_config(self):
+        """Loopback host suppresses the auth warning even without auth."""
+        config = TakoVMConfig(server_host="127.0.0.1", security_mode="strict")
+        assert config.security_warnings() == []
+
+        config = TakoVMConfig(server_host="localhost", security_mode="strict")
+        assert config.security_warnings() == []
+
+    def test_security_warnings_permissive_only(self):
+        """Auth-enabled config in permissive mode warns about gVisor fallback only."""
+        config = TakoVMConfig(
+            api_auth_enabled=True,
+            api_keys=["aaaaaaaaaaaaaaaa"],
+            security_mode="permissive",
+        )
+        warnings = config.security_warnings()
+
+        assert len(warnings) == 1
+        assert "permissive" in warnings[0]
+
+    def test_load_config_logs_security_warnings(self, caplog):
+        """load_config emits security warnings via logging."""
+        with caplog.at_level(logging.WARNING, logger="tako_vm.config"):
+            load_config()
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("permissive" in message for message in messages)
+
+
 class TestConfigLoading:
     """Tests for config file loading."""
 
@@ -476,6 +533,59 @@ max_workers: -1  # Invalid: must be >= 1
         finally:
             config_path.unlink()
 
+    def test_load_config_redacts_database_password_from_errors(self):
+        """ConfigurationError must not echo secrets embedded in invalid values."""
+        password = "sup3r-s3cret-hunter2"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'database_url: "mysql://tako:{password}@db.internal:3306/tako"\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigurationError) as exc_info:
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+        message = str(exc_info.value)
+        assert password not in message
+        assert "database_url" in message
+
+    def test_load_config_redacts_api_keys_from_errors(self):
+        """Too-short API keys are not echoed back in the error message."""
+        secret_key = "hunter2secret"  # < 16 chars, fails validation
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'api_keys: ["{secret_key}"]\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigurationError) as exc_info:
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+        message = str(exc_info.value)
+        assert secret_key not in message
+        assert "api_keys" in message
+
+    def test_validate_config_file_redacts_secrets(self):
+        """validate_config_file errors must not echo secret input values."""
+        password = "sup3r-s3cret-hunter2"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(f'database_url: "mysql://tako:{password}@db.internal:3306/tako"\n')
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            errors = validate_config_file(config_path)
+        finally:
+            config_path.unlink()
+
+        assert len(errors) > 0
+        assert all(password not in error for error in errors)
+        assert any("database_url" in error for error in errors)
+
     def test_validate_config_file_valid(self):
         """validate_config_file returns empty list for valid file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -567,3 +677,23 @@ max_workers: 16
             assert found == Path(config_path)
         finally:
             Path(config_path).unlink()
+
+
+class TestDLQTTLConfig:
+    """Tests for dlq_ttl_days retention config."""
+
+    def test_dlq_ttl_days_default_matches_record_retention(self):
+        """DLQ TTL defaults to 30 days, same as execution record retention."""
+        config = TakoVMConfig()
+        assert config.dlq_ttl_days == 30
+        assert config.dlq_ttl_days == config.execution_record_ttl_days
+
+    def test_dlq_ttl_days_bounds(self):
+        """dlq_ttl_days accepts 1-365 and rejects values outside that range."""
+        assert TakoVMConfig(dlq_ttl_days=1).dlq_ttl_days == 1
+        assert TakoVMConfig(dlq_ttl_days=365).dlq_ttl_days == 365
+
+        with pytest.raises(ValueError):
+            TakoVMConfig(dlq_ttl_days=0)
+        with pytest.raises(ValueError):
+            TakoVMConfig(dlq_ttl_days=366)

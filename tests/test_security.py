@@ -10,10 +10,90 @@ from tako_vm.constants import UV_CACHE_VOLUME
 from tako_vm.execution import CodeExecutor
 from tako_vm.job_types import JobType
 from tako_vm.security import (
+    classify_error,
+    sanitize_error,
     validate_docker_run_args,
     validate_execution_id,
     validate_pip_requirement,
 )
+
+
+class TestSanitizeError:
+    def test_replaces_standalone_short_container_id(self):
+        result = sanitize_error("Error in container 4e5021d210f6: exited")
+        assert result == "Error in container <container-id>: exited"
+
+    def test_replaces_full_container_id(self):
+        full_id = "a" * 32 + "1" * 32
+        result = sanitize_error(f"container {full_id} failed")
+        assert result == "container <container-id> failed"
+
+    def test_leaves_40_char_sha_intact(self):
+        sha = "2c796c3f410f0396ba541855b8421d210f6a9e7b"
+        assert sanitize_error(f"commit {sha} not found") == f"commit {sha} not found"
+
+    def test_leaves_13_char_hex_intact(self):
+        token = "4e5021d210f6a"
+        assert sanitize_error(f"token {token} invalid") == f"token {token} invalid"
+
+    def test_leaves_32_char_uuid_hex_intact(self):
+        uuid_hex = "550e8400e29b41d4a716446655440000"
+        assert sanitize_error(f"id {uuid_hex} missing") == f"id {uuid_hex} missing"
+
+    def test_leaves_plain_12_digit_number_intact(self):
+        assert (
+            sanitize_error("timestamp 170000000000 is stale") == "timestamp 170000000000 is stale"
+        )
+
+    def test_empty_input(self):
+        assert sanitize_error("") == ""
+
+
+class TestClassifyError:
+    def test_filenotfounderror_with_could_not_find_is_not_dependency_error(self):
+        error_type, message = classify_error(1, "FileNotFoundError: could not find config file")
+        assert error_type == "file_not_found"
+        assert "config file" in message
+
+    def test_genuine_pip_resolution_failure_is_dependency_error(self):
+        error_type, _ = classify_error(
+            1, "ERROR: Could not find a version that satisfies the requirement nopkg"
+        )
+        assert error_type == "dependency_error"
+
+    def test_no_matching_distribution_is_dependency_error(self):
+        error_type, _ = classify_error(1, "ERROR: No matching distribution found for nopkg")
+        assert error_type == "dependency_error"
+
+    def test_user_output_containing_killed_is_not_killed(self):
+        error_type, _ = classify_error(1, "ValueError: the job was killed by the user")
+        assert error_type == "value_error"
+
+    def test_shell_killed_line_is_killed(self):
+        error_type, _ = classify_error(
+            1, "sh: line 1:    42 Killed                  python3 code.py"
+        )
+        assert error_type == "killed"
+
+    def test_bare_killed_line_is_killed(self):
+        error_type, _ = classify_error(1, "Killed\n")
+        assert error_type == "killed"
+
+    def test_oom_killed_is_killed(self):
+        error_type, _ = classify_error(1, "container was OOMKilled")
+        assert error_type == "killed"
+
+    def test_sigkill_exit_code_is_oom(self):
+        error_type, _ = classify_error(137, "")
+        assert error_type == "oom"
+
+    def test_timeout_flag_wins(self):
+        error_type, _ = classify_error(1, "MemoryError", timed_out=True)
+        assert error_type == "timeout"
+
+    def test_generic_nonzero_exit_is_runtime_error(self):
+        error_type, _ = classify_error(2, "something unexpected happened")
+        assert error_type == "runtime_error"
 
 
 class TestValidateExecutionId:
@@ -215,6 +295,11 @@ class TestExecutorRejectsUnsafeIds:
         code_dir.mkdir()
         input_dir.mkdir()
         output_dir.mkdir()
+
+        # Keep image resolution off the (shared) subprocess mock: this test
+        # asserts that NO docker command runs once the policy rejects the job,
+        # and the pre-built-image probe would otherwise count as a call.
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: False)
 
         fake_run = MagicMock()
         monkeypatch.setattr(worker_module.subprocess, "run", fake_run)

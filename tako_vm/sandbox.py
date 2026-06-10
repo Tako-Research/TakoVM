@@ -30,7 +30,8 @@ from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
     base_isolation_args,
     generate_container_name,
-    kill_container,
+    inspect_oom_killed,
+    remove_container,
 )
 from tako_vm.security import validate_pip_requirement
 
@@ -39,6 +40,22 @@ logger = logging.getLogger(__name__)
 _SAFE_PROXY_URL_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/=,+-[]{}@%"
 )
+
+DEFAULT_STARTUP_TIMEOUT = 120
+"""Default startup (dependency install) timeout in seconds, matching server defaults."""
+
+
+def _decode_stream(value: Any) -> str:
+    """Decode partial subprocess output that may be None, bytes, or str.
+
+    subprocess.TimeoutExpired carries raw bytes even when subprocess.run
+    was invoked with text=True.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 @dataclass
@@ -103,6 +120,9 @@ class SandboxConfig:
 
     timeout: int = 30
     """Default timeout in seconds."""
+
+    startup_timeout: int = DEFAULT_STARTUP_TIMEOUT
+    """Timeout in seconds for the startup phase (runtime dependency installation)."""
 
     memory_limit: str = "512m"
     """Memory limit for containers."""
@@ -171,6 +191,7 @@ class Sandbox:
         enable_runtime_dependency_cache: bool = False,
         package_dirs: Optional[List[str]] = None,
         auto_build: bool = True,
+        startup_timeout: int = DEFAULT_STARTUP_TIMEOUT,
     ):
         """
         Initialize the sandbox.
@@ -186,10 +207,12 @@ class Sandbox:
             enable_runtime_dependency_cache: Whether to use a shared uv cache volume
             package_dirs: Local directories to mount as Python packages
             auto_build: Whether to auto-build image if missing
+            startup_timeout: Timeout in seconds for runtime dependency installation
         """
         self.config = SandboxConfig(
             image=image,
             timeout=timeout,
+            startup_timeout=startup_timeout,
             memory_limit=memory_limit,
             cpu_limit=cpu_limit,
             network_enabled=network_enabled,
@@ -382,48 +405,95 @@ class Sandbox:
             except ValueError as e:
                 return SandboxResult(success=False, exit_code=-1, error=str(e))
 
-            # Execute
+            # Execute. The container enforces its own timeouts via
+            # TAKO_STARTUP_TIMEOUT / TAKO_EXECUTION_TIMEOUT; this subprocess
+            # timeout is a backstop with a grace period for container overhead.
+            # Dependency installation happens before code runs, so budget the
+            # startup phase separately when requirements are present.
+            subprocess_timeout = timeout + 5
+            if requirements:
+                subprocess_timeout += self.config.startup_timeout
+
             start_time = time.time()
+            # The container runs without --rm (see _build_docker_command), so
+            # this try/finally — entered only once `docker run` is attempted —
+            # owns removal on every exit path: success, failure, OOM, host
+            # timeout, and unexpected exceptions. remove_container does
+            # `docker rm -f`, which also kills a still-running container (the
+            # TimeoutExpired case, where subprocess.run killed the docker CLI
+            # but the container kept running in the daemon).
             try:
-                proc = subprocess.run(
-                    cmd,
-                    timeout=timeout + 5,  # Grace period for container overhead
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                duration_ms = int((time.time() - start_time) * 1000)
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        timeout=subprocess_timeout,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    duration_ms = int((time.time() - start_time) * 1000)
 
-                # Read output
-                output_data = None
-                output_file = output_dir / "result.json"
-                if output_file.exists():
-                    try:
-                        output_data = json.loads(output_file.read_text())
-                    except json.JSONDecodeError:
-                        pass
+                    # Read output
+                    output_data = None
+                    output_file = output_dir / "result.json"
+                    if output_file.exists():
+                        try:
+                            output_data = json.loads(output_file.read_text())
+                        except json.JSONDecodeError:
+                            pass
 
-                return SandboxResult(
-                    stdout=proc.stdout,
-                    stderr=proc.stderr,
-                    exit_code=proc.returncode,
-                    success=proc.returncode == 0,
-                    output=output_data,
-                    duration_ms=duration_ms,
-                )
+                    # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced
+                    # by entrypoint.sh via timeout(1)) exits 124 when the code
+                    # exceeds its budget, so most timeouts return here rather
+                    # than through the TimeoutExpired backstop below. Surface
+                    # them as timeouts.
+                    error = None
+                    if proc.returncode == 124:
+                        error = f"Execution timed out after {timeout}s"
+                    elif proc.returncode == 137:
+                        # Exit 137 is SIGKILL — could be the OOM killer, but
+                        # also `docker kill` or user code calling
+                        # sys.exit(137). Only the exited container's
+                        # State.OOMKilled distinguishes them; inspect before
+                        # the finally block removes the container. In-container
+                        # timeout kills are already remapped to 124 by the
+                        # entrypoint, so a 137 seen here is a genuine SIGKILL.
+                        # None (inspect failed) falls back to reporting OOM so
+                        # a flaky inspect never loses a true OOM — same policy
+                        # as the server-side CodeExecutor.
+                        oom_killed = inspect_oom_killed(container_name)
+                        if oom_killed is False:
+                            error = "Process was killed (SIGKILL) but not by the memory limit"
+                        else:
+                            error = (
+                                "Container killed: out of memory "
+                                f"(memory_limit={self.config.memory_limit})"
+                            )
 
-            except subprocess.TimeoutExpired:
-                # Kill the orphaned container (subprocess died but container keeps running)
-                kill_container(container_name)
-                duration_ms = int((time.time() - start_time) * 1000)
-                return SandboxResult(
-                    stdout="",
-                    stderr="",
-                    exit_code=-1,
-                    success=False,
-                    error=f"Execution timed out after {timeout}s",
-                    duration_ms=duration_ms,
-                )
+                    return SandboxResult(
+                        stdout=proc.stdout,
+                        stderr=proc.stderr,
+                        exit_code=proc.returncode,
+                        success=proc.returncode == 0,
+                        output=output_data,
+                        duration_ms=duration_ms,
+                        error=error,
+                    )
+
+                except subprocess.TimeoutExpired as exc:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    return SandboxResult(
+                        stdout=_decode_stream(exc.stdout),
+                        stderr=_decode_stream(exc.stderr),
+                        exit_code=-1,
+                        success=False,
+                        error=f"Execution timed out after {timeout}s",
+                        duration_ms=duration_ms,
+                    )
+            finally:
+                # Best-effort kill+remove (`docker rm -f`, errors swallowed);
+                # the labeled orphan cleanup at startup is the backstop.
+                remove_container(container_name)
 
         finally:
             # Cleanup
@@ -447,22 +517,23 @@ class Sandbox:
         """
         validated_reqs = []
         if requirements:
-            if len(requirements) > MAX_REQUIREMENTS:
-                raise ValueError(
-                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
-                )
-            for req in requirements:
-                if validate_pip_requirement(req):
-                    validated_reqs.append(req)
-                else:
-                    logger.warning("Skipping invalid pip requirement: %s", req)
-
-        if validated_reqs:
+            # Enforce the policy before validation so an all-invalid list
+            # cannot bypass the allow_runtime_requirements check.
             if not self.config.allow_runtime_requirements:
                 raise ValueError(
                     "Runtime dependency installation is disabled. "
                     "Use pre-built images or set allow_runtime_requirements=True."
                 )
+            if len(requirements) > MAX_REQUIREMENTS:
+                raise ValueError(
+                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
+                )
+            for req in requirements:
+                if not validate_pip_requirement(req):
+                    raise ValueError(f"Invalid pip requirement: {req!r}")
+                validated_reqs.append(req)
+
+        if validated_reqs:
             requirements_file = input_dir / "_requirements.txt"
             requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
             requirements_file.chmod(0o444)
@@ -470,14 +541,24 @@ class Sandbox:
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
-        # Shared isolation base: --rm/--init/--read-only, capability drops, and
-        # the gVisor --runtime flag, resolved via the shared resolver so the
+        # Shared isolation base: --init/--read-only, capability drops, the
+        # tako-vm-executor label (so startup cleanup can find orphans), and the
+        # gVisor --runtime flag, resolved via the shared resolver so the
         # library path enforces the same posture as CodeExecutor (and fails
-        # closed in strict mode when gVisor is unavailable).
+        # closed in strict mode when gVisor is unavailable). Library-mode runs
+        # have no ExecutionRecord, so the unique container name doubles as the
+        # traceability ID.
+        #
+        # auto_remove=False: keep the exited container so a 137 exit can be
+        # checked against `docker inspect .State.OOMKilled` (with --rm the
+        # daemon removes the container before it can be inspected). The
+        # try/finally in run() guarantees removal on every exit path.
         cmd = base_isolation_args(
             container_name,
             runtime=resolve_runtime(get_config()),
             enable_cap_restrictions=self.config.enable_cap_restrictions,
+            execution_id=container_name,
+            auto_remove=False,
         )
 
         # Network isolation
@@ -535,6 +616,12 @@ class Sandbox:
 
         if has_requirements and self.config.dependency_proxy_url:
             cmd.append(f"--env=TAKO_DEPENDENCY_PROXY_URL={self.config.dependency_proxy_url}")
+
+        # In-container timeout enforcement (entrypoint.sh wraps each phase in
+        # timeout(1)). Without these the container would run forever if the
+        # parent process died before its subprocess timeout fired.
+        cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={self.config.startup_timeout}")
+        cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")
 
         # Image
         cmd.append(self.config.image)

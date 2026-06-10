@@ -43,6 +43,17 @@ def set_correlation_id(correlation_id: str) -> None:
     correlation_id_var.set(correlation_id)
 
 
+def clear_correlation_id() -> None:
+    """
+    Clear the correlation ID from context.
+
+    Call this at the start of work that is not tied to an HTTP request (e.g.
+    each queue worker iteration) so logs and DLQ entries never inherit a
+    previous request's correlation ID.
+    """
+    correlation_id_var.set(None)
+
+
 def generate_correlation_id() -> str:
     """
     Generate a new correlation ID.

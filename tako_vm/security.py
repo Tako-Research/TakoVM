@@ -28,10 +28,26 @@ SANITIZE_PATTERNS: List[Tuple[str, str]] = [
     (r"172\.\d+\.\d+\.\d+", "172.***.***"),
     (r"10\.\d+\.\d+\.\d+", "10.***.***"),
     (r"192\.168\.\d+\.\d+", "192.168.***.***"),
-    # Docker container IDs
-    (r"[a-f0-9]{64}", "<container-id>"),
-    (r"[a-f0-9]{12}(?![a-f0-9])", "<container-id>"),
+    # Docker container IDs. Boundaries on both sides ensure we never rewrite a
+    # fragment of a longer hex run (git SHA-1s, sha256 digests, UUID hex).
+    (r"(?<![a-f0-9])[a-f0-9]{64}(?![a-f0-9])", "<container-id>"),
+    # Short (12-char) container IDs. The (?=[0-9]*[a-f]) lookahead requires at
+    # least one a-f letter so plain 12-digit numbers (timestamps, account IDs)
+    # are left intact. Theoretical false negative: an all-digit short container
+    # ID (~0.4% of IDs) will not be redacted.
+    (r"(?<![a-f0-9])(?=[0-9]*[a-f])[a-f0-9]{12}(?![a-f0-9])", "<container-id>"),
 ]
+
+# Known kernel/shell/docker phrasings for a SIGKILL-ed process. Deliberately
+# narrower than a bare "killed" substring so ordinary program output that
+# happens to contain the word "killed" is not misclassified.
+_KILLED_PATTERN = re.compile(
+    r"\boom-?kill(?:ed|er)\b"  # docker "OOMKilled" state / kernel "oom-killer"
+    r"|\bprocess killed\b"
+    r"|^\s*killed\b"  # shell prints "Killed" at the start of a line
+    r"|\bline \d+:\s*\d+ killed\b",  # bash job control: "sh: line 1: 42 Killed ..."
+    re.MULTILINE,
+)
 
 # Default limits
 DEFAULT_MAX_STDOUT_BYTES = 65536  # 64KB
@@ -207,8 +223,9 @@ def classify_error(exit_code: int, stderr: str, timed_out: bool = False) -> Tupl
     if "cannot allocate memory" in stderr_lower:
         return "oom", "Cannot allocate memory"
 
-    # Process termination
-    if "killed" in stderr_lower:
+    # Process termination. Match only known kernel/shell/docker phrasings, not
+    # the bare word "killed", which can appear in ordinary program output.
+    if _KILLED_PATTERN.search(stderr_lower):
         return "killed", "Process was killed by system"
 
     # Permission errors
@@ -224,19 +241,6 @@ def classify_error(exit_code: int, stderr: str, timed_out: bool = False) -> Tupl
 
     if "indentationerror" in stderr_lower:
         return "syntax_error", sanitize_error(stderr[:200] if stderr else "Indentation error")
-
-    # Dependency installation errors (uv/pip failures)
-    if "no matching distribution" in stderr_lower or "could not find" in stderr_lower:
-        return "dependency_error", "Failed to install required package (not found)"
-
-    if "error: externally-managed-environment" in stderr_lower:
-        return "dependency_error", "Package installation failed (environment issue)"
-
-    if "failed to download" in stderr_lower or "failed to fetch" in stderr_lower:
-        return "dependency_error", "Failed to download package (network issue)"
-
-    if "resolving dependencies" in stderr_lower and "conflict" in stderr_lower:
-        return "dependency_error", "Package dependency conflict"
 
     # Import errors
     if "importerror" in stderr_lower or "modulenotfounderror" in stderr_lower:
@@ -315,6 +319,24 @@ def classify_error(exit_code: int, stderr: str, timed_out: bool = False) -> Tupl
 
     if "timeouterror" in stderr_lower:
         return "network_timeout", "Network request timed out"
+
+    # Dependency installation errors (uv/pip failures). Checked after the
+    # Python-exception-name patterns above: these generic installer phrasings
+    # ("could not find ...", "failed to download ...") can also appear inside
+    # the message text of an ordinary runtime exception (e.g.
+    # "FileNotFoundError: could not find config file"), and the named
+    # exception is the more specific signal.
+    if "no matching distribution" in stderr_lower or "could not find a version" in stderr_lower:
+        return "dependency_error", "Failed to install required package (not found)"
+
+    if "error: externally-managed-environment" in stderr_lower:
+        return "dependency_error", "Package installation failed (environment issue)"
+
+    if "failed to download" in stderr_lower or "failed to fetch" in stderr_lower:
+        return "dependency_error", "Failed to download package (network issue)"
+
+    if "resolving dependencies" in stderr_lower and "conflict" in stderr_lower:
+        return "dependency_error", "Package dependency conflict"
 
     # Docker/container specific
     if "docker" in stderr_lower and "not found" in stderr_lower:

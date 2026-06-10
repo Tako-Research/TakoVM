@@ -20,7 +20,11 @@ from tako_vm.models import (
     sha256_content,
     sha256_json,
 )
-from tako_vm.server.correlation import get_correlation_id, set_correlation_id
+from tako_vm.server.correlation import (
+    clear_correlation_id,
+    get_correlation_id,
+    set_correlation_id,
+)
 from tako_vm.storage import ExecutionStorage
 
 if TYPE_CHECKING:
@@ -123,14 +127,28 @@ class WorkerPool:
 
         self._shutdown = True
 
-        # Cancel all pending jobs
+        # Cancel all pending jobs, persisting a terminal record first so their
+        # DB rows don't stay stuck at 'queued' after a graceful restart/deploy.
         while not self._queue.empty():
             try:
                 job = self._queue.get_nowait()
-                if job.future and not job.future.done():
-                    job.future.cancel()
             except asyncio.QueueEmpty:
                 break
+
+            # Best-effort: a storage failure during shutdown must not
+            # prevent shutdown (startup reconciliation covers the gap).
+            try:
+                record = self._build_cancelled_record(
+                    job, message="Job cancelled: server shut down before execution started"
+                )
+                await self.storage.save_record(record)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to persist shutdown record for pending job {job.job_id}: {e}"
+                )
+
+            if job.future and not job.future.done():
+                job.future.cancel()
 
         # Wait for workers with timeout
         if self._workers:
@@ -194,6 +212,7 @@ class WorkerPool:
             code_hash=sha256_content(job_data.get("code", "")),
             input_hash=sha256_json(job_data.get("input_data", {})),
             client_ip=client_ip,
+            correlation_id=job_data.get("correlation_id"),
             idempotency_key=job_data.get("idempotency_key"),
             idempotency_fingerprint=job_data.get("idempotency_fingerprint"),
             parent_execution_id=job_data.get("parent_execution_id"),
@@ -207,7 +226,13 @@ class WorkerPool:
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
+            # Release the idempotency key: a 503 tells the client to retry,
+            # and the retry must not collide with this dead record. save_record
+            # is an upsert that overwrites all columns, so re-saving with the
+            # key cleared frees it while keeping the failure visible.
             queued_record.status = "failed"
+            queued_record.idempotency_key = None
+            queued_record.idempotency_fingerprint = None
             queued_record.error = ExecutionError(
                 type="service_unavailable", message="Job queue is full, try again later"
             )
@@ -254,7 +279,12 @@ class WorkerPool:
             raise KeyError(f"Job {job_id} has no future (internal error)")
 
         if timeout:
-            return await asyncio.wait_for(job.future, timeout=timeout)
+            # Shield the job future: asyncio.wait_for cancels the awaited
+            # future on timeout, which would make the worker loop treat the
+            # job as user-cancelled (never executing it) and surface
+            # CancelledError to any concurrent waiters. A read-only wait
+            # timing out must never affect the job itself.
+            return await asyncio.wait_for(asyncio.shield(job.future), timeout=timeout)
         else:
             return await job.future
 
@@ -280,10 +310,24 @@ class WorkerPool:
             if job_id in self._active_jobs:
                 job = self._active_jobs[job_id]
                 if job.future and job.future.done():
+                    # Derive a real terminal status from the finished future.
+                    # "completed" is not a valid QueueStatus and would fail
+                    # response validation in the API layer.
+                    if job.future.cancelled():
+                        status = "cancelled"
+                        duration_ms = None
+                    elif job.future.exception() is not None:
+                        status = "failed"
+                        duration_ms = None
+                    else:
+                        record = job.future.result()
+                        status = record.status
+                        duration_ms = record.duration_ms
                     return {
                         "job_id": job_id,
-                        "status": "completed",
+                        "status": status,
                         "created_at": job.created_at.isoformat(),
+                        "duration_ms": duration_ms,
                     }
                 queue_position = self._estimate_queue_position_unlocked(job_id)
                 return {
@@ -348,7 +392,9 @@ class WorkerPool:
 
         return True
 
-    def _build_cancelled_record(self, job: QueuedJob) -> ExecutionRecord:
+    def _build_cancelled_record(
+        self, job: QueuedJob, message: str = "Execution was cancelled by user"
+    ) -> ExecutionRecord:
         """Create a final cancelled record for a job."""
         job_type_name = job.job_data.get("job_type") or "default"
         return ExecutionRecord(
@@ -361,7 +407,8 @@ class WorkerPool:
             code_hash=sha256_content(job.job_data.get("code", "")),
             input_hash=sha256_json(job.job_data.get("input_data", {})),
             client_ip=job.client_ip,
-            error=ExecutionError(type="cancelled", message="Execution was cancelled by user"),
+            correlation_id=job.job_data.get("correlation_id"),
+            error=ExecutionError(type="cancelled", message=message),
             idempotency_key=job.job_data.get("idempotency_key"),
             idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
             parent_execution_id=job.job_data.get("parent_execution_id"),
@@ -433,6 +480,11 @@ class WorkerPool:
                 except asyncio.TimeoutError:
                     continue
 
+                # Reset correlation context before any per-job work (including
+                # the cancelled-skip path below) so logs and DLQ entries never
+                # inherit the previous job's correlation ID.
+                clear_correlation_id()
+
                 # Skip if already cancelled
                 if job.cancelled or (job.future and job.future.cancelled()):
                     await self.storage.save_record(self._build_cancelled_record(job))
@@ -448,6 +500,18 @@ class WorkerPool:
                 # Move to running
                 async with self._jobs_lock:
                     self._running_jobs[job.job_id] = job
+
+                # Persist the queued -> running transition before executing so
+                # the DB reflects in-flight work: if the server crashes mid-run,
+                # forensics see 'running' (not a misleading 'queued') and startup
+                # reconciliation marks it failed. Best-effort: execution proceeds
+                # even if this write fails.
+                try:
+                    await self.storage.mark_record_running(
+                        job.job_id, worker_id=f"worker-{worker_id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to persist running state for job {job.job_id}: {e}")
 
                 # Set correlation ID from job data for logging
                 correlation_id = job.job_data.get("correlation_id")
@@ -514,6 +578,7 @@ class WorkerPool:
                         code_hash=sha256_content(job.job_data.get("code", "")),
                         input_hash=sha256_json(job.job_data.get("input_data", {})),
                         client_ip=job.client_ip,
+                        correlation_id=job.job_data.get("correlation_id"),
                         error=ExecutionError(type=error_type, message=error_msg),
                         # Propagate idempotency and lineage fields
                         idempotency_key=job.job_data.get("idempotency_key"),
@@ -525,9 +590,11 @@ class WorkerPool:
 
                     # Add to dead letter queue for internal errors (P3 fix)
                     try:
+                        # Redact: DLQ persists a forensic summary (hashes,
+                        # sizes, metadata), never raw code/input_data/keys.
                         dlq_entry = DeadLetterEntry(
                             job_id=job.job_id,
-                            job_data=job.job_data,
+                            job_data=DeadLetterEntry.build_job_summary(job.job_data),
                             error_type=error_type,
                             error_message=error_msg,
                             retry_count=0,
@@ -569,6 +636,7 @@ class WorkerPool:
                             code_hash=sha256_content(job.job_data.get("code", "")),
                             input_hash=sha256_json(job.job_data.get("input_data", {})),
                             client_ip=job.client_ip,
+                            correlation_id=job.job_data.get("correlation_id"),
                             error=ExecutionError(
                                 type="internal_error", message=sanitize_error(str(e))
                             ),
@@ -595,25 +663,126 @@ class WorkerPool:
             job: Job to execute
 
         Returns:
-            ExecutionRecord with results
-
-        Raises:
-            asyncio.TimeoutError: If execution exceeds timeout + buffer
+            ExecutionRecord with results (including a terminal "timeout" record
+            if the watchdog budget is exceeded)
         """
         loop = asyncio.get_running_loop()
 
         # Include both startup and execution budgets, plus buffer for Docker orchestration.
-        job_timeout = job.job_data.get("timeout", 30)
-        startup_timeout = job.job_data.get("startup_timeout", 120)
+        job_timeout, startup_timeout = self._resolve_timeout_budget(job)
         executor_timeout = startup_timeout + job_timeout + 60
 
         # Run synchronous execution in thread pool with timeout protection
-        record = await asyncio.wait_for(
-            loop.run_in_executor(self._thread_pool, self._run_job_sync, job),
-            timeout=executor_timeout,
-        )
+        try:
+            record = await asyncio.wait_for(
+                loop.run_in_executor(self._thread_pool, self._run_job_sync, job),
+                timeout=executor_timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            return await self._handle_watchdog_timeout(job, executor_timeout)
 
         return record
+
+    def _resolve_timeout_budget(self, job: QueuedJob) -> tuple:
+        """
+        Resolve the (job_timeout, startup_timeout) budget for the watchdog.
+
+        Mirrors the executor's own resolution (CodeExecutor falls back to the
+        job type's timeout/startup_timeout when the job omits them), so the
+        watchdog never undercuts a legitimate job-type budget. Falls back to
+        the executor's built-in defaults when the job type is missing or the
+        registry lookup fails.
+
+        Args:
+            job: Job whose budget to resolve
+
+        Returns:
+            Tuple of (job_timeout, startup_timeout) in seconds
+        """
+        # Matches CodeExecutor's DEFAULT_JOB_TYPE (timeout=30, startup_timeout=120).
+        default_timeout: float = 30
+        default_startup_timeout: float = 120
+
+        job_type_name = job.job_data.get("job_type")
+        if job_type_name:
+            try:
+                # Strip version specifier (job_type@version), like the executor does.
+                name = job_type_name.split("@", 1)[0]
+                registry = getattr(self.executor, "registry", None)
+                job_type = registry.get(name) if registry is not None else None
+                if job_type is not None:
+                    default_timeout = float(job_type.timeout)
+                    default_startup_timeout = float(job_type.startup_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"Could not resolve job-type budget for job {job.job_id} "
+                    f"(job_type={job_type_name!r}): {e}; using built-in defaults"
+                )
+
+        job_timeout = job.job_data.get("timeout", default_timeout)
+        startup_timeout = job.job_data.get("startup_timeout", default_startup_timeout)
+        return job_timeout, startup_timeout
+
+    async def _handle_watchdog_timeout(
+        self, job: QueuedJob, executor_timeout: float
+    ) -> ExecutionRecord:
+        """
+        Handle a watchdog (wait_for) timeout for a job.
+
+        The asyncio timeout only cancels the awaiting wrapper -- the executor
+        thread keeps running. Kill the container immediately so the sandboxed
+        workload stops now instead of when the thread's subprocess backstop
+        eventually fires, and return a terminal "timeout" record (this is a
+        budget overrun, not an internal error, so it must not be DLQ'd).
+
+        Args:
+            job: Job that exceeded the watchdog budget
+            executor_timeout: Budget in seconds that was exceeded
+
+        Returns:
+            ExecutionRecord with status "timeout"
+        """
+        container_name = generate_container_name("tako", job.job_id)
+        killed = await asyncio.to_thread(kill_container, container_name)
+        if killed:
+            logger.warning(
+                f"Job {job.job_id} exceeded watchdog budget of {executor_timeout}s; "
+                f"killed container {container_name}"
+            )
+        else:
+            logger.warning(
+                f"Job {job.job_id} exceeded watchdog budget of {executor_timeout}s; "
+                f"container {container_name} was not running (already exited?)"
+            )
+        logger.warning(
+            f"Executor thread for job {job.job_id} is stranded until its subprocess "
+            "timeout backstop fires; the worker slot is freed now"
+        )
+
+        job_type_name = job.job_data.get("job_type") or "default"
+        return ExecutionRecord(
+            execution_id=job.job_id,
+            status="timeout",
+            job_type=job_type_name,
+            job_ref=f"{job_type_name}@latest",
+            created_at=job.created_at,
+            queued_at=job.created_at,
+            code_hash=sha256_content(job.job_data.get("code", "")),
+            input_hash=sha256_json(job.job_data.get("input_data", {})),
+            client_ip=job.client_ip,
+            correlation_id=job.job_data.get("correlation_id"),
+            error=ExecutionError(
+                type="execution_timeout",
+                message=(
+                    f"Execution exceeded the watchdog budget of {executor_timeout}s "
+                    "(startup + execution + orchestration buffer); container was killed"
+                ),
+            ),
+            idempotency_key=job.job_data.get("idempotency_key"),
+            idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
+            parent_execution_id=job.job_data.get("parent_execution_id"),
+            relationship=job.job_data.get("relationship"),
+        )
 
     def _run_job_sync(self, job: QueuedJob) -> ExecutionRecord:
         """
