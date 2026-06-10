@@ -967,6 +967,22 @@ class TestCLISubprocessExtended:
 class TestCLIDevHelpers:
     """Tests for dev helper functionality."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_database_url_env(self):
+        """Restore TAKO_VM_DATABASE_URL after each test.
+
+        dev_up() and run_server() mutate os.environ["TAKO_VM_DATABASE_URL"]
+        directly (pointing it at the managed postgres on port 55432). Without
+        restoration that leaks into every later test in the process and caused
+        the entire storage suite to silently skip in CI.
+        """
+        original = os.environ.get("TAKO_VM_DATABASE_URL")
+        yield
+        if original is None:
+            os.environ.pop("TAKO_VM_DATABASE_URL", None)
+        else:
+            os.environ["TAKO_VM_DATABASE_URL"] = original
+
     def test_dev_up_without_server(self, capsys):
         """dev_up starts local postgres without launching server."""
         from tako_vm.cli import MANAGED_POSTGRES_URL, dev_up
