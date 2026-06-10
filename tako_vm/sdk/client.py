@@ -664,8 +664,7 @@ class TakoVM:
             # "Execution failed" with no diagnostic.
             keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
             logger.error(
-                "Execution response missing 'success' field "
-                "(correlation_id=%s, keys=%s)",
+                "Execution response missing 'success' field (correlation_id=%s, keys=%s)",
                 result_cid,
                 keys,
             )
@@ -1018,17 +1017,35 @@ def configure(
     base_url: str = "http://localhost:8000",
     timeout: int = 30,
     headers: Optional[Dict[str, str]] = None,
+    session: Optional[requests.Session] = None,
+    connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+    correlation_id: Optional[str] = None,
 ) -> None:
     """
     Configure the default tako_vm client used by the module-level helpers.
+
+    Accepts the same arguments as :class:`TakoVM`. Call this once at startup
+    and every module-level helper (``send``, ``submit``, ``get_result``, ...)
+    delegates to the configured client.
 
     Args:
         base_url: URL of the code executor API.
         timeout: Default execution timeout in seconds.
         headers: Headers forwarded on every request (e.g. for authentication).
+        session: Optional preconfigured ``requests.Session`` (retries, mTLS,
+            proxies, pooling). When omitted, a pooled GET-retry session is built.
+        connect_timeout: HTTP connect timeout in seconds.
+        correlation_id: Fixed correlation id to send on every request.
     """
     global _default_client
-    _default_client = TakoVM(base_url=base_url, timeout=timeout, headers=headers)
+    _default_client = TakoVM(
+        base_url=base_url,
+        timeout=timeout,
+        headers=headers,
+        session=session,
+        connect_timeout=connect_timeout,
+        correlation_id=correlation_id,
+    )
 
 
 def _get_client() -> TakoVM:
@@ -1039,12 +1056,25 @@ def _get_client() -> TakoVM:
     return _default_client
 
 
+# --------------------------------------------------------------------------- #
+# Module-level convenience helpers
+#
+# Each delegates to the default client (configured via ``configure()``) and
+# mirrors the signature of the corresponding ``TakoVM`` method, so the flat
+# ``tako_vm.<fn>`` API stays at full parity with the class.
+# --------------------------------------------------------------------------- #
+
+
 def send(
     func: Callable[[InputT], OutputT],
     input_data: InputT,
     timeout: Optional[int] = None,
     job_type: Optional[str] = None,
     requirements: Optional[List[str]] = None,
+    *,
+    startup_timeout: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
 ) -> OutputT:
     """
     Execute a typed function in an isolated container (default client).
@@ -1066,7 +1096,14 @@ def send(
         print(result.result)  # 3
     """
     return _get_client().send(
-        func, input_data, timeout=timeout, job_type=job_type, requirements=requirements
+        func,
+        input_data,
+        timeout=timeout,
+        job_type=job_type,
+        requirements=requirements,
+        startup_timeout=startup_timeout,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
     )
 
 
@@ -1076,6 +1113,10 @@ def send_raw(
     timeout: Optional[int] = None,
     job_type: Optional[str] = None,
     requirements: Optional[List[str]] = None,
+    *,
+    startup_timeout: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
 ) -> ExecutionResult:
     """
     Execute a typed function and return the raw result (default client).
@@ -1083,8 +1124,139 @@ def send_raw(
     Same as send() but returns ExecutionResult instead of raising on failure.
     """
     return _get_client().send_raw(
-        func, input_data, timeout=timeout, job_type=job_type, requirements=requirements
+        func,
+        input_data,
+        timeout=timeout,
+        job_type=job_type,
+        requirements=requirements,
+        startup_timeout=startup_timeout,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
     )
+
+
+# --- Async job lifecycle ---------------------------------------------------- #
+
+
+def submit(
+    func: Callable[[InputT], OutputT],
+    input_data: InputT,
+    *,
+    timeout: Optional[int] = None,
+    startup_timeout: Optional[int] = None,
+    job_type: Optional[str] = None,
+    requirements: Optional[List[str]] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> str:
+    """Submit a typed function for asynchronous execution (default client); returns the job id."""
+    return _get_client().submit(
+        func,
+        input_data,
+        timeout=timeout,
+        startup_timeout=startup_timeout,
+        job_type=job_type,
+        requirements=requirements,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
+    )
+
+
+def submit_code(
+    code: str,
+    input_data: Optional[dict] = None,
+    *,
+    timeout: Optional[int] = None,
+    startup_timeout: Optional[int] = None,
+    job_type: Optional[str] = None,
+    requirements: Optional[List[str]] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> str:
+    """Submit raw code for asynchronous execution (default client); returns the job id."""
+    return _get_client().submit_code(
+        code,
+        input_data,
+        timeout=timeout,
+        startup_timeout=startup_timeout,
+        job_type=job_type,
+        requirements=requirements,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
+    )
+
+
+def get_status(job_id: str) -> dict:
+    """Get an async job's status (default client)."""
+    return _get_client().get_status(job_id)
+
+
+def get_result(job_id: str, *, timeout: Optional[int] = None, view: Optional[str] = None) -> dict:
+    """Get an async job's result, waiting up to ``timeout`` seconds (default client)."""
+    return _get_client().get_result(job_id, timeout=timeout, view=view)
+
+
+def cancel(job_id: str) -> dict:
+    """Cancel a queued or running job (default client)."""
+    return _get_client().cancel(job_id)
+
+
+def rerun(job_id: str, *, job_type: Optional[str] = None, timeout: Optional[int] = None) -> str:
+    """Re-run a previous job with the same code/input (default client); returns the new job id."""
+    return _get_client().rerun(job_id, job_type=job_type, timeout=timeout)
+
+
+def fork(
+    job_id: str,
+    code: str,
+    *,
+    job_type: Optional[str] = None,
+    timeout: Optional[int] = None,
+) -> str:
+    """Re-run a previous job's input with new code (default client); returns the new job id."""
+    return _get_client().fork(job_id, code, job_type=job_type, timeout=timeout)
+
+
+def download_artifact(job_id: str, artifact_name: str) -> bytes:
+    """Download a job artifact's bytes (default client)."""
+    return _get_client().download_artifact(job_id, artifact_name)
+
+
+# --- Execution history & metadata ------------------------------------------- #
+
+
+def list_executions(
+    *,
+    status: Optional[str] = None,
+    job_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    view: Optional[str] = None,
+) -> dict:
+    """List execution records (default client); returns a paginated response."""
+    return _get_client().list_executions(
+        status=status, job_type=job_type, limit=limit, offset=offset, view=view
+    )
+
+
+def get_execution(execution_id: str, *, view: Optional[str] = None) -> dict:
+    """Get a single execution record (default client)."""
+    return _get_client().get_execution(execution_id, view=view)
+
+
+def pool_stats() -> dict:
+    """Worker pool statistics (default client)."""
+    return _get_client().pool_stats()
+
+
+def dlq_stats() -> dict:
+    """Dead-letter-queue statistics (default client)."""
+    return _get_client().dlq_stats()
+
+
+def health() -> dict:
+    """Check API health status (default client)."""
+    return _get_client().health()
 
 
 def list_job_types() -> list:
@@ -1095,3 +1267,8 @@ def list_job_types() -> list:
 def get_job_type(name: str) -> dict:
     """Get a specific job type by name (default client)."""
     return _get_client().get_job_type(name)
+
+
+def build_job_type(name: str) -> dict:
+    """Build the image for a job type (default client)."""
+    return _get_client().build_job_type(name)
