@@ -221,7 +221,13 @@ class WorkerPool:
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
+            # Release the idempotency key: a 503 tells the client to retry,
+            # and the retry must not collide with this dead record. save_record
+            # is an upsert that overwrites all columns, so re-saving with the
+            # key cleared frees it while keeping the failure visible.
             queued_record.status = "failed"
+            queued_record.idempotency_key = None
+            queued_record.idempotency_fingerprint = None
             queued_record.error = ExecutionError(
                 type="service_unavailable", message="Job queue is full, try again later"
             )

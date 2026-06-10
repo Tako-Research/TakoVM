@@ -581,3 +581,74 @@ async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
     storage.add_to_dlq.assert_not_awaited()
     saved = storage.save_record.await_args.args[0]
     assert saved.status == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_submit_queue_full_race_releases_idempotency_key():
+    """A QueueFull race must not strand the idempotency key on a failed record.
+
+    The 503 the client receives is the canonical retry signal; the retry with
+    the same key must not collide with the dead record.
+    """
+    storage = MagicMock()
+    # submit() mutates and re-saves the same record object, so snapshot the
+    # fields we care about at call time instead of inspecting await_args_list.
+    saves = []
+
+    async def capture_save(record):
+        saves.append((record.status, record.idempotency_key, record.idempotency_fingerprint))
+
+    storage.save_record = AsyncMock(side_effect=capture_save)
+    pool = WorkerPool(executor=MagicMock(), storage=storage)
+
+    # Simulate the TOCTOU race: full() pre-check passes, put_nowait raises.
+    fake_queue = MagicMock()
+    fake_queue.full.return_value = False
+    fake_queue.put_nowait.side_effect = asyncio.QueueFull
+    pool._queue = fake_queue
+
+    job_data = {
+        "code": "print('hi')",
+        "input_data": {},
+        "idempotency_key": "idem-123",
+        "idempotency_fingerprint": "f" * 64,
+    }
+
+    with pytest.raises(RuntimeError, match="queue is full"):
+        await pool.submit(job_data=job_data, client_ip="10.0.0.1")
+
+    # Two saves: the preliminary queued record, then the failed rewrite.
+    assert saves == [
+        ("queued", "idem-123", "f" * 64),
+        ("failed", None, None),
+    ]
+
+    # The final upsert keeps the failure visible for forensics.
+    failed = storage.save_record.await_args_list[1].args[0]
+    assert failed.error is not None
+    assert failed.error.type == "service_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_submit_queue_full_precheck_rejects_without_db_write():
+    """The cheap full() pre-check rejects before any record is persisted."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    pool = WorkerPool(executor=MagicMock(), storage=storage, max_queue_size=1)
+    loop = asyncio.get_running_loop()
+    pool._queue.put_nowait(
+        QueuedJob(
+            job_id="job-occupies-slot",
+            job_data={"code": "x", "input_data": {}},
+            client_ip=None,
+            future=loop.create_future(),
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="queue is full"):
+        await pool.submit(
+            job_data={"code": "y", "input_data": {}, "idempotency_key": "idem-456"},
+            client_ip=None,
+        )
+
+    storage.save_record.assert_not_awaited()
