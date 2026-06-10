@@ -369,6 +369,9 @@ class ExecutionRecord(BaseModel):
     client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
     """Client IP address."""
 
+    correlation_id: Optional[str] = Field(default=None, max_length=64)
+    """Correlation ID (X-Correlation-ID) of the submitting request, for request tracing."""
+
     # Lineage tracking
     parent_execution_id: Optional[str] = Field(default=None, max_length=64)
     """ID of parent execution (for reruns/forks)."""

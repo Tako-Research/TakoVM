@@ -150,7 +150,13 @@ MIGRATIONS: list[tuple[str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_dlq_error_type ON dead_letter_queue(error_type);
         CREATE INDEX IF NOT EXISTS idx_dlq_job_id ON dead_letter_queue(job_id);
         """,
-    )
+    ),
+    (
+        "0002_correlation_id",
+        """
+        ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS correlation_id TEXT
+        """,
+    ),
 ]
 
 
@@ -310,8 +316,9 @@ class ExecutionStorage:
         # Upsert column policy:
         # - Submission-identity fields (created_at, queued_at, code_hash,
         #   input_hash, params_hash, input_artifacts_hash, client_ip,
-        #   idempotency_key, idempotency_fingerprint, parent_execution_id,
-        #   relationship) describe WHEN/HOW the job was submitted. They are
+        #   correlation_id, idempotency_key, idempotency_fingerprint,
+        #   parent_execution_id, relationship) describe WHEN/HOW the job was
+        #   submitted. They are
         #   written by queue.submit() and must survive later writes from the
         #   executor, which rebuilds its record at execution start and does not
         #   know the true submission timestamps. We keep the existing row's
@@ -343,12 +350,12 @@ class ExecutionStorage:
                     max_rss_mb, cpu_time_ms, wall_time_ms,
                     timing_json,
                     artifacts_json, error_json,
-                    client_ip, parent_execution_id, relationship
+                    client_ip, correlation_id, parent_execution_id, relationship
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
                     status = EXCLUDED.status,
@@ -390,6 +397,10 @@ class ExecutionStorage:
                     artifacts_json = EXCLUDED.artifacts_json,
                     error_json = EXCLUDED.error_json,
                     client_ip = COALESCE(execution_records.client_ip, EXCLUDED.client_ip),
+                    correlation_id = COALESCE(
+                        execution_records.correlation_id,
+                        EXCLUDED.correlation_id
+                    ),
                     parent_execution_id = COALESCE(
                         execution_records.parent_execution_id,
                         EXCLUDED.parent_execution_id
@@ -432,6 +443,7 @@ class ExecutionStorage:
                     Jsonb(artifacts_json),
                     Jsonb(error_json) if error_json is not None else None,
                     record.client_ip,
+                    record.correlation_id,
                     record.parent_execution_id,
                     record.relationship,
                 ),
@@ -675,6 +687,7 @@ class ExecutionStorage:
             artifacts=artifacts,
             error=error,
             client_ip=row.get("client_ip"),
+            correlation_id=row.get("correlation_id"),
             parent_execution_id=row.get("parent_execution_id"),
             relationship=row.get("relationship"),
         )
