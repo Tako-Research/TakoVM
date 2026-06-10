@@ -36,21 +36,40 @@ def is_native_linux() -> bool:
     return platform.system() == "Linux"
 
 
-def generate_container_name(prefix: str, job_id: Optional[str] = None) -> str:
+def generate_container_name(prefix: str, job_id: Optional[str] = None, attempt: int = 0) -> str:
     """
     Generate a unique container name for tracking.
 
     Uses job_id if provided, otherwise generates a UUID-based name
     to avoid collisions under high concurrency.
 
+    Retry attempts (attempt > 0) get a ``-r{attempt}`` suffix so a retry can
+    never collide with a previous attempt's container that ``--rm`` has not
+    removed yet (exactly the daemon-hiccup scenario that triggers a retry —
+    a name collision would fail the retry with docker exit 125 "name already
+    in use"). Attempt 0 keeps the plain deterministic ``{prefix}-{job_id}``
+    name because external kill paths (queue.py cancel()/watchdog) compute
+    ``generate_container_name("tako", job_id)`` and must still match the
+    first attempt's container.
+
+    Known limitation: those cancel/watchdog paths can only kill the
+    attempt-0 name, so a container from a retry attempt is not reachable by
+    them. Retries are short-lived and rare; killing by the
+    ``tako-vm.execution-id`` label (which every attempt carries) instead of
+    by name is noted as future work.
+
     Args:
         prefix: Container name prefix (e.g., "tako", "tako-sandbox")
         job_id: Optional job ID to include in name
+        attempt: Retry attempt index (0 = first attempt, no suffix)
 
     Returns:
-        Unique container name like "tako-abc123" or "tako-a1b2c3d4"
+        Unique container name like "tako-abc123", "tako-abc123-r1",
+        or "tako-a1b2c3d4"
     """
     if job_id:
+        if attempt > 0:
+            return f"{prefix}-{job_id}-r{attempt}"
         return f"{prefix}-{job_id}"
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
@@ -87,6 +106,42 @@ def kill_container(container_name: str) -> bool:
     except Exception as e:
         # Ignore errors - container may not exist or already be stopped
         logger.debug("Failed to kill container %s: %s", container_name, e)
+        return False
+
+
+def remove_container(container_name: str) -> bool:
+    """
+    Force-remove a container by name (best-effort).
+
+    ``docker rm -f`` kills the container if it is running and removes it in
+    one step. Used before a retry attempt to clean up the previous attempt's
+    container so it cannot linger (``--rm`` removal can lag behind a daemon
+    hiccup — the very condition that triggers retries).
+
+    Silently ignores errors (the container has usually already been removed
+    by ``--rm``).
+
+    Args:
+        container_name: Name of the container to remove
+
+    Returns:
+        True if Docker reported the container was removed, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.debug("Removed container %s", container_name)
+            return True
+        logger.debug("Container %s did not exist", container_name)
+        return False
+    except Exception as e:
+        # Ignore errors - container may not exist or daemon may be unreachable
+        logger.debug("Failed to remove container %s: %s", container_name, e)
         return False
 
 
