@@ -829,80 +829,80 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-takovm-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The TakoVM client
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#synchronous-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synchronous execution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Synchronous execution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#send-send_raw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        send() / send_raw()
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#functions" class="md-nav__link">
+  <a href="#async-jobs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Functions
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Functions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#tako_vmconfigure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        tako_vm.configure()
+        Async jobs
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#tako_vmsend" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#execution-history-metadata" class="md-nav__link">
     <span class="md-ellipsis">
       
-        tako_vm.send()
+        Execution history &amp; metadata
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tako_vmsend_raw" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        tako_vm.send_raw()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tako_vmlist_job_types" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        tako_vm.list_job_types()
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tako_vmget_job_type" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        tako_vm.get_job_type()
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1659,7 +1659,7 @@
 </span></code></pre></div>
 <hr />
 <h2 id="takovm-client-server-mode">TakoVM Client (Server Mode)<a class="headerlink" href="#takovm-client-server-mode" title="Permanent link">&para;</a></h2>
-<p>For production deployments with job queuing, persistence, and audit trails, use the HTTP server and client.</p>
+<p>For deployments with job queuing, persistence, and audit trails, use the HTTP server and the <code>TakoVM</code> client.</p>
 <h3 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tako_vm</span>
@@ -1681,14 +1681,16 @@
 </span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="n">result</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">add</span><span class="p">,</span> <span class="n">Input</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">))</span>
 </span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">result</span><span class="p">)</span>  <span class="c1"># 30</span>
 </span></code></pre></div>
-<hr />
-<h2 id="functions">Functions<a class="headerlink" href="#functions" title="Permanent link">&para;</a></h2>
-<h3 id="tako_vmconfigure"><code>tako_vm.configure()</code><a class="headerlink" href="#tako_vmconfigure" title="Permanent link">&para;</a></h3>
-<p>Configure the default client.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">tako_vm</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;http://localhost:8000&quot;</span><span class="p">,</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span>
+<p>The module-level helpers (<code>tako_vm.send</code>, <code>send_raw</code>, <code>list_job_types</code>, <code>get_job_type</code>) use a default client configured via <code>tako_vm.configure()</code>. For authentication, multiple clients, or the async job lifecycle, instantiate <code>TakoVM</code> directly.</p>
+<h3 id="the-takovm-client">The <code>TakoVM</code> client<a class="headerlink" href="#the-takovm-client" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">tako_vm</span><span class="w"> </span><span class="kn">import</span> <span class="n">TakoVM</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;http://localhost:8000&quot;</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;X-API-Key&quot;</span><span class="p">:</span> <span class="s2">&quot;...&quot;</span><span class="p">},</span>  <span class="c1"># forwarded on every request</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">session</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>                   <span class="c1"># optional preconfigured requests.Session</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">)</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -1710,90 +1712,133 @@
 <td><code>timeout</code></td>
 <td>int</td>
 <td>30</td>
-<td>Default execution timeout</td>
+<td>Default execution timeout (seconds)</td>
+</tr>
+<tr>
+<td><code>headers</code></td>
+<td>dict</td>
+<td><code>None</code></td>
+<td>Headers forwarded on every request</td>
+</tr>
+<tr>
+<td><code>session</code></td>
+<td>requests.Session</td>
+<td><code>None</code></td>
+<td>Preconfigured session (retries, mTLS, proxies, pooling)</td>
 </tr>
 </tbody>
 </table>
+<h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
+<p>The SDK does <strong>not</strong> implement authentication — it forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a <code>session</code> for transport-level auth (mTLS).</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># API key (matches the server&#39;s api_auth_header, default &quot;X-API-Key&quot;)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span><span class="s2">&quot;https://tako.internal&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;X-API-Key&quot;</span><span class="p">:</span> <span class="n">API_KEY</span><span class="p">})</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Bearer token</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span><span class="s2">&quot;https://tako.internal&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="n">token</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">})</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># mTLS / custom transport</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">sess</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">Session</span><span class="p">();</span> <span class="n">sess</span><span class="o">.</span><span class="n">cert</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;client.crt&quot;</span><span class="p">,</span> <span class="s2">&quot;client.key&quot;</span><span class="p">)</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span><span class="s2">&quot;https://tako.internal&quot;</span><span class="p">,</span> <span class="n">session</span><span class="o">=</span><span class="n">sess</span><span class="p">)</span>
+</span></code></pre></div>
+<p><code>tako_vm.configure(..., headers=...)</code> does the same for the module-level helpers.</p>
 <hr />
-<h3 id="tako_vmsend"><code>tako_vm.send()</code><a class="headerlink" href="#tako_vmsend" title="Permanent link">&para;</a></h3>
-<p>Execute a typed function and return the result.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">job_type</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<h2 id="synchronous-execution">Synchronous execution<a class="headerlink" href="#synchronous-execution" title="Permanent link">&para;</a></h2>
+<h3 id="send-send_raw"><code>send()</code> / <code>send_raw()</code><a class="headerlink" href="#send-send_raw" title="Permanent link">&para;</a></h3>
+<p>Execute a typed function and wait for the result. <code>send()</code> returns the output dataclass (raising <code>ExecutionError</code> on failure); <code>send_raw()</code> returns an <code>ExecutionResult</code> and never raises on execution failure.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">func</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>           <span class="c1"># execution timeout (s)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">job_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>          <span class="c1"># job type name (default: &quot;default&quot;)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">requirements</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>      <span class="c1"># runtime packages, e.g. [&quot;pandas&quot;, &quot;numpy&gt;=1.20&quot;]</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">startup_timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>   <span class="c1"># startup phase timeout (container + deps)</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">idempotency_key</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>   <span class="c1"># client key for idempotent submission</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Raises</strong>: <code>ValidationError</code> (invalid input/output types), <code>ExecutionError</code> (<code>send</code> only).</p>
+<div class="admonition important">
+<p class="admonition-title">How <code>send()</code> works</p>
+<p>The function you pass does <strong>not</strong> run locally. Its source is extracted via <code>inspect.getsource()</code>, the input dataclass is written to <code>/input/data.json</code>, the code runs in an isolated container, and <code>/output/result.json</code> is parsed back into your output dataclass. Therefore: <strong>don't reference local variables</strong> outside the function, <strong>put imports inside</strong> the function (or in the job type's image), and the <strong>return annotation</strong> drives output parsing.</p>
+</div>
+<hr />
+<h2 id="async-jobs">Async jobs<a class="headerlink" href="#async-jobs" title="Permanent link">&para;</a></h2>
+<p>Submit work without blocking, then poll or wait for the result.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">job_id</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span> <span class="n">requirements</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;pandas&quot;</span><span class="p">])</span>   <span class="c1"># typed</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">job_id</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">submit_code</span><span class="p">(</span><span class="s2">&quot;print(1)&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span>                   <span class="c1"># raw code</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">client</span><span class="o">.</span><span class="n">get_status</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>                       <span class="c1"># {&quot;status&quot;: &quot;running&quot;, ...}</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">record</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_result</span><span class="p">(</span><span class="n">job_id</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>  <span class="c1"># waits up to 60s; view=&quot;full&quot; for artifacts</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">client</span><span class="o">.</span><span class="n">cancel</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>                           <span class="c1"># cancel a queued/running job</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">new_id</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">rerun</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>                   <span class="c1"># re-run same code+input</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">new_id</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">fork</span><span class="p">(</span><span class="n">job_id</span><span class="p">,</span> <span class="s2">&quot;print(2)&quot;</span><span class="p">)</span>        <span class="c1"># re-run the input with new code</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">data</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">download_artifact</span><span class="p">(</span><span class="n">job_id</span><span class="p">,</span> <span class="s2">&quot;plot.png&quot;</span><span class="p">)</span>   <span class="c1"># -&gt; bytes</span>
 </span></code></pre></div>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
-<th>Type</th>
-<th>Required</th>
-<th>Description</th>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Returns</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>func</code></td>
-<td>Callable</td>
-<td>Yes</td>
-<td>Function with type hints</td>
+<td><code>submit(func, input, ...)</code> / <code>submit_code(code, input_data, ...)</code></td>
+<td><code>POST /execute/async</code></td>
+<td><code>job_id</code> (str)</td>
 </tr>
 <tr>
-<td><code>input_data</code></td>
-<td>dataclass</td>
-<td>Yes</td>
-<td>Input dataclass instance</td>
+<td><code>get_status(job_id)</code></td>
+<td><code>GET /jobs/{id}</code></td>
+<td>status dict</td>
 </tr>
 <tr>
-<td><code>timeout</code></td>
-<td>int</td>
-<td>No</td>
-<td>Timeout in seconds</td>
+<td><code>get_result(job_id, timeout=, view=)</code></td>
+<td><code>GET /jobs/{id}/result</code></td>
+<td>execution record</td>
 </tr>
 <tr>
-<td><code>job_type</code></td>
-<td>str</td>
-<td>No</td>
-<td>Environment name</td>
+<td><code>cancel(job_id)</code></td>
+<td><code>POST /jobs/{id}/cancel</code></td>
+<td>cancel dict</td>
+</tr>
+<tr>
+<td><code>rerun(job_id, job_type=, timeout=)</code></td>
+<td><code>POST /jobs/{id}/rerun</code></td>
+<td>new <code>job_id</code></td>
+</tr>
+<tr>
+<td><code>fork(job_id, code, job_type=, timeout=)</code></td>
+<td><code>POST /jobs/{id}/fork</code></td>
+<td>new <code>job_id</code></td>
+</tr>
+<tr>
+<td><code>download_artifact(job_id, name)</code></td>
+<td><code>GET /jobs/{id}/artifacts/{name}</code></td>
+<td><code>bytes</code></td>
 </tr>
 </tbody>
 </table>
-<p><strong>Returns</strong>: Output dataclass instance</p>
-<p><strong>Raises</strong>:
-- <code>ValidationError</code>: Invalid input/output types
-- <code>ExecutionError</code>: Execution failed</p>
-<div class="admonition important">
-<p class="admonition-title">How <code>send()</code> works</p>
-<p>The function you pass to <code>send()</code> does <strong>not</strong> run locally. Instead:</p>
-<ol>
-<li>The function's source code is extracted via <code>inspect.getsource()</code></li>
-<li>The input dataclass is serialized to JSON and written to <code>/input/data.json</code></li>
-<li>The code is sent to the Tako VM server and executed in an isolated Docker container</li>
-<li>The output is deserialized back into your output dataclass</li>
-</ol>
-<p>This means:</p>
-<ul>
-<li><strong>Do not reference local variables</strong> outside the function — they won't exist in the container</li>
-<li><strong>Imports must be inside the function</strong> or available in the container's Python environment</li>
-<li><strong>The return type annotation</strong> determines how <code>/output/result.json</code> is parsed back</li>
-</ul>
+<hr />
+<h2 id="execution-history-metadata">Execution history &amp; metadata<a class="headerlink" href="#execution-history-metadata" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">page</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">list_executions</span><span class="p">(</span><span class="n">status</span><span class="o">=</span><span class="s2">&quot;succeeded&quot;</span><span class="p">,</span> <span class="n">job_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">record</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get_execution</span><span class="p">(</span><span class="n">execution_id</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">client</span><span class="o">.</span><span class="n">list_job_types</span><span class="p">()</span>              <span class="c1"># available job types</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">client</span><span class="o">.</span><span class="n">get_job_type</span><span class="p">(</span><span class="s2">&quot;data-processing&quot;</span><span class="p">)</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">client</span><span class="o">.</span><span class="n">build_job_type</span><span class="p">(</span><span class="s2">&quot;data-processing&quot;</span><span class="p">)</span>   <span class="c1"># build its image</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">client</span><span class="o">.</span><span class="n">health</span><span class="p">()</span>                      <span class="c1"># server health</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">client</span><span class="o">.</span><span class="n">pool_stats</span><span class="p">()</span>                  <span class="c1"># worker pool stats</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">client</span><span class="o">.</span><span class="n">dlq_stats</span><span class="p">()</span>                   <span class="c1"># dead-letter-queue stats</span>
+</span></code></pre></div>
+<p><code>list_executions()</code> returns a paginated response (<code>{"items": [...], "limit", "offset", "has_more", "count"}</code>).</p>
+<div class="admonition note">
+<p class="admonition-title">Sessions</p>
+<p>A long-lived <strong>session</strong> API is in development and not yet part of this client. Until it lands, drive any session endpoints through <code>client._request(...)</code> or raw HTTP.</p>
 </div>
-<hr />
-<h3 id="tako_vmsend_raw"><code>tako_vm.send_raw()</code><a class="headerlink" href="#tako_vmsend_raw" title="Permanent link">&para;</a></h3>
-<p>Execute a function and return raw result (doesn't raise on failure).</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">send_raw</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">input_data</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">job_type</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-</span></code></pre></div>
-<p><strong>Returns</strong>: <code>ExecutionResult</code> object</p>
-<hr />
-<h3 id="tako_vmlist_job_types"><code>tako_vm.list_job_types()</code><a class="headerlink" href="#tako_vmlist_job_types" title="Permanent link">&para;</a></h3>
-<p>List available environments.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">job_types</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">list_job_types</span><span class="p">()</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">for</span> <span class="n">jt</span> <span class="ow">in</span> <span class="n">job_types</span><span class="p">:</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">jt</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">],</span> <span class="n">jt</span><span class="p">[</span><span class="s2">&quot;requirements&quot;</span><span class="p">])</span>
-</span></code></pre></div>
-<hr />
-<h3 id="tako_vmget_job_type"><code>tako_vm.get_job_type()</code><a class="headerlink" href="#tako_vmget_job_type" title="Permanent link">&para;</a></h3>
-<p>Get a specific environment.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">jt</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">get_job_type</span><span class="p">(</span><span class="s2">&quot;data-processing&quot;</span><span class="p">)</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">jt</span><span class="p">[</span><span class="s2">&quot;memory_limit&quot;</span><span class="p">])</span>  <span class="c1"># &quot;1g&quot;</span>
-</span></code></pre></div>
 <hr />
 <h2 id="sandbox-library-mode">Sandbox (Library Mode)<a class="headerlink" href="#sandbox-library-mode" title="Permanent link">&para;</a></h2>
 <p>The <code>Sandbox</code> class provides direct code execution without running a server. Useful for development, testing, and simple scripts.</p>
@@ -1931,7 +1976,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 8, 2026 21:29:33 UTC"><span class="timeago" datetime="2026-06-08T21:29:33+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 8, 2026 21:29:33 UTC">2026-06-08</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 10, 2026 20:38:16 UTC"><span class="timeago" datetime="2026-06-10T20:38:16+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 10, 2026 20:38:16 UTC">2026-06-10</span>
   </span>
 
     
