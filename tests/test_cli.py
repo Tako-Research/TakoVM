@@ -659,8 +659,9 @@ class TestRunServerFunction:
 
         reset_config()
 
-    def test_run_server_workers_passed_through(self):
-        """--workers is forwarded to uvicorn with the app as an import string."""
+    def test_run_server_workers_passed_through(self, capsys):
+        """--workers is forwarded to uvicorn with the app as an import string,
+        and a multi-worker topology warning is printed to stderr."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -686,10 +687,16 @@ class TestRunServerFunction:
         assert app_arg == "tako_vm.server.app:app"
         assert call_kwargs["workers"] == 4
 
+        captured = capsys.readouterr()
+        assert "WARNING: --workers 4 runs 4 independent worker pools" in captured.err
+        assert "wait=true result streaming only works on the submitting worker" in captured.err
+        assert "Prefer a single worker behind a load balancer" in captured.err
+
         reset_config()
 
-    def test_run_server_default_single_worker_uses_app_object(self):
-        """Without --workers/--reload, the app object is passed with workers=1."""
+    def test_run_server_default_single_worker_uses_app_object(self, capsys):
+        """Without --workers/--reload, the app object is passed with workers=1
+        and no multi-worker topology warning is emitted."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -715,6 +722,9 @@ class TestRunServerFunction:
         call_kwargs = mock_run.call_args[1]
         assert app_arg is app
         assert call_kwargs["workers"] == 1
+
+        captured = capsys.readouterr()
+        assert "independent worker pools" not in captured.err
 
         reset_config()
 

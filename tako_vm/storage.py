@@ -157,6 +157,24 @@ MIGRATIONS: list[tuple[str, str]] = [
         ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS correlation_id TEXT
         """,
     ),
+    (
+        # DLQ rows written before DeadLetterEntry.build_job_summary existed
+        # retain raw code/input_data/idempotency material in job_data_json.
+        # Strip those keys in place and mark the rows so operators can tell
+        # redaction happened after the fact.
+        "0003_redact_dlq_job_data",
+        """
+        UPDATE dead_letter_queue
+        SET job_data_json = (
+                job_data_json - 'code' - 'input_data'
+                - 'idempotency_key' - 'idempotency_fingerprint'
+            )
+            || jsonb_build_object('redacted_by_migration', true)
+        WHERE job_data_json ?| array[
+            'code', 'input_data', 'idempotency_key', 'idempotency_fingerprint'
+        ]
+        """,
+    ),
 ]
 
 

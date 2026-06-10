@@ -1042,3 +1042,62 @@ class TestCorrelationIdPersistence:
         assert retrieved is not None
         assert retrieved.status == "succeeded"
         assert retrieved.correlation_id == "req-keep-me"
+
+
+class TestRedactDLQMigration:
+    """Migration 0003 scrubs raw payloads from pre-redaction DLQ rows."""
+
+    def test_migration_0003_redacts_legacy_dlq_rows(self, storage):
+        """Legacy rows lose code/input_data/idempotency keys and gain a marker."""
+        from tako_vm.storage import MIGRATIONS
+
+        legacy = DeadLetterEntry(
+            job_id="legacy-raw-job",
+            job_data={
+                "job_type": "data-processing",
+                "code": "import os; print(os.environ)",
+                "input_data": {"api_token": "super-secret"},
+                "idempotency_key": "idem-raw-123",
+                "idempotency_fingerprint": "f" * 64,
+                "timeout": 30,
+            },
+            error_type="internal_error",
+            error_message="boom",
+        )
+        legacy_id = storage.add_to_dlq(legacy)
+
+        clean = DeadLetterEntry(
+            job_id="already-redacted-job",
+            job_data={"job_type": "default", "code_sha256": "a" * 64},
+            error_type="timeout",
+            error_message="slow",
+        )
+        clean_id = storage.add_to_dlq(clean)
+
+        # The fixture's init() already recorded 0003 in schema_migrations
+        # before these rows existed, so run the registered SQL directly --
+        # this exercises the exact statement shipped in MIGRATIONS.
+        migration_sql = dict(MIGRATIONS)["0003_redact_dlq_job_data"]
+
+        async def apply_migration():
+            pool = storage._inner._get_pool()
+            async with pool.connection() as conn:
+                await conn.execute(migration_sql)
+
+        storage._run(apply_migration())
+
+        redacted = storage.get_dlq_entry(legacy_id)
+        assert redacted is not None
+        for key in ("code", "input_data", "idempotency_key", "idempotency_fingerprint"):
+            assert key not in redacted.job_data
+        assert redacted.job_data["redacted_by_migration"] is True
+        # Non-sensitive diagnostic metadata is preserved.
+        assert redacted.job_data["job_type"] == "data-processing"
+        assert redacted.job_data["timeout"] == 30
+        assert redacted.error_type == "internal_error"
+
+        # Rows without raw fields are left untouched (no spurious marker).
+        untouched = storage.get_dlq_entry(clean_id)
+        assert untouched is not None
+        assert "redacted_by_migration" not in untouched.job_data
+        assert untouched.job_data == {"job_type": "default", "code_sha256": "a" * 64}

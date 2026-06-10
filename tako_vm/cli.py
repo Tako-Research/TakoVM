@@ -70,7 +70,13 @@ def main():
     server_parser.add_argument(
         "--workers",
         type=int,
-        help="Number of worker processes (default: 1; cannot be combined with --reload)",
+        help=(
+            "Number of worker processes (default: 1; cannot be combined with --reload). "
+            "WARNING: each process runs its own in-memory worker pool, so async job "
+            "polling relies on database fallbacks and wait=true result streaming only "
+            "works on the submitting worker; prefer a single worker behind a load "
+            "balancer."
+        ),
     )
     server_parser.set_defaults(auto_start_postgres=True)
     server_parser.add_argument(
@@ -299,6 +305,14 @@ def run_server(args):
             file=sys.stderr,
         )
         sys.exit(1)
+    if workers > 1:
+        print(
+            f"WARNING: --workers {workers} runs {workers} independent worker pools; "
+            "async job polling relies on database fallbacks and wait=true result "
+            "streaming only works on the submitting worker. Prefer a single worker "
+            "behind a load balancer unless you know you need this.",
+            file=sys.stderr,
+        )
 
     # uvicorn requires the app as an import string for --reload or multiple
     # workers (it silently disables them when given an app object). Those modes
