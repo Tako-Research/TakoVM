@@ -652,3 +652,135 @@ async def test_submit_queue_full_precheck_rejects_without_db_write():
         )
 
     storage.save_record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_persists_correlation_id_on_preliminary_record():
+    """submit() must persist job_data's correlation_id on the queued record."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage)
+
+    job_id = await pool.submit(
+        {
+            "code": "print('hi')",
+            "input_data": {},
+            "correlation_id": "corr-submit-123",
+        }
+    )
+
+    storage.save_record.assert_awaited_once()
+    saved = storage.save_record.await_args.args[0]
+    assert saved.execution_id == job_id
+    assert saved.status == "queued"
+    assert saved.correlation_id == "corr-submit-123"
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_clears_correlation_id_between_jobs():
+    """A job without a correlation_id must not inherit the previous job's."""
+    from tako_vm.server.correlation import get_correlation_id
+
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    storage.mark_record_running = AsyncMock()
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    seen: dict[str, object] = {}
+
+    async def fake_execute(job):
+        seen[job.job_id] = get_correlation_id()
+        return make_record(job.job_id)
+
+    pool._execute_job = fake_execute
+
+    loop = asyncio.get_running_loop()
+    job_a = QueuedJob(
+        job_id="job-with-corr",
+        job_data={"code": "print('a')", "input_data": {}, "correlation_id": "corr-a"},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    job_b = QueuedJob(
+        job_id="job-without-corr",
+        job_data={"code": "print('b')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    for job in (job_a, job_b):
+        pool._active_jobs[job.job_id] = job
+        pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        await asyncio.wait_for(job_a.future, timeout=2.0)
+        await asyncio.wait_for(job_b.future, timeout=2.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=2.0)
+
+    assert seen["job-with-corr"] == "corr-a"
+    assert seen["job-without-corr"] is None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_skip_path_does_not_inherit_previous_correlation_id():
+    """The pre-execution cancelled-skip path runs before the correlation_id is
+    set for the job, so it must see a cleared context (not the previous job's
+    id), and the cancelled record itself must carry the job's own (absent)
+    correlation_id."""
+    from tako_vm.server.correlation import get_correlation_id
+
+    storage = MagicMock()
+    storage.mark_record_running = AsyncMock()
+
+    save_contexts: list[tuple[str, object]] = []
+
+    async def capture_save(record):
+        save_contexts.append((record.execution_id, get_correlation_id()))
+
+    storage.save_record = AsyncMock(side_effect=capture_save)
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    async def fake_execute(job):
+        return make_record(job.job_id)
+
+    pool._execute_job = fake_execute
+
+    loop = asyncio.get_running_loop()
+    job_a = QueuedJob(
+        job_id="job-corr-first",
+        job_data={"code": "print('a')", "input_data": {}, "correlation_id": "corr-a"},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    job_b = QueuedJob(
+        job_id="job-cancelled-skip",
+        job_data={"code": "print('b')", "input_data": {}},
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    job_b.cancelled = True
+    for job in (job_a, job_b):
+        pool._active_jobs[job.job_id] = job
+        pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        await asyncio.wait_for(job_a.future, timeout=2.0)
+        record_b = await asyncio.wait_for(job_b.future, timeout=2.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=2.0)
+
+    assert record_b.status == "cancelled"
+    assert record_b.correlation_id is None
+
+    contexts = dict(save_contexts)
+    # Job A's terminal save happens while its correlation id is set.
+    assert contexts["job-corr-first"] == "corr-a"
+    # Job B's cancelled-skip save must NOT see job A's correlation id.
+    assert contexts["job-cancelled-skip"] is None

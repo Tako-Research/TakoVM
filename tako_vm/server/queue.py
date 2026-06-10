@@ -20,7 +20,11 @@ from tako_vm.models import (
     sha256_content,
     sha256_json,
 )
-from tako_vm.server.correlation import get_correlation_id, set_correlation_id
+from tako_vm.server.correlation import (
+    clear_correlation_id,
+    get_correlation_id,
+    set_correlation_id,
+)
 from tako_vm.storage import ExecutionStorage
 
 if TYPE_CHECKING:
@@ -208,6 +212,7 @@ class WorkerPool:
             code_hash=sha256_content(job_data.get("code", "")),
             input_hash=sha256_json(job_data.get("input_data", {})),
             client_ip=client_ip,
+            correlation_id=job_data.get("correlation_id"),
             idempotency_key=job_data.get("idempotency_key"),
             idempotency_fingerprint=job_data.get("idempotency_fingerprint"),
             parent_execution_id=job_data.get("parent_execution_id"),
@@ -402,6 +407,7 @@ class WorkerPool:
             code_hash=sha256_content(job.job_data.get("code", "")),
             input_hash=sha256_json(job.job_data.get("input_data", {})),
             client_ip=job.client_ip,
+            correlation_id=job.job_data.get("correlation_id"),
             error=ExecutionError(type="cancelled", message=message),
             idempotency_key=job.job_data.get("idempotency_key"),
             idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
@@ -473,6 +479,11 @@ class WorkerPool:
                     job = await asyncio.wait_for(self._queue.get(), timeout=self.queue_wait_timeout)
                 except asyncio.TimeoutError:
                     continue
+
+                # Reset correlation context before any per-job work (including
+                # the cancelled-skip path below) so logs and DLQ entries never
+                # inherit the previous job's correlation ID.
+                clear_correlation_id()
 
                 # Skip if already cancelled
                 if job.cancelled or (job.future and job.future.cancelled()):
@@ -567,6 +578,7 @@ class WorkerPool:
                         code_hash=sha256_content(job.job_data.get("code", "")),
                         input_hash=sha256_json(job.job_data.get("input_data", {})),
                         client_ip=job.client_ip,
+                        correlation_id=job.job_data.get("correlation_id"),
                         error=ExecutionError(type=error_type, message=error_msg),
                         # Propagate idempotency and lineage fields
                         idempotency_key=job.job_data.get("idempotency_key"),
@@ -622,6 +634,7 @@ class WorkerPool:
                             code_hash=sha256_content(job.job_data.get("code", "")),
                             input_hash=sha256_json(job.job_data.get("input_data", {})),
                             client_ip=job.client_ip,
+                            correlation_id=job.job_data.get("correlation_id"),
                             error=ExecutionError(
                                 type="internal_error", message=sanitize_error(str(e))
                             ),
@@ -755,6 +768,7 @@ class WorkerPool:
             code_hash=sha256_content(job.job_data.get("code", "")),
             input_hash=sha256_json(job.job_data.get("input_data", {})),
             client_ip=job.client_ip,
+            correlation_id=job.job_data.get("correlation_id"),
             error=ExecutionError(
                 type="execution_timeout",
                 message=(

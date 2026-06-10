@@ -979,3 +979,66 @@ class TestSaveRecordRetry:
             asyncio.run(store.save_record(self._record()))
 
         assert attempts["n"] == 1
+
+
+class TestCorrelationIdPersistence:
+    """correlation_id round-trips through save/load and survives upserts (F11)."""
+
+    def test_correlation_id_round_trip(self, storage):
+        """correlation_id persists through save and load."""
+        record = ExecutionRecord(
+            execution_id="corr-round-trip",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            correlation_id="req-abc-123",
+        )
+
+        storage.save_record(record)
+        retrieved = storage.get_record("corr-round-trip")
+
+        assert retrieved is not None
+        assert retrieved.correlation_id == "req-abc-123"
+
+    def test_correlation_id_defaults_to_none(self, storage):
+        """Records saved without a correlation_id hydrate with None."""
+        record = ExecutionRecord(
+            execution_id="corr-none",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+        )
+
+        storage.save_record(record)
+        retrieved = storage.get_record("corr-none")
+
+        assert retrieved is not None
+        assert retrieved.correlation_id is None
+
+    def test_correlation_id_survives_executor_rewrite(self, storage):
+        """Submission-identity policy: the executor's later write (which does
+        not know the correlation_id) must not erase the value persisted by the
+        preliminary queued record."""
+        queued = ExecutionRecord(
+            execution_id="corr-upsert",
+            status="queued",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            correlation_id="req-keep-me",
+        )
+        storage.save_record(queued)
+
+        final = ExecutionRecord(
+            execution_id="corr-upsert",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+            correlation_id=None,
+            exit_code=0,
+        )
+        storage.save_record(final)
+
+        retrieved = storage.get_record("corr-upsert")
+        assert retrieved is not None
+        assert retrieved.status == "succeeded"
+        assert retrieved.correlation_id == "req-keep-me"
