@@ -282,6 +282,31 @@ class TestExecution:
         result = client.send_raw(add_numbers, InputData(x=1, y=2), timeout=5)
         assert result.exit_code == 0
 
+    def test_malformed_json_body_returns_failed_result(self):
+        """A 2xx body that is not JSON becomes a failed result, never an exception."""
+        response = _response(status=200, headers={CORRELATION_ID_HEADER: "cid-malformed"})
+        response.json.side_effect = ValueError("no json")
+        response.text = "<html>gateway</html>"
+        session = MagicMock()
+        session.request.return_value = response
+        client = TakoVM(session=session)
+
+        result = client.send_raw(add_numbers, InputData(1, 2), timeout=5)
+
+        assert result.success is False
+        assert "Malformed response" in (result.error or "")
+        assert result.correlation_id == "cid-malformed"
+
+    def test_send_raw_keeps_dict_on_deserialize_mismatch(self):
+        """When the output doesn't fit the dataclass, send_raw keeps the raw dict."""
+        session = _mock_session(
+            {"success": True, "output": {"unexpected": 1}, "execution_time": 0.1}
+        )
+        client = TakoVM(session=session)
+        result = client.send_raw(add_numbers, InputData(1, 2), timeout=5)
+        assert result.success is True
+        assert result.output == {"unexpected": 1}
+
 
 class TestAuthPassthrough:
     """The SDK forwards caller-supplied headers and never interprets them."""

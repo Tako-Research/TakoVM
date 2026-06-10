@@ -367,7 +367,13 @@ class TakoVM:
             if isinstance(value, int):
                 resolved = value
         except TakoVMError as e:
-            logger.debug("Could not resolve timeout for job type %r: %s", name, e)
+            logger.warning(
+                "Could not resolve timeout for job type %r (%s); "
+                "falling back to the maximum read timeout of %.0fs for this client",
+                name,
+                e,
+                FALLBACK_READ_TIMEOUT,
+            )
         self._job_type_timeouts[name] = resolved
         return resolved
 
@@ -494,9 +500,15 @@ class TakoVM:
         if result.success and result.output:
             try:
                 result.output = output_cls(**cast(Dict[str, Any], result.output))
-            except (TypeError, ValueError, KeyError):
-                # Keep as dict if deserialization fails (type mismatch, missing fields, etc.)
-                pass
+            except (TypeError, ValueError, KeyError) as e:
+                # Keep as dict if deserialization fails (type mismatch, missing fields, etc.).
+                logger.warning(
+                    "Could not deserialize output to %s (correlation_id=%s); "
+                    "returning the raw dict instead: %s",
+                    output_cls.__name__,
+                    result.correlation_id,
+                    e,
+                )
 
         return result
 
@@ -582,8 +594,31 @@ class TakoVM:
                 correlation_id=e.correlation_id or cid,
             )
 
-        data = response.json()
         result_cid = response.headers.get(CORRELATION_ID_HEADER) or cid
+        try:
+            data = response.json()
+        except ValueError as e:
+            snippet = (response.text or "")[:500]
+            logger.error(
+                "Sync execution returned a non-JSON body "
+                "(correlation_id=%s, status=%s): %s | body=%r",
+                result_cid,
+                response.status_code,
+                e,
+                snippet,
+            )
+            return ExecutionResult(
+                success=False,
+                output=None,
+                execution_time=0,
+                stdout="",
+                stderr="",
+                error=(
+                    f"Malformed response from server (HTTP {response.status_code}): "
+                    f"{e}; body={snippet!r}"
+                ),
+                correlation_id=result_cid,
+            )
         logger.debug(
             "Sync execution finished (correlation_id=%s, success=%s)",
             result_cid,
@@ -755,6 +790,14 @@ _execute()
                 if isinstance(e, ServerError) and not e.retryable:
                     raise
                 if attempt == SUBMIT_MAX_ATTEMPTS - 1:
+                    logger.error(
+                        "Async submit gave up after %d attempts "
+                        "(correlation_id=%s, idempotency_key=%s): %s",
+                        SUBMIT_MAX_ATTEMPTS,
+                        cid,
+                        key,
+                        e,
+                    )
                     raise
                 delay = min(SUBMIT_BACKOFF_INITIAL * (2**attempt), SUBMIT_BACKOFF_CAP)
                 logger.warning(
