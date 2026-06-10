@@ -7,16 +7,30 @@ Tests container naming, cleanup, and platform detection.
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tako_vm.execution.docker import (
     CONTAINER_LABEL,
     EXECUTION_ID_LABEL,
     base_isolation_args,
     generate_container_name,
+    image_exists,
+    image_has_executor_entrypoint,
     inspect_oom_killed,
     is_native_linux,
     kill_container,
     remove_container,
+    reset_image_caches,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clean_image_caches():
+    """image_exists/image_has_executor_entrypoint cache positives in-process;
+    isolate every test from cache state left by another."""
+    reset_image_caches()
+    yield
+    reset_image_caches()
 
 
 class TestIsNativeLinux:
@@ -213,6 +227,162 @@ class TestInspectOomKilled:
         mock_run.side_effect = Exception("boom")
 
         assert inspect_oom_killed("tako-test-123") is None
+
+
+class TestImageExists:
+    """Tests for image_exists() — cached local-image presence check."""
+
+    @patch("subprocess.run")
+    def test_calls_docker_image_inspect_with_timeout(self, mock_run):
+        """image_exists asks docker image inspect with a short timeout."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        assert image_exists("tako-vm-foo:latest") is True
+
+        mock_run.assert_called_once_with(
+            ["docker", "image", "inspect", "tako-vm-foo:latest"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    @patch("subprocess.run")
+    def test_missing_image_returns_false(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1)
+
+        assert image_exists("tako-vm-missing:latest") is False
+
+    @patch("subprocess.run")
+    def test_positive_result_is_cached(self, mock_run):
+        """A second lookup for a present image must not hit the daemon again."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        assert image_exists("tako-vm-foo:latest") is True
+        assert image_exists("tako-vm-foo:latest") is True
+
+        assert mock_run.call_count == 1
+
+    @patch("subprocess.run")
+    def test_negative_result_is_not_cached(self, mock_run):
+        """A missing image may be built/pulled at any moment: re-check it."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        assert image_exists("tako-vm-missing:latest") is False
+        assert image_exists("tako-vm-missing:latest") is False
+
+        assert mock_run.call_count == 2
+
+    @patch("subprocess.run")
+    def test_cache_is_per_image(self, mock_run):
+        """Caching one image's presence must not answer for another image."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        assert image_exists("tako-vm-a:latest") is True
+        assert image_exists("tako-vm-b:latest") is True
+
+        assert mock_run.call_count == 2
+
+    @patch("subprocess.run")
+    def test_timeout_returns_false(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
+
+        assert image_exists("tako-vm-foo:latest") is False
+
+    @patch("subprocess.run")
+    def test_exception_returns_false(self, mock_run):
+        mock_run.side_effect = Exception("boom")
+
+        assert image_exists("tako-vm-foo:latest") is False
+
+    @patch("subprocess.run")
+    def test_reset_image_caches_clears_positive_entries(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+
+        assert image_exists("tako-vm-foo:latest") is True
+        reset_image_caches()
+        assert image_exists("tako-vm-foo:latest") is True
+
+        assert mock_run.call_count == 2
+
+
+class TestImageHasExecutorEntrypoint:
+    """Tests for image_has_executor_entrypoint() — the executor contract check."""
+
+    @staticmethod
+    def _inspect_result(stdout):
+        return MagicMock(returncode=0, stdout=stdout, stderr="")
+
+    @patch("subprocess.run")
+    def test_calls_docker_inspect_with_entrypoint_format(self, mock_run):
+        mock_run.return_value = self._inspect_result('["/entrypoint.sh"]\n')
+
+        assert image_has_executor_entrypoint("code-executor:latest") is True
+
+        mock_run.assert_called_once_with(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                "{{json .Config.Entrypoint}}",
+                "code-executor:latest",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+    @patch("subprocess.run")
+    def test_other_entrypoint_returns_false(self, mock_run):
+        mock_run.return_value = self._inspect_result('["python","-u","/code/main.py"]\n')
+
+        assert image_has_executor_entrypoint("custom:latest") is False
+
+    @patch("subprocess.run")
+    def test_no_entrypoint_returns_false(self, mock_run):
+        """A raw image like python:3.11-slim has a null entrypoint."""
+        mock_run.return_value = self._inspect_result("null\n")
+
+        assert image_has_executor_entrypoint("python:3.11-slim") is False
+
+    @patch("subprocess.run")
+    def test_failed_inspect_returns_none(self, mock_run):
+        """Image not present / daemon unreachable is unknown, not False."""
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="No such image")
+
+        assert image_has_executor_entrypoint("missing:latest") is None
+
+    @patch("subprocess.run")
+    def test_unparseable_output_returns_none(self, mock_run):
+        mock_run.return_value = self._inspect_result("not json")
+
+        assert image_has_executor_entrypoint("weird:latest") is None
+
+    @patch("subprocess.run")
+    def test_exception_returns_none(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
+
+        assert image_has_executor_entrypoint("code-executor:latest") is None
+
+    @patch("subprocess.run")
+    def test_positive_result_is_cached(self, mock_run):
+        mock_run.return_value = self._inspect_result('["/entrypoint.sh"]\n')
+
+        assert image_has_executor_entrypoint("code-executor:latest") is True
+        assert image_has_executor_entrypoint("code-executor:latest") is True
+
+        assert mock_run.call_count == 1
+
+    @patch("subprocess.run")
+    def test_negative_result_is_not_cached(self, mock_run):
+        """An image can be rebuilt with the contract at any moment: re-check."""
+        mock_run.return_value = self._inspect_result("null\n")
+
+        assert image_has_executor_entrypoint("python:3.11-slim") is False
+        assert image_has_executor_entrypoint("python:3.11-slim") is False
+
+        assert mock_run.call_count == 2
 
 
 class TestContainerNameValidation:

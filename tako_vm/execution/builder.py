@@ -22,6 +22,12 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from tako_vm.execution.docker import (
+    DEFAULT_EXECUTOR_IMAGE,
+    EXECUTOR_ENTRYPOINT,
+    image_has_executor_entrypoint,
+    reset_image_caches,
+)
 from tako_vm.job_types import JobType, JobTypeRegistry
 from tako_vm.security import (
     validate_docker_image,
@@ -56,6 +62,20 @@ class ContainerBuilder:
         """
         Generate Dockerfile content for a job type.
 
+        The generated image derives from the executor base image (or an
+        executor-derived ``base_image``) so it keeps the executor entrypoint
+        contract (``ENTRYPOINT ["/entrypoint.sh"]``): the entrypoint enforces
+        the in-container startup/execution timeouts, installs any per-job
+        extra requirements, writes the phase/timing file, and runs
+        ``/code/main.py`` itself as the sandbox user via gosu. The worker
+        (``CodeExecutor._resolve_image``) refuses to run images that lack
+        this contract, because docker would otherwise execute the image's
+        default CMD instead of the user's code.
+
+        Note: ``python_version`` no longer selects the default base image —
+        the executor base image pins the Python version. To use a different
+        Python, point ``base_image`` at a custom executor-derived image.
+
         Args:
             job_type: Job type configuration
 
@@ -71,7 +91,10 @@ class ContainerBuilder:
                 f"Invalid python_version '{job_type.python_version}' for job type {job_type.name}"
             )
 
-        # Determine and validate base image
+        # Determine and validate base image. The default is the executor base
+        # image so the built image inherits /entrypoint.sh; a custom
+        # base_image must itself be executor-derived or the worker will refuse
+        # the built image at run time.
         if job_type.base_image:
             if not validate_docker_image(job_type.base_image):
                 raise BuildError(
@@ -79,7 +102,7 @@ class ContainerBuilder:
                 )
             base_image = job_type.base_image
         else:
-            base_image = f"python:{job_type.python_version}-slim"
+            base_image = DEFAULT_EXECUTOR_IMAGE
 
         # Build requirements install command with validation
         requirements_cmd = ""
@@ -115,9 +138,12 @@ class ContainerBuilder:
                 env_lines += f'ENV {key}="{escaped_value}"\n'
 
         dockerfile = f"""# Auto-generated Dockerfile for job type: {job_type.name}
+# Derives from the executor base image so the built image keeps the executor
+# entrypoint contract (ENTRYPOINT /entrypoint.sh, inherited from the base).
 FROM {base_image}
 
-# Install uv for fast dependency installation
+# Install uv for fast dependency installation (already present on the
+# executor base; kept so custom executor-derived bases get it too)
 COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /usr/local/bin/uv
 
 # Install custom libraries if present
@@ -127,7 +153,8 @@ RUN if [ -n "$(ls -A /tmp/custom_libs/*.whl 2>/dev/null)" ]; then \\
     fi && \\
     rm -rf /tmp/custom_libs
 
-# Install job type requirements
+# Install job type requirements at BUILD time. The worker skips runtime
+# installation of job_type.requirements when running this image.
 {requirements_cmd}
 
 # Copy shared code if present
@@ -137,22 +164,21 @@ ENV PYTHONPATH="/app/shared_code:$PYTHONPATH"
 # Environment variables
 {env_lines}
 
-# Create non-root user for security
-RUN useradd -m -u 1000 sandbox && \\
-    mkdir -p /code /input /output /tmp && \\
-    chown sandbox:sandbox /output /tmp
-
-# Set permissions
-RUN chmod 755 /code /input && \\
+# Ensure the sandbox user and the mount-point dirs exist (no-ops on the
+# executor base, which already provides them)
+RUN id -u sandbox >/dev/null 2>&1 || useradd -m -u 1000 sandbox
+RUN mkdir -p /code /input /output /tmp && \\
+    chown sandbox:sandbox /output /tmp && \\
+    chmod 755 /code /input && \\
     chmod 777 /output /tmp
 
 WORKDIR /app
 
-# Run as non-root user
-USER sandbox
-
-# Entry point
-CMD ["python", "-u", "/code/main.py"]
+# Deliberately NO USER/CMD/ENTRYPOINT overrides: the container must start as
+# container root so the inherited /entrypoint.sh can install per-job extra
+# requirements and write the phase file, then drop to the sandbox user (gosu)
+# to run /code/main.py. A `USER sandbox` or CMD here would break or mask that
+# contract (the worker would refuse the image, or the wrong process would run).
 """
         return dockerfile
 
@@ -220,6 +246,23 @@ CMD ["python", "-u", "/code/main.py"]
             try:
                 subprocess.run(cmd, capture_output=not quiet, text=True, check=True)
                 logger.info("Successfully built image: %s", job_type.image_name)
+                # The tag now points at new content: drop any cached inspect
+                # results so the worker re-verifies the rebuilt image.
+                reset_image_caches()
+                # Verify the executor entrypoint contract survived the build.
+                # This only fails for a custom non-executor base_image; warn
+                # loudly because the worker will refuse to run such an image.
+                if image_has_executor_entrypoint(job_type.image_name) is not True:
+                    logger.warning(
+                        "Built image %s does NOT carry the executor entrypoint contract "
+                        "(ENTRYPOINT %s) — the worker will refuse to run it. base_image "
+                        "'%s' for job type '%s' must derive from the executor image "
+                        "(docker/Dockerfile.executor).",
+                        job_type.image_name,
+                        EXECUTOR_ENTRYPOINT,
+                        job_type.base_image,
+                        job_type.name,
+                    )
                 return True
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr if e.stderr else str(e)
