@@ -5,6 +5,10 @@ Tests job submission, status checking, and result retrieval
 using FastAPI's TestClient (no running server required).
 """
 
+import threading
+import time
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -73,6 +77,7 @@ print("Done!")
         assert data["output"] == {"sum": 30}
         assert "Done!" in data["stdout"]
         assert data["exit_code"] == 0
+        assert data["execution_id"].startswith("api-")
 
     def test_execute_syntax_error(self, client):
         """Execute code with syntax error."""
@@ -88,6 +93,122 @@ print("Done!")
         response = client.post("/execute", json={"code": "", "input_data": {}})
 
         assert response.status_code == 422  # Validation error
+
+
+def _make_succeeded_record(execution_id: str):
+    """Build a minimal succeeded ExecutionRecord for mocked executor tests."""
+    from tako_vm.models import ExecutionRecord
+
+    return ExecutionRecord(
+        execution_id=execution_id,
+        status="succeeded",
+        stdout="mocked stdout",
+        stderr="",
+        exit_code=0,
+        result_json={"answer": 42},
+        duration_ms=5,
+    )
+
+
+class TestSyncExecutionRecord:
+    """Tests for sync /execute audit trail and event-loop behavior (mocked executor)."""
+
+    def test_execute_returns_execution_id_and_saves_record(self, client):
+        """Sync /execute returns an execution_id and persists an ExecutionRecord."""
+        from tako_vm.server.app import state
+
+        def fake_execute(job_id, job, client_ip=None):
+            # The handler must pass through the request payload and timeouts
+            assert job["code"] == "print('hi')"
+            assert job["timeout"] == 7
+            assert job["startup_timeout"] == 33
+            return _make_succeeded_record(job_id)
+
+        save_mock = AsyncMock()
+        with (
+            patch.object(state.executor, "execute_job_with_record", side_effect=fake_execute),
+            patch.object(state.storage, "save_record", save_mock),
+        ):
+            response = client.post(
+                "/execute",
+                json={"code": "print('hi')", "timeout": 7, "startup_timeout": 33},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["execution_id"].startswith("api-")
+        assert data["output"] == {"answer": 42}
+        assert data["stdout"] == "mocked stdout"
+        assert data["exit_code"] == 0
+
+        # The saved record carries the same execution_id returned to the client
+        save_mock.assert_awaited_once()
+        saved_record = save_mock.await_args.args[0]
+        assert saved_record.execution_id == data["execution_id"]
+        assert saved_record.status == "succeeded"
+
+    def test_health_stays_responsive_during_sync_execute(self, client):
+        """A slow sync execution must not block the event loop (e.g. /health)."""
+        from tako_vm.server.app import state
+
+        started = threading.Event()
+        finished = threading.Event()
+
+        def slow_execute(job_id, job, client_ip=None):
+            started.set()
+            time.sleep(3)
+            finished.set()
+            return _make_succeeded_record(job_id)
+
+        execute_result = {}
+
+        def run_execute():
+            execute_result["response"] = client.post("/execute", json={"code": "print('slow')"})
+
+        with (
+            patch.object(state.executor, "execute_job_with_record", side_effect=slow_execute),
+            patch.object(state.storage, "save_record", AsyncMock()),
+        ):
+            execute_thread = threading.Thread(target=run_execute)
+            execute_thread.start()
+            try:
+                assert started.wait(timeout=10), "sync execution never started"
+
+                # While the sync execution sleeps in its thread, the event loop
+                # must still serve other requests.
+                health_response = client.get("/health")
+                health_done_before_execute = not finished.is_set()
+            finally:
+                execute_thread.join(timeout=30)
+
+        assert health_response.status_code == 200
+        assert health_done_before_execute, (
+            "/health only completed after the sync execution finished - event loop was blocked"
+        )
+        assert execute_result["response"].status_code == 200
+        assert execute_result["response"].json()["success"] is True
+
+    def test_execute_returns_result_when_storage_save_fails(self, client):
+        """A storage failure after execution still returns the result (code already ran)."""
+        from tako_vm.server.app import state
+
+        def fake_execute(job_id, job, client_ip=None):
+            return _make_succeeded_record(job_id)
+
+        save_mock = AsyncMock(side_effect=RuntimeError("database is down"))
+        with (
+            patch.object(state.executor, "execute_job_with_record", side_effect=fake_execute),
+            patch.object(state.storage, "save_record", save_mock),
+        ):
+            response = client.post("/execute", json={"code": "print('hi')"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["execution_id"].startswith("api-")
+        assert data["output"] == {"answer": 42}
+        save_mock.assert_awaited_once()
 
 
 class TestAsyncExecution:

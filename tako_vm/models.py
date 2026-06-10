@@ -198,6 +198,7 @@ ErrorType = Literal[
     "service_unavailable",  # Circuit breaker open
     "config_error",  # Configuration error
     "internal_error",  # Internal Tako VM error
+    "interrupted",  # Job interrupted by server restart/shutdown
     "runtime_error",  # Generic runtime error
     "unknown",  # Unknown error type
 ]
@@ -368,6 +369,9 @@ class ExecutionRecord(BaseModel):
     client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
     """Client IP address."""
 
+    correlation_id: Optional[str] = Field(default=None, max_length=64)
+    """Correlation ID (X-Correlation-ID) of the submitting request, for request tracing."""
+
     # Lineage tracking
     parent_execution_id: Optional[str] = Field(default=None, max_length=64)
     """ID of parent execution (for reruns/forks)."""
@@ -460,7 +464,18 @@ class JobVersion(BaseModel):
 
 
 class DeadLetterEntry(BaseModel):
-    """Entry in the dead letter queue for failed jobs."""
+    """Entry in the dead letter queue for failed jobs.
+
+    Redaction policy: DLQ entries are forensic records, not replay payloads.
+    ``job_data`` must never contain raw code, input_data values, or
+    idempotency keys -- AI-agent callers routinely embed credentials in
+    input_data, and persisting them as readable JSONB would contradict
+    ExecutionRecord's hash-only posture. Build ``job_data`` with
+    :meth:`build_job_summary`, which keeps fingerprints (sha256 hashes),
+    sizes, and non-secret diagnostic metadata (job_type, timeouts,
+    requirements package list, correlation/lineage IDs) and records only the
+    PRESENCE of an idempotency key.
+    """
 
     model_config = {"extra": "forbid"}
 
@@ -471,7 +486,45 @@ class DeadLetterEntry(BaseModel):
     """Original job ID."""
 
     job_data: Dict[str, Any]
-    """Original job data (code, input_data, etc.)."""
+    """Redacted forensic summary of the original job (see build_job_summary).
+
+    Historic entries (written before redaction was introduced) may still
+    contain raw fields; new entries never do.
+    """
+
+    @classmethod
+    def build_job_summary(cls, job_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a redacted forensic summary from a raw job payload.
+
+        Drops raw ``code``, ``input_data``, and the ``idempotency_key`` value
+        entirely; keeps sha256 fingerprints, byte sizes, and non-secret
+        diagnostic metadata so internal failures remain debuggable.
+        """
+        code = job_data.get("code", "") or ""
+        input_data = job_data.get("input_data", {})
+        canonical_input = json.dumps(
+            input_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        summary: Dict[str, Any] = {
+            "job_type": job_data.get("job_type") or "default",
+            "code_hash": sha256_content(code),
+            "input_hash": sha256_json(input_data),
+            "code_size_bytes": len(code.encode("utf-8")),
+            "input_size_bytes": len(canonical_input.encode("utf-8")),
+            "has_idempotency_key": job_data.get("idempotency_key") is not None,
+        }
+        # Non-secret diagnostic metadata, included only when present.
+        for key in (
+            "timeout",
+            "startup_timeout",
+            "requirements",
+            "correlation_id",
+            "parent_execution_id",
+        ):
+            value = job_data.get(key)
+            if value is not None:
+                summary[key] = value
+        return summary
 
     error_type: ErrorType
     """Type of error that caused failure."""

@@ -576,6 +576,7 @@ class TestRunServerFunction:
             args.port = 9000
             args.reload = True
             args.workers = None
+            args.config = None
 
             run_server(args)
 
@@ -585,6 +586,267 @@ class TestRunServerFunction:
         assert call_kwargs["reload"] is True
 
         reset_config()
+
+    def test_run_server_explicit_default_host_port_not_overridden_by_config(self):
+        """Explicit --host 0.0.0.0/--port 8000 are honored even when config differs."""
+        import uvicorn
+
+        from tako_vm import config as config_module
+        from tako_vm.cli import run_server
+        from tako_vm.config import TakoVMConfig, reset_config
+
+        reset_config()
+
+        mock_config = TakoVMConfig(
+            server_host="127.0.0.1",
+            server_port=9999,
+            security_mode="permissive",
+        )
+
+        args = argparse.Namespace(
+            host="0.0.0.0",
+            port=8000,
+            reload=False,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(config_module, "get_config", return_value=mock_config):
+            with patch.object(uvicorn, "run", mock_run):
+                run_server(args)
+
+        call_kwargs = mock_run.call_args[1]
+        assert call_kwargs["host"] == "0.0.0.0"
+        assert call_kwargs["port"] == 8000
+
+        reset_config()
+
+    def test_run_server_host_port_fall_back_to_config(self):
+        """Without --host/--port, config.server_host/server_port are used."""
+        import uvicorn
+
+        from tako_vm import config as config_module
+        from tako_vm.cli import run_server
+        from tako_vm.config import TakoVMConfig, reset_config
+
+        reset_config()
+
+        mock_config = TakoVMConfig(
+            server_host="127.0.0.1",
+            server_port=9999,
+            security_mode="permissive",
+        )
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=False,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(config_module, "get_config", return_value=mock_config):
+            with patch.object(uvicorn, "run", mock_run):
+                run_server(args)
+
+        call_kwargs = mock_run.call_args[1]
+        assert call_kwargs["host"] == "127.0.0.1"
+        assert call_kwargs["port"] == 9999
+
+        reset_config()
+
+    def test_run_server_workers_passed_through(self, capsys):
+        """--workers is forwarded to uvicorn with the app as an import string,
+        and a multi-worker topology warning is printed to stderr."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+
+        reset_config()
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=False,
+            workers=4,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(uvicorn, "run", mock_run):
+            run_server(args)
+
+        app_arg = mock_run.call_args[0][0]
+        call_kwargs = mock_run.call_args[1]
+        assert app_arg == "tako_vm.server.app:app"
+        assert call_kwargs["workers"] == 4
+
+        captured = capsys.readouterr()
+        assert "WARNING: --workers 4 runs 4 independent worker pools" in captured.err
+        assert "wait=true result streaming only works on the submitting worker" in captured.err
+        assert "Prefer a single worker behind a load balancer" in captured.err
+
+        reset_config()
+
+    def test_run_server_default_single_worker_uses_app_object(self, capsys):
+        """Without --workers/--reload, the app object is passed with workers=1
+        and no multi-worker topology warning is emitted."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+        from tako_vm.server.app import app
+
+        reset_config()
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=False,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(uvicorn, "run", mock_run):
+            run_server(args)
+
+        app_arg = mock_run.call_args[0][0]
+        call_kwargs = mock_run.call_args[1]
+        assert app_arg is app
+        assert call_kwargs["workers"] == 1
+
+        captured = capsys.readouterr()
+        assert "independent worker pools" not in captured.err
+
+        reset_config()
+
+    def test_run_server_reload_uses_import_string(self):
+        """--reload passes the app as an import string so uvicorn can reload it."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+
+        reset_config()
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=True,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(uvicorn, "run", mock_run):
+            run_server(args)
+
+        app_arg = mock_run.call_args[0][0]
+        call_kwargs = mock_run.call_args[1]
+        assert app_arg == "tako_vm.server.app:app"
+        assert call_kwargs["reload"] is True
+
+        reset_config()
+
+    def test_run_server_reload_and_workers_mutually_exclusive(self, capsys):
+        """--reload with --workers > 1 errors out instead of starting."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+
+        reset_config()
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=True,
+            workers=2,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(uvicorn, "run", mock_run):
+            with pytest.raises(SystemExit) as exc_info:
+                run_server(args)
+
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "--reload cannot be combined with --workers" in captured.err
+
+        reset_config()
+
+    def test_run_server_invalid_workers_rejected(self, capsys):
+        """--workers < 1 errors out instead of starting."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+
+        reset_config()
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=False,
+            workers=0,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(uvicorn, "run", mock_run):
+            with pytest.raises(SystemExit) as exc_info:
+                run_server(args)
+
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "--workers must be >= 1" in captured.err
+
+        reset_config()
+
+    def test_run_server_workers_exports_explicit_config_path(self, tmp_path, monkeypatch):
+        """Multi-worker mode exports --config via TAKO_VM_CONFIG for subprocesses."""
+        import uvicorn
+
+        from tako_vm.cli import run_server
+        from tako_vm.config import reset_config
+
+        reset_config()
+        monkeypatch.delenv("TAKO_VM_CONFIG", raising=False)
+
+        config_file = tmp_path / "tako_vm.yaml"
+        config_file.write_text("max_workers: 4\nsecurity_mode: permissive\n")
+
+        args = argparse.Namespace(
+            host=None,
+            port=None,
+            reload=False,
+            workers=2,
+            config=config_file,
+            auto_start_postgres=False,
+        )
+
+        with patch.object(uvicorn, "run", MagicMock()):
+            run_server(args)
+
+        try:
+            assert os.environ.get("TAKO_VM_CONFIG") == str(config_file)
+        finally:
+            os.environ.pop("TAKO_VM_CONFIG", None)
+            reset_config()
 
     def test_run_server_configuration_error(self):
         """run_server exits on configuration error."""
@@ -714,6 +976,22 @@ class TestCLISubprocessExtended:
 
 class TestCLIDevHelpers:
     """Tests for dev helper functionality."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_database_url_env(self):
+        """Restore TAKO_VM_DATABASE_URL after each test.
+
+        dev_up() and run_server() mutate os.environ["TAKO_VM_DATABASE_URL"]
+        directly (pointing it at the managed postgres on port 55432). Without
+        restoration that leaks into every later test in the process and caused
+        the entire storage suite to silently skip in CI.
+        """
+        original = os.environ.get("TAKO_VM_DATABASE_URL")
+        yield
+        if original is None:
+            os.environ.pop("TAKO_VM_DATABASE_URL", None)
+        else:
+            os.environ["TAKO_VM_DATABASE_URL"] = original
 
     def test_dev_up_without_server(self, capsys):
         """dev_up starts local postgres without launching server."""

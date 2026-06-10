@@ -6,9 +6,11 @@ Provides async CRUD operations for ExecutionRecords and JobVersions.
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Mapping, Optional, cast
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -28,6 +30,24 @@ logger = logging.getLogger(__name__)
 
 MIGRATION_LOCK_ID = 94857231
 RowMapping = Mapping[str, Any]
+
+# Statuses from which an execution record must never transition away. Once a
+# record is terminal, later writes (e.g. a stale executor result racing a
+# cancellation, or vice versa) are refused by the save_record upsert guard.
+TERMINAL_STATUSES = ("succeeded", "failed", "timeout", "oom", "cancelled")
+
+# Backoff schedule (seconds) for retrying save_record on transient connection
+# errors. Tests may monkeypatch this to avoid real sleeps.
+_SAVE_RECORD_RETRY_DELAYS = (0.2, 0.8, 2.0)
+
+# Minimum digest prefix length accepted by get_version_by_digest. Shorter
+# prefixes are too ambiguous to resolve safely (and an empty prefix would
+# match every stored version).
+MIN_DIGEST_PREFIX_LEN = 12
+
+# Full digests and digest prefixes must be lowercase hex (sha256 hexdigest).
+# This also guarantees the value cannot contain SQL LIKE wildcards ('%'/'_').
+_DIGEST_RE = re.compile(rf"^[0-9a-f]{{{MIN_DIGEST_PREFIX_LEN},64}}$")
 
 
 MIGRATIONS: list[tuple[str, str]] = [
@@ -130,7 +150,31 @@ MIGRATIONS: list[tuple[str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_dlq_error_type ON dead_letter_queue(error_type);
         CREATE INDEX IF NOT EXISTS idx_dlq_job_id ON dead_letter_queue(job_id);
         """,
-    )
+    ),
+    (
+        "0002_correlation_id",
+        """
+        ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS correlation_id TEXT
+        """,
+    ),
+    (
+        # DLQ rows written before DeadLetterEntry.build_job_summary existed
+        # retain raw code/input_data/idempotency material in job_data_json.
+        # Strip those keys in place and mark the rows so operators can tell
+        # redaction happened after the fact.
+        "0003_redact_dlq_job_data",
+        """
+        UPDATE dead_letter_queue
+        SET job_data_json = (
+                job_data_json - 'code' - 'input_data'
+                - 'idempotency_key' - 'idempotency_fingerprint'
+            )
+            || jsonb_build_object('redacted_by_migration', true)
+        WHERE job_data_json ?| array[
+            'code', 'input_data', 'idempotency_key', 'idempotency_fingerprint'
+        ]
+        """,
+    ),
 ]
 
 
@@ -231,7 +275,53 @@ class ExecutionStorage:
                 await conn.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
 
     async def save_record(self, record: ExecutionRecord) -> None:
-        """Insert or update execution record."""
+        """
+        Insert or update execution record.
+
+        Durability behavior:
+        - Transient connection errors (psycopg.OperationalError, which includes
+          psycopg_pool.PoolTimeout) are retried with backoff so a brief DB blip
+          cannot lose the record of code that already ran. Non-transient errors
+          (e.g. IntegrityError) are raised immediately.
+        - The upsert refuses to modify a record that is already in a terminal
+          status (see TERMINAL_STATUSES); such writes are logged and dropped.
+        """
+        attempts = len(_SAVE_RECORD_RETRY_DELAYS) + 1
+        for attempt in range(attempts):
+            try:
+                rowcount = await self._save_record_once(record)
+                break
+            except psycopg.OperationalError as e:
+                # Connection-level failure (includes psycopg_pool.PoolTimeout,
+                # which subclasses OperationalError). Retry with backoff;
+                # IntegrityError and friends derive from DatabaseError instead
+                # and propagate immediately.
+                if attempt >= attempts - 1:
+                    raise
+                delay = _SAVE_RECORD_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Transient error saving execution record %s (attempt %d/%d), "
+                    "retrying in %.1fs: %s",
+                    record.execution_id,
+                    attempt + 1,
+                    attempts,
+                    delay,
+                    e,
+                )
+                await asyncio.sleep(delay)
+
+        if rowcount == 0:
+            # The ON CONFLICT ... WHERE guard skipped the update: the existing
+            # row is already terminal and must not be regressed (e.g. a
+            # cancel/complete race).
+            logger.warning(
+                "Refused to overwrite terminal execution record %s with status %s",
+                record.execution_id,
+                record.status,
+            )
+
+    async def _save_record_once(self, record: ExecutionRecord) -> int:
+        """Execute the upsert once; return affected rowcount (0 = guard skip)."""
         resource_usage = record.resource_usage
         artifacts_json = [a.model_dump() for a in record.artifacts]
         input_artifacts_json = [a.model_dump() for a in record.input_artifacts]
@@ -239,10 +329,35 @@ class ExecutionStorage:
         result_json = record.result_json
         timing_json = record.timing.model_dump() if record.timing else None
 
+        terminal_list = ", ".join(f"'{s}'" for s in TERMINAL_STATUSES)
+
+        # Upsert column policy:
+        # - Submission-identity fields (created_at, queued_at, code_hash,
+        #   input_hash, params_hash, input_artifacts_hash, client_ip,
+        #   correlation_id, idempotency_key, idempotency_fingerprint,
+        #   parent_execution_id, relationship) describe WHEN/HOW the job was
+        #   submitted. They are
+        #   written by queue.submit() and must survive later writes from the
+        #   executor, which rebuilds its record at execution start and does not
+        #   know the true submission timestamps. We keep the existing row's
+        #   value (COALESCE(existing, new) for nullables; plain existing for
+        #   NOT NULL created_at/queued_at, where COALESCE degenerates to the
+        #   existing value anyway).
+        # - dequeued_at is set once by mark_record_running(); COALESCE keeps it.
+        # - worker_id is also set by mark_record_running(); prefer the new
+        #   value when the writer knows it, otherwise keep the existing one.
+        # - Execution-outcome fields (status, started_at, ended_at,
+        #   duration_ms, attempt, exit_code, stdout/stderr, result/timing/
+        #   artifacts/error JSON, resource usage) take EXCLUDED: later writes
+        #   know more about the outcome. input_artifacts_json also takes
+        #   EXCLUDED because the executor enriches it with replay artifacts
+        #   that the preliminary queued record does not have.
+        # - The WHERE guard makes the whole update a no-op when the existing
+        #   row is already terminal, so terminal status can never regress.
         pool = self._get_pool()
         async with pool.connection() as conn:
-            await conn.execute(
-                """
+            cursor = await conn.execute(
+                f"""
                 INSERT INTO execution_records (
                     execution_id, status, job_type, job_ref,
                     created_at, queued_at, dequeued_at, started_at, ended_at, duration_ms,
@@ -253,32 +368,39 @@ class ExecutionStorage:
                     max_rss_mb, cpu_time_ms, wall_time_ms,
                     timing_json,
                     artifacts_json, error_json,
-                    client_ip, parent_execution_id, relationship
+                    client_ip, correlation_id, parent_execution_id, relationship
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     job_type = EXCLUDED.job_type,
                     job_ref = EXCLUDED.job_ref,
-                    created_at = EXCLUDED.created_at,
-                    queued_at = EXCLUDED.queued_at,
-                    dequeued_at = EXCLUDED.dequeued_at,
+                    created_at = execution_records.created_at,
+                    queued_at = COALESCE(execution_records.queued_at, EXCLUDED.queued_at),
+                    dequeued_at = COALESCE(execution_records.dequeued_at, EXCLUDED.dequeued_at),
                     started_at = EXCLUDED.started_at,
                     ended_at = EXCLUDED.ended_at,
                     duration_ms = EXCLUDED.duration_ms,
                     attempt = EXCLUDED.attempt,
                     max_attempts = EXCLUDED.max_attempts,
-                    worker_id = EXCLUDED.worker_id,
-                    idempotency_key = EXCLUDED.idempotency_key,
-                    idempotency_fingerprint = EXCLUDED.idempotency_fingerprint,
-                    code_hash = EXCLUDED.code_hash,
-                    input_hash = EXCLUDED.input_hash,
-                    params_hash = EXCLUDED.params_hash,
-                    input_artifacts_hash = EXCLUDED.input_artifacts_hash,
+                    worker_id = COALESCE(EXCLUDED.worker_id, execution_records.worker_id),
+                    idempotency_key =
+                        COALESCE(execution_records.idempotency_key, EXCLUDED.idempotency_key),
+                    idempotency_fingerprint = COALESCE(
+                        execution_records.idempotency_fingerprint,
+                        EXCLUDED.idempotency_fingerprint
+                    ),
+                    code_hash = COALESCE(execution_records.code_hash, EXCLUDED.code_hash),
+                    input_hash = COALESCE(execution_records.input_hash, EXCLUDED.input_hash),
+                    params_hash = COALESCE(execution_records.params_hash, EXCLUDED.params_hash),
+                    input_artifacts_hash = COALESCE(
+                        execution_records.input_artifacts_hash,
+                        EXCLUDED.input_artifacts_hash
+                    ),
                     input_artifacts_json = EXCLUDED.input_artifacts_json,
                     exit_code = EXCLUDED.exit_code,
                     stdout = EXCLUDED.stdout,
@@ -292,9 +414,18 @@ class ExecutionStorage:
                     timing_json = EXCLUDED.timing_json,
                     artifacts_json = EXCLUDED.artifacts_json,
                     error_json = EXCLUDED.error_json,
-                    client_ip = EXCLUDED.client_ip,
-                    parent_execution_id = EXCLUDED.parent_execution_id,
-                    relationship = EXCLUDED.relationship
+                    client_ip = COALESCE(execution_records.client_ip, EXCLUDED.client_ip),
+                    correlation_id = COALESCE(
+                        execution_records.correlation_id,
+                        EXCLUDED.correlation_id
+                    ),
+                    parent_execution_id = COALESCE(
+                        execution_records.parent_execution_id,
+                        EXCLUDED.parent_execution_id
+                    ),
+                    relationship =
+                        COALESCE(execution_records.relationship, EXCLUDED.relationship)
+                WHERE execution_records.status NOT IN ({terminal_list})
                 """,
                 (
                     record.execution_id,
@@ -330,10 +461,12 @@ class ExecutionStorage:
                     Jsonb(artifacts_json),
                     Jsonb(error_json) if error_json is not None else None,
                     record.client_ip,
+                    record.correlation_id,
                     record.parent_execution_id,
                     record.relationship,
                 ),
             )
+            return cursor.rowcount
 
     async def get_record(self, execution_id: str) -> Optional[ExecutionRecord]:
         """Retrieve execution record by ID."""
@@ -390,6 +523,70 @@ class ExecutionStorage:
 
         return [self._row_to_record(cast(RowMapping, row)) for row in rows]
 
+    async def reconcile_stale_records(self) -> int:
+        """
+        Mark stale 'queued'/'running' records as failed after a restart.
+
+        The job queue is in-memory (asyncio.Queue), so it does not survive a
+        process restart: any record still marked 'queued' or 'running' when the
+        server starts belongs to a job that was lost in a crash or shutdown and
+        will never complete. Without this reconciliation, clients poll those
+        records forever.
+
+        NOTE: This assumes a single-server deployment (the only supported
+        topology). There is no multi-server coordination anywhere in Tako VM,
+        so no other live server process can legitimately own in-flight records
+        when this runs at startup.
+
+        Returns:
+            Number of records transitioned to 'failed'.
+        """
+        now = datetime.now(timezone.utc)
+        error_json = ExecutionError(
+            type="interrupted",
+            message="job interrupted by server restart before completion",
+        ).model_dump()
+
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE execution_records
+                SET status = 'failed',
+                    ended_at = %s,
+                    error_json = %s
+                WHERE status IN ('queued', 'running')
+                """,
+                (now, Jsonb(error_json)),
+            )
+            return cursor.rowcount
+
+    async def mark_record_running(self, execution_id: str, worker_id: Optional[str] = None) -> bool:
+        """
+        Persist the queued -> running transition for an execution record.
+
+        Targeted UPDATE so the in-flight state is visible in the database
+        during execution (and reconcilable after a crash) without rewriting
+        the whole row.
+
+        Returns:
+            True if a queued record was transitioned to running.
+        """
+        now = datetime.now(timezone.utc)
+        pool = self._get_pool()
+        async with pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE execution_records
+                SET status = 'running',
+                    dequeued_at = %s,
+                    worker_id = %s
+                WHERE execution_id = %s AND status = 'queued'
+                """,
+                (now, worker_id, execution_id),
+            )
+            return cursor.rowcount > 0
+
     async def cleanup_old_records(self, ttl_days: int) -> int:
         """Delete records older than TTL."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
@@ -403,8 +600,13 @@ class ExecutionStorage:
 
     def _row_to_record(self, row: RowMapping) -> ExecutionRecord:
         """Convert database row to ExecutionRecord."""
+        # All ResourceUsage fields are independently nullable, so rebuild the
+        # model if ANY metric column was stored — gating on wall_time_ms alone
+        # would silently drop records saved with only max_rss_mb/cpu_time_ms.
         resource_usage = None
-        if row.get("wall_time_ms") is not None:
+        if any(
+            row.get(column) is not None for column in ("max_rss_mb", "cpu_time_ms", "wall_time_ms")
+        ):
             resource_usage = ResourceUsage(
                 max_rss_mb=row.get("max_rss_mb"),
                 cpu_time_ms=row.get("cpu_time_ms"),
@@ -417,8 +619,11 @@ class ExecutionStorage:
             try:
                 input_artifacts = [InputArtifact(**a) for a in input_artifacts_data]
             except (TypeError, ValueError) as e:
-                logger.warning(
-                    "Failed to parse input_artifacts_json for %s: %s", row["execution_id"], e
+                logger.error(
+                    "Corrupt stored field input_artifacts_json for execution %s; "
+                    "degrading to empty list: %s",
+                    row["execution_id"],
+                    e,
                 )
 
         artifacts = []
@@ -427,7 +632,12 @@ class ExecutionStorage:
             try:
                 artifacts = [Artifact(**a) for a in artifacts_data]
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse artifacts_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field artifacts_json for execution %s; "
+                    "degrading to empty list: %s",
+                    row["execution_id"],
+                    e,
+                )
 
         error = None
         error_data = _decode_json_field(row.get("error_json"))
@@ -435,7 +645,19 @@ class ExecutionStorage:
             try:
                 error = ExecutionError(**error_data)
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse error_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field error_json for execution %s; "
+                    "substituting fallback internal_error: %s",
+                    row["execution_id"],
+                    e,
+                )
+                # Surface the corruption loudly rather than presenting the
+                # record as error-free: a stored error payload existed but no
+                # longer matches the ExecutionError model.
+                error = ExecutionError(
+                    type="internal_error",
+                    message="stored error payload could not be decoded",
+                )
 
         result_json = _decode_json_field(row.get("result_json"))
 
@@ -445,7 +667,11 @@ class ExecutionStorage:
             try:
                 timing = ExecutionTiming(**timing_data)
             except (TypeError, ValueError) as e:
-                logger.warning("Failed to parse timing_json for %s: %s", row["execution_id"], e)
+                logger.error(
+                    "Corrupt stored field timing_json for execution %s; degrading to None: %s",
+                    row["execution_id"],
+                    e,
+                )
 
         return ExecutionRecord(
             execution_id=row["execution_id"],
@@ -479,6 +705,7 @@ class ExecutionStorage:
             artifacts=artifacts,
             error=error,
             client_ip=row.get("client_ip"),
+            correlation_id=row.get("correlation_id"),
             parent_execution_id=row.get("parent_execution_id"),
             relationship=row.get("relationship"),
         )
@@ -516,25 +743,56 @@ class ExecutionStorage:
             )
 
     async def get_version_by_digest(self, job_type_name: str, digest: str) -> Optional[JobVersion]:
-        """Get version by digest."""
+        """
+        Get version by full digest or an unambiguous digest prefix.
+
+        Args:
+            job_type_name: Job type name.
+            digest: Full 64-character hex digest, or a prefix of at least
+                MIN_DIGEST_PREFIX_LEN hex characters.
+
+        Returns:
+            Matching JobVersion, or None if no version matches.
+
+        Raises:
+            ValueError: If the digest is empty, shorter than
+                MIN_DIGEST_PREFIX_LEN, not lowercase hex (which also rejects
+                SQL LIKE wildcards), or if a prefix matches more than one
+                stored version.
+        """
+        if not _DIGEST_RE.fullmatch(digest):
+            raise ValueError(
+                f"Invalid digest {digest!r}: must be {MIN_DIGEST_PREFIX_LEN}-64 "
+                "lowercase hex characters"
+            )
+
         pool = self._get_pool()
         async with pool.connection() as conn:
             if len(digest) < 64:
+                # The digest is validated as hex above, so it cannot contain
+                # LIKE wildcards ('%'/'_'); the prefix match is literal.
                 cursor = await conn.execute(
                     """
                     SELECT * FROM job_versions
                     WHERE job_type_name = %s AND digest LIKE %s
-                    ORDER BY built_at DESC
-                    LIMIT 1
+                    LIMIT 2
                     """,
                     (job_type_name, digest + "%"),
                 )
+                rows = await cursor.fetchall()
+                if len(rows) > 1:
+                    raise ValueError(
+                        f"Ambiguous digest prefix {digest!r} for job type "
+                        f"{job_type_name!r}: matches multiple versions; "
+                        "provide a longer prefix or the full digest"
+                    )
+                row = rows[0] if rows else None
             else:
                 cursor = await conn.execute(
                     "SELECT * FROM job_versions WHERE job_type_name = %s AND digest = %s",
                     (job_type_name, digest),
                 )
-            row = await cursor.fetchone()
+                row = await cursor.fetchone()
 
         if not row:
             return None
@@ -605,7 +863,12 @@ class ExecutionStorage:
         )
 
     async def add_to_dlq(self, entry: DeadLetterEntry) -> int:
-        """Add a failed job to the dead letter queue."""
+        """Add a failed job to the dead letter queue.
+
+        ``entry.job_data`` is persisted verbatim as JSONB, so callers must
+        pass a redacted forensic summary (DeadLetterEntry.build_job_summary),
+        never raw code/input_data/idempotency keys.
+        """
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(

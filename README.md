@@ -91,6 +91,16 @@ tako-vm --config my.yaml server   # Use specific config file
 | Deployment | [docs/deployment/how-to-deploy.md](docs/deployment/how-to-deploy.md) |
 | Config Reference | [tako_vm.yaml.example](tako_vm.yaml.example) |
 
+## Security
+
+Tako VM runs untrusted, often AI-generated, code, so isolation is the core of the project. It uses layered defenses: gVisor (userspace kernel), per-job ephemeral Docker containers, a default-deny seccomp profile, network isolation (`--network=none` by default), capability dropping, non-root execution, and enforced resource and input limits.
+
+For untrusted workloads in production, set `security_mode: strict` with `container_runtime: runsc`. The default `permissive` mode falls back to standard Docker (`runc`) if gVisor is unavailable, which removes the userspace-kernel boundary.
+
+See [SECURITY.md](SECURITY.md) for the threat model and hardening guidance, and [docs/deployment/security.md](docs/deployment/security.md) for full details.
+
+**Found a vulnerability?** Report it privately via the [Security tab](https://github.com/las7/TakoVM/security) → **Report a vulnerability**. Please do not open public issues for security findings.
+
 ## License
 
 Apache License 2.0

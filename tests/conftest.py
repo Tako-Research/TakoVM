@@ -102,6 +102,22 @@ def is_gvisor_available() -> bool:
         return False
 
 
+# Capture the test database URL once at import time, BEFORE any test runs.
+# Some tests exercise code that mutates os.environ["TAKO_VM_DATABASE_URL"]
+# directly (e.g. the CLI dev helpers point it at the managed postgres on
+# port 55432). Reading the env lazily inside fixtures let that pollution
+# redirect every later storage test at a dead DSN, silently skipping the
+# whole storage suite in CI.
+TEST_DATABASE_URL = os.environ.get(
+    "TAKO_VM_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tako_vm_test"
+)
+
+
+def is_running_in_ci() -> bool:
+    """Detect CI environments (GitHub Actions sets both of these)."""
+    return bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
+
+
 # Check Docker availability once at module load
 DOCKER_AVAILABLE = is_docker_available()
 EXECUTOR_IMAGE_AVAILABLE = is_executor_image_available()
@@ -213,9 +229,7 @@ def temp_data_dir():
         original_db_url = os.environ.get("TAKO_VM_DATABASE_URL")
         schema_created = False
 
-        raw_db_url = os.environ.get(
-            "TAKO_VM_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tako_vm_test"
-        )
+        raw_db_url = TEST_DATABASE_URL
         schema = f"test_{uuid.uuid4().hex}"
 
         raw_parts = urlsplit(raw_db_url)
@@ -247,6 +261,13 @@ def temp_data_dir():
                     )
                     schema_created = True
         except psycopg.Error as exc:
+            if is_running_in_ci():
+                pytest.fail(
+                    f"PostgreSQL is required in CI but connecting to {base_db_url} failed: "
+                    f"{exc}. Check the postgres service container and TAKO_VM_DATABASE_URL "
+                    "in .github/workflows/test.yml. Storage tests must never silently skip "
+                    "in CI."
+                )
             pytest.skip(f"PostgreSQL test database unavailable: {exc}")
 
         test_db_url = with_schema(base_db_url, schema)

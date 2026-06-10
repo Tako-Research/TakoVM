@@ -4,14 +4,26 @@ Tests for the Sandbox class (library mode).
 These tests verify the direct Docker sandbox execution without a server.
 """
 
+import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from tako_vm.constants import UV_CACHE_VOLUME
-from tako_vm.sandbox import Sandbox, SandboxResult
+from tako_vm.sandbox import DEFAULT_STARTUP_TIMEOUT, Sandbox, SandboxResult
 from tako_vm.sandbox import run as sandbox_run
+
+
+def _make_workspace_dirs(tmp_path):
+    """Create code/input/output dirs for _build_docker_command unit tests."""
+    code_dir = tmp_path / "code"
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    code_dir.mkdir()
+    input_dir.mkdir()
+    output_dir.mkdir()
+    return code_dir, input_dir, output_dir
 
 
 class TestSandboxResult:
@@ -328,6 +340,39 @@ print(f"version: {requests.__version__}")
 
         assert not any(arg.startswith("--env=TAKO_DEPENDENCY_PROXY_URL=") for arg in cmd)
 
+    def test_sandbox_rejects_invalid_requirement(self, tmp_path):
+        """Invalid pip requirements raise instead of being silently dropped."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox(allow_runtime_requirements=True)
+        with pytest.raises(ValueError, match="Invalid pip requirement") as excinfo:
+            sb._build_docker_command(
+                code_dir=code_dir,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                timeout=30,
+                requirements=["requests", "evil`touch /tmp/pwned`"],
+            )
+
+        # The error names the offending requirement
+        assert "evil`touch /tmp/pwned`" in str(excinfo.value)
+        # Nothing was written before the validation failure
+        assert not (input_dir / "_requirements.txt").exists()
+
+    def test_sandbox_policy_checked_before_validation(self, tmp_path):
+        """An all-invalid requirements list cannot bypass the policy check."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()  # allow_runtime_requirements=False
+        with pytest.raises(ValueError, match="Runtime dependency installation is disabled"):
+            sb._build_docker_command(
+                code_dir=code_dir,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                timeout=30,
+                requirements=["evil`touch /tmp/pwned`"],
+            )
+
     @pytest.mark.parametrize(
         ("cache_enabled", "expect_cache_mount"),
         [(False, False), (True, True)],
@@ -357,6 +402,245 @@ print(f"version: {requests.__version__}")
         expected_cache_dir = "/root/.cache/uv" if cache_enabled else "/tmp/uv-cache"
         assert (cache_mount in cmd) is expect_cache_mount
         assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in cmd
+
+
+class TestSandboxTimeoutEnforcement:
+    """Unit tests for in-container timeout enforcement (no container needed)."""
+
+    def test_docker_command_includes_timeout_env_vars(self, tmp_path):
+        """Both timeout env vars are passed so the container self-enforces limits."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox(startup_timeout=90)
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=7,
+        )
+
+        assert "--env=TAKO_STARTUP_TIMEOUT=90" in cmd
+        assert "--env=TAKO_EXECUTION_TIMEOUT=7" in cmd
+        # Env vars must come before the image name to be docker run options
+        assert cmd.index("--env=TAKO_EXECUTION_TIMEOUT=7") < cmd.index(sb.config.image)
+
+    def test_docker_command_default_startup_timeout(self, tmp_path):
+        """Default startup timeout matches the server default (120s)."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()
+        assert sb.config.startup_timeout == DEFAULT_STARTUP_TIMEOUT
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+        )
+
+        assert f"--env=TAKO_STARTUP_TIMEOUT={DEFAULT_STARTUP_TIMEOUT}" in cmd
+        assert "--env=TAKO_EXECUTION_TIMEOUT=30" in cmd
+
+    def test_subprocess_budget_includes_startup_timeout_with_requirements(self, monkeypatch):
+        """Dependency install time is budgeted separately from code timeout."""
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            recorded["timeout"] = kwargs.get("timeout")
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        sb = Sandbox(allow_runtime_requirements=True, startup_timeout=100)
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        # The post-run container removal makes its own subprocess.run call;
+        # stub it out so it doesn't clobber the recorded docker-run timeout.
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", lambda name: True)
+
+        sb.run("print('hi')", timeout=10, requirements=["requests"])
+        assert recorded["timeout"] == 100 + 10 + 5
+
+        sb.run("print('hi')", timeout=10)
+        assert recorded["timeout"] == 10 + 5
+
+    def test_timeout_preserves_partial_output(self, monkeypatch):
+        """Partial stdout/stderr from TimeoutExpired is surfaced in the result."""
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(
+                cmd,
+                kwargs.get("timeout"),
+                output=b"partial stdout",
+                stderr=b"partial stderr",
+            )
+
+        removed = {}
+        sb = Sandbox()
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "tako_vm.sandbox.remove_container", lambda name: removed.setdefault("name", name)
+        )
+
+        result = sb.run("print('hi')", timeout=2)
+
+        assert result.success is False
+        assert result.exit_code == -1
+        assert result.stdout == "partial stdout"
+        assert result.stderr == "partial stderr"
+        assert "timed out" in result.error.lower()
+        # The container is no longer started with --rm, so the timeout path
+        # must kill+remove it (docker rm -f) itself.
+        assert removed["name"] == "fake-container"
+
+
+class TestSandboxOOMDetection:
+    """Unit tests for exit-137 OOM verification and container removal.
+
+    The sandbox no longer runs containers with ``--rm``: a 137 exit is
+    checked against ``docker inspect .State.OOMKilled`` (the only
+    authoritative OOM signal) and the container is removed in a finally on
+    every exit path. These tests monkeypatch subprocess.run and the docker
+    helpers, so no container is needed.
+    """
+
+    @staticmethod
+    def _make_sandbox(monkeypatch, returncode, events, oom_killed):
+        """Build a Sandbox whose docker run is faked to exit with returncode."""
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=returncode, stdout="", stderr=""
+            )
+
+        def fake_inspect(name):
+            events.append(("inspect", name))
+            return oom_killed
+
+        def fake_remove(name):
+            events.append(("remove", name))
+            return True
+
+        sb = Sandbox(memory_limit="256m")
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr(
+            Sandbox,
+            "_build_docker_command",
+            lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
+        )
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
+        monkeypatch.setattr("tako_vm.sandbox.inspect_oom_killed", fake_inspect)
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", fake_remove)
+        return sb
+
+    def test_exit_137_oom_killed_reports_oom(self, monkeypatch):
+        """137 + State.OOMKilled=true -> OOM error including the memory limit."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=True)
+
+        result = sb.run("x = 'a' * 10**9")
+
+        assert result.success is False
+        assert result.exit_code == 137
+        assert "out of memory" in result.error
+        assert "memory_limit=256m" in result.error
+        # Inspect must happen before the finally removes the container
+        assert events == [("inspect", "fake-container"), ("remove", "fake-container")]
+
+    def test_exit_137_not_oom_reports_sigkill(self, monkeypatch):
+        """137 + State.OOMKilled=false -> killed-but-not-OOM error."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=False)
+
+        result = sb.run("import sys; sys.exit(137)")
+
+        assert result.success is False
+        assert result.exit_code == 137
+        assert "killed (SIGKILL)" in result.error
+        assert "not by the memory limit" in result.error
+        assert "out of memory" not in result.error
+        assert ("remove", "fake-container") in events
+
+    def test_exit_137_inspect_failure_falls_back_to_oom(self, monkeypatch):
+        """137 + inspect failed (None) -> assume OOM so a flaky inspect never loses one."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=137, events=events, oom_killed=None)
+
+        result = sb.run("x = 'a' * 10**9")
+
+        assert result.success is False
+        assert "out of memory" in result.error
+
+    def test_container_removed_on_success(self, monkeypatch):
+        """Without --rm, the sandbox must remove the container after a clean exit."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=0, events=events, oom_killed=False)
+
+        result = sb.run("print('hi')")
+
+        assert result.success is True
+        assert result.error is None
+        assert ("remove", "fake-container") in events
+        # No 137, so no inspect round-trip
+        assert ("inspect", "fake-container") not in events
+
+    def test_container_removed_on_failure(self, monkeypatch):
+        """The container is removed after a non-zero, non-137 exit too."""
+        events = []
+        sb = self._make_sandbox(monkeypatch, returncode=1, events=events, oom_killed=False)
+
+        result = sb.run("raise RuntimeError('boom')")
+
+        assert result.success is False
+        assert result.exit_code == 1
+        assert result.error is None
+        assert ("remove", "fake-container") in events
+        assert ("inspect", "fake-container") not in events
+
+    def test_no_container_removal_when_validation_fails(self, monkeypatch):
+        """ValueError before docker run means there is no container to remove."""
+        events = []
+
+        def fake_remove(name):
+            events.append(("remove", name))
+            return True
+
+        sb = Sandbox(memory_limit="256m")  # runtime requirements disabled
+        sb._image_checked = True  # Skip docker image inspect
+        monkeypatch.setattr("tako_vm.sandbox.remove_container", fake_remove)
+        monkeypatch.setattr("tako_vm.sandbox.subprocess.run", _fail_if_called)
+
+        result = sb.run("print('hi')", requirements=["pandas"])
+
+        assert result.success is False
+        assert "disabled" in result.error
+        assert events == []
+
+    def test_docker_command_omits_rm(self, tmp_path):
+        """The run command must not use --rm so the exited container can be inspected."""
+        code_dir, input_dir, output_dir = _make_workspace_dirs(tmp_path)
+
+        sb = Sandbox()
+        cmd, _ = sb._build_docker_command(
+            code_dir=code_dir,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout=30,
+        )
+
+        assert "--rm" not in cmd
+
+
+def _fail_if_called(*args, **kwargs):
+    raise AssertionError("docker run must not be attempted when validation fails")
 
 
 @pytest.mark.requires_host_mounts
