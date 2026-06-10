@@ -516,8 +516,7 @@ class Sandbox:
                 # the backstop, but surface it so the leak isn't invisible.
                 if not remove_container(container_name):
                     logger.warning(
-                        "Failed to remove sandbox container %s; "
-                        "relying on startup orphan cleanup",
+                        "Failed to remove sandbox container %s; relying on startup orphan cleanup",
                         container_name,
                     )
 

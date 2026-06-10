@@ -49,8 +49,7 @@ def test_middleware_unexpected_error_returns_sanitized_500(monkeypatch, caplog):
     assert "Internal server error" in resp.text
     # Verbose-on-failure: our own correlated ERROR log, not just Starlette's.
     assert any(
-        "Unhandled error in API protection middleware" in r.getMessage()
-        for r in caplog.records
+        "Unhandled error in API protection middleware" in r.getMessage() for r in caplog.records
     )
 
 
@@ -65,7 +64,9 @@ def test_gvisor_probe_does_not_cache_transient_failure(monkeypatch):
 
     # First call: probe raises (transient). Must return False but not cache.
     monkeypatch.setattr(
-        subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("docker", 10))
+        subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("docker", 10)),
     )
     assert worker.check_gvisor_available() is False
     assert worker._gvisor_available is None  # not cached
