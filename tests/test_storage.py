@@ -776,3 +776,206 @@ class TestDigestResolutionStrictness:
         retrieved = storage.get_version_by_digest("digest-job", shared_prefix + "a" * 52)
         assert retrieved is not None
         assert retrieved.version_tag == "v1"
+
+
+class TestSaveRecordUpsertIntegrity:
+    """save_record upsert must preserve submission fields and terminal status."""
+
+    @staticmethod
+    def _make_record(execution_id: str, status: str, **kwargs) -> ExecutionRecord:
+        kwargs.setdefault("code_hash", "a" * 64)
+        kwargs.setdefault("input_hash", "b" * 64)
+        return ExecutionRecord(execution_id=execution_id, status=status, **kwargs)
+
+    def test_resave_preserves_submission_fields(self, storage):
+        """A later save with fresh timestamps/hashes keeps the original
+        submission-identity fields while still updating outcome fields."""
+        original_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+        storage.save_record(
+            self._make_record(
+                "upsert-submission",
+                "queued",
+                created_at=original_time,
+                queued_at=original_time,
+                client_ip="10.0.0.1",
+                idempotency_key="idem-upsert-1",
+                idempotency_fingerprint="f" * 64,
+                parent_execution_id="parent-1",
+            )
+        )
+
+        # Simulates the executor rebuilding a record at execution start with
+        # now() timestamps and freshly computed hashes.
+        storage.save_record(
+            self._make_record(
+                "upsert-submission",
+                "succeeded",
+                created_at=datetime.now(timezone.utc),
+                queued_at=datetime.now(timezone.utc),
+                code_hash="c" * 64,
+                input_hash="d" * 64,
+                stdout="done",
+                exit_code=0,
+            )
+        )
+
+        retrieved = storage.get_record("upsert-submission")
+        # Outcome fields updated
+        assert retrieved.status == "succeeded"
+        assert retrieved.stdout == "done"
+        assert retrieved.exit_code == 0
+        # Submission-identity fields preserved from the original row
+        assert retrieved.created_at == original_time
+        assert retrieved.queued_at == original_time
+        assert retrieved.code_hash == "a" * 64
+        assert retrieved.input_hash == "b" * 64
+        assert retrieved.client_ip == "10.0.0.1"
+        assert retrieved.idempotency_key == "idem-upsert-1"
+        assert retrieved.idempotency_fingerprint == "f" * 64
+        assert retrieved.parent_execution_id == "parent-1"
+
+    def test_dequeued_at_and_worker_id_survive_final_save(self, storage):
+        """dequeued_at/worker_id written by mark_record_running survive the
+        executor's final save, which does not know them."""
+        storage.save_record(self._make_record("upsert-dequeue", "queued"))
+        assert storage.mark_record_running("upsert-dequeue", worker_id="worker-7")
+        intermediate = storage.get_record("upsert-dequeue")
+        assert intermediate.dequeued_at is not None
+
+        storage.save_record(self._make_record("upsert-dequeue", "succeeded", stdout="ok"))
+
+        retrieved = storage.get_record("upsert-dequeue")
+        assert retrieved.status == "succeeded"
+        assert retrieved.stdout == "ok"
+        assert retrieved.dequeued_at == intermediate.dequeued_at
+        assert retrieved.worker_id == "worker-7"
+
+    def test_terminal_record_not_overwritten(self, storage, caplog):
+        """A terminal (succeeded) record is not regressed by a stale write
+        (e.g. a cancel/complete race); save_record logs and returns."""
+        import logging
+
+        storage.save_record(self._make_record("upsert-terminal", "succeeded", stdout="ok"))
+
+        with caplog.at_level(logging.WARNING, logger="tako_vm.storage"):
+            storage.save_record(self._make_record("upsert-terminal", "cancelled"))
+
+        retrieved = storage.get_record("upsert-terminal")
+        assert retrieved.status == "succeeded"
+        assert retrieved.stdout == "ok"
+        assert any("Refused to overwrite terminal" in m for m in caplog.messages)
+
+    def test_non_terminal_to_terminal_transition_allowed(self, storage):
+        """queued/running records can still transition to a terminal status."""
+        storage.save_record(self._make_record("upsert-transition", "queued"))
+        storage.save_record(self._make_record("upsert-transition", "running"))
+        storage.save_record(self._make_record("upsert-transition", "failed", stderr="boom"))
+
+        retrieved = storage.get_record("upsert-transition")
+        assert retrieved.status == "failed"
+        assert retrieved.stderr == "boom"
+
+
+class TestSaveRecordRetry:
+    """save_record retries transient connection errors with backoff."""
+
+    @staticmethod
+    def _fake_pool(attempts: dict, failures: int, exc_factory):
+        """Pool whose connection() raises for the first `failures` attempts."""
+
+        class FakeCursor:
+            rowcount = 1
+
+        class FakeConn:
+            async def execute(self, *args, **kwargs):
+                return FakeCursor()
+
+        class FakeConnCtx:
+            async def __aenter__(self):
+                attempts["n"] += 1
+                if attempts["n"] <= failures:
+                    raise exc_factory()
+                return FakeConn()
+
+            async def __aexit__(self, *exc_info):
+                return False
+
+        class FakePool:
+            def connection(self):
+                return FakeConnCtx()
+
+        return FakePool()
+
+    @staticmethod
+    def _record() -> ExecutionRecord:
+        return ExecutionRecord(
+            execution_id="retry-test",
+            status="succeeded",
+            code_hash="a" * 64,
+            input_hash="b" * 64,
+        )
+
+    def test_transient_error_retried_then_succeeds(self, monkeypatch, caplog):
+        """Two OperationalErrors then success: record saved, two warnings."""
+        import logging
+
+        import psycopg
+
+        from tako_vm import storage as storage_module
+
+        store = ExecutionStorage("postgresql://unused")
+        attempts = {"n": 0}
+        monkeypatch.setattr(
+            store,
+            "_get_pool",
+            lambda: self._fake_pool(
+                attempts, 2, lambda: psycopg.OperationalError("connection refused")
+            ),
+        )
+        monkeypatch.setattr(storage_module, "_SAVE_RECORD_RETRY_DELAYS", (0, 0, 0))
+
+        with caplog.at_level(logging.WARNING, logger="tako_vm.storage"):
+            asyncio.run(store.save_record(self._record()))
+
+        assert attempts["n"] == 3
+        retry_warnings = [m for m in caplog.messages if "Transient error saving" in m]
+        assert len(retry_warnings) == 2
+
+    def test_persistent_transient_error_raises(self, monkeypatch):
+        """OperationalError on every attempt eventually propagates."""
+        import psycopg
+
+        from tako_vm import storage as storage_module
+
+        store = ExecutionStorage("postgresql://unused")
+        attempts = {"n": 0}
+        monkeypatch.setattr(
+            store,
+            "_get_pool",
+            lambda: self._fake_pool(
+                attempts, 100, lambda: psycopg.OperationalError("connection refused")
+            ),
+        )
+        monkeypatch.setattr(storage_module, "_SAVE_RECORD_RETRY_DELAYS", (0, 0, 0))
+
+        with pytest.raises(psycopg.OperationalError):
+            asyncio.run(store.save_record(self._record()))
+
+        assert attempts["n"] == len(storage_module._SAVE_RECORD_RETRY_DELAYS) + 1
+
+    def test_non_transient_error_not_retried(self, monkeypatch):
+        """IntegrityError (non-connection) propagates immediately, no retry."""
+        import psycopg
+
+        store = ExecutionStorage("postgresql://unused")
+        attempts = {"n": 0}
+        monkeypatch.setattr(
+            store,
+            "_get_pool",
+            lambda: self._fake_pool(attempts, 100, lambda: psycopg.IntegrityError("duplicate key")),
+        )
+
+        with pytest.raises(psycopg.IntegrityError):
+            asyncio.run(store.save_record(self._record()))
+
+        assert attempts["n"] == 1
