@@ -26,8 +26,15 @@ from tako_vm.config import (
 
 
 @pytest.fixture(autouse=True)
-def reset_config_fixture():
-    """Reset config before and after each test."""
+def reset_config_fixture(monkeypatch):
+    """Reset config and scrub config env overrides before and after each test.
+
+    Other test modules legitimately mutate process env (e.g. the CLI's managed
+    postgres helper sets TAKO_VM_DATABASE_URL); if those leak in, load_config's
+    env override layer silently replaces values under test.
+    """
+    for var in ("TAKO_VM_CONFIG", "TAKO_VM_DATABASE_URL", "TAKO_VM_SECURITY_MODE"):
+        monkeypatch.delenv(var, raising=False)
     reset_config()
     yield
     reset_config()
