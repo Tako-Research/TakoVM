@@ -164,7 +164,9 @@ class TestCLIStatus:
             text=True,
         )
         assert result.returncode == 1
-        assert "cannot connect" in result.stdout.lower() or "error" in result.stdout.lower()
+        # Errors are written to stderr (stdout stays clean for parseable output).
+        combined = (result.stdout + result.stderr).lower()
+        assert "cannot connect" in combined or "error" in combined
 
 
 class TestCLIConfigPath:
@@ -267,6 +269,7 @@ class TestCheckStatusFunction:
         from tako_vm.cli import check_status
 
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "status": "healthy",
             "docker_available": True,
@@ -291,6 +294,7 @@ class TestCheckStatusFunction:
         from tako_vm.cli import check_status
 
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "status": "degraded",
             "docker_available": False,

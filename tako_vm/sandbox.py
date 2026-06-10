@@ -439,8 +439,14 @@ class Sandbox:
                     if output_file.exists():
                         try:
                             output_data = json.loads(output_file.read_text())
-                        except json.JSONDecodeError:
-                            pass
+                        except (json.JSONDecodeError, OSError, ValueError) as e:
+                            # Output existed but was unreadable/unparseable.
+                            # Don't silently present None as "no output".
+                            logger.warning(
+                                "result.json for %s was not valid JSON, ignoring: %s",
+                                container_name,
+                                e,
+                            )
 
                     # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced
                     # by entrypoint.sh via timeout(1)) exits 124 when the code
@@ -482,18 +488,38 @@ class Sandbox:
 
                 except subprocess.TimeoutExpired as exc:
                     duration_ms = int((time.time() - start_time) * 1000)
+                    # Reaching the host backstop means the in-container timeout
+                    # (TAKO_EXECUTION_TIMEOUT) did NOT fire — daemon hung, heavy
+                    # container overhead, or a stuck startup phase. Report the
+                    # real budget consumed (subprocess_timeout), not the inner
+                    # code timeout, and say which limit tripped.
+                    logger.warning(
+                        "Sandbox %s hit the host timeout backstop after %ss "
+                        "(in-container timeout did not fire)",
+                        container_name,
+                        subprocess_timeout,
+                    )
                     return SandboxResult(
                         stdout=_decode_stream(exc.stdout),
                         stderr=_decode_stream(exc.stderr),
                         exit_code=-1,
                         success=False,
-                        error=f"Execution timed out after {timeout}s",
+                        error=(
+                            f"Execution killed by host backstop after "
+                            f"{subprocess_timeout}s (in-container timeout did not fire)"
+                        ),
                         duration_ms=duration_ms,
                     )
             finally:
-                # Best-effort kill+remove (`docker rm -f`, errors swallowed);
-                # the labeled orphan cleanup at startup is the backstop.
-                remove_container(container_name)
+                # Best-effort kill+remove (`docker rm -f`). A failure here leaks
+                # a sandbox container; the labeled orphan cleanup at startup is
+                # the backstop, but surface it so the leak isn't invisible.
+                if not remove_container(container_name):
+                    logger.warning(
+                        "Failed to remove sandbox container %s; "
+                        "relying on startup orphan cleanup",
+                        container_name,
+                    )
 
         finally:
             # Cleanup
@@ -603,8 +629,10 @@ class Sandbox:
         for i, pkg_dir in enumerate(self.config.package_dirs):
             pkg_path = Path(pkg_dir).absolute()
             if not pkg_path.exists():
-                logger.warning("Package directory does not exist: %s", pkg_dir)
-                continue
+                # The caller explicitly asked for this dependency; silently
+                # dropping it would surface later as a confusing in-sandbox
+                # ModuleNotFoundError instead of at the misconfiguration site.
+                raise ValueError(f"Package directory does not exist: {pkg_dir}")
             mount_target = f"/packages/pkg{i}"
             cmd.append(f"--mount=type=bind,source={pkg_path},target={mount_target},readonly")
             pythonpath_parts.append(mount_target)

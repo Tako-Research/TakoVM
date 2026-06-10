@@ -785,6 +785,16 @@ async def health_check():
     Returns:
         Health status including Docker availability, circuit breaker, and queue stats
     """
+    # /health is exempt from auth and is what load balancers poll during
+    # startup/shutdown. Before lifespan assigns the worker pool (or after
+    # stop()), report a clear 503 "starting" instead of letting the
+    # state.worker_pool access raise an opaque 500.
+    if not hasattr(state, "worker_pool"):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "detail": "Server is not ready yet"},
+        )
+
     circuit_breaker = get_circuit_breaker()
     docker_available = circuit_breaker.check_docker_health()
     gvisor_available = check_gvisor_available()

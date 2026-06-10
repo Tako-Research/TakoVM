@@ -254,11 +254,25 @@ def check_gvisor_available() -> bool:
             text=True,
             timeout=10,
         )
-        _gvisor_available = result.returncode == 0 and "runsc" in result.stdout
+        if result.returncode != 0:
+            # `docker info` failed (daemon not up yet, transient hiccup). Don't
+            # cache this as "gVisor unavailable" — a one-time probe failure
+            # would otherwise sticky-degrade every later job to runc in
+            # permissive mode. Leave the cache unset so we re-probe next call.
+            logger.warning(
+                "gVisor probe inconclusive: `docker info` exited %s (%s); "
+                "will re-check on next job",
+                result.returncode,
+                (result.stderr or "").strip()[:200],
+            )
+            return False
+        _gvisor_available = "runsc" in result.stdout
         return _gvisor_available
     except Exception as e:
-        logger.warning(f"Failed to check gVisor availability: {e}")
-        _gvisor_available = False
+        # Transient failure (timeout, docker missing momentarily): log and
+        # return False WITHOUT caching, so a flaky probe doesn't permanently
+        # disable gVisor for the process lifetime.
+        logger.warning("Failed to check gVisor availability (will re-check): %s", e)
         return False
 
 
@@ -838,8 +852,13 @@ class CodeExecutor:
             elif output_file.exists():
                 try:
                     record.result_json = json.loads(output_file.read_text(encoding="utf-8"))
-                except json.JSONDecodeError:
-                    pass
+                except (json.JSONDecodeError, OSError, ValueError) as e:
+                    # Output existed but was unreadable/unparseable (truncated,
+                    # non-UTF-8, device error). Surface it loudly instead of
+                    # presenting result_json=None as "no output produced".
+                    logger.warning(
+                        "Failed to read/parse result.json for job %s: %s", job_id, e
+                    )
 
             # Parse phase timing file (written by entrypoint.sh). The
             # root-only meta_dir copy is preferred; the /output copy is a
@@ -906,6 +925,17 @@ class CodeExecutor:
                         phase=phase,
                     )
                 else:
+                    if result.get("oom_killed") is None:
+                        # inspect was inconclusive (daemon unreachable, container
+                        # already gone). We default to OOM so a flaky inspect
+                        # never loses a true OOM — but the classification is a
+                        # guess, so say so loudly rather than reporting a
+                        # confident "oom".
+                        logger.warning(
+                            "Job %s exited 137 but OOM inspect was inconclusive; "
+                            "defaulting to OOM classification",
+                            job_id,
+                        )
                     record.status = "oom"
                     record.error = ExecutionError(
                         type="oom",
@@ -950,7 +980,9 @@ class CodeExecutor:
             return record
 
         except Exception as e:
-            # Unexpected error
+            # Unexpected error — keep the full traceback server-side; the
+            # sanitized message is all the API consumer sees.
+            logger.exception("Unexpected error executing job %s: %s", job_id, e)
             record.status = "failed"
             record.ended_at = datetime.now(timezone.utc)
             record.error = ExecutionError(type="internal_error", message=sanitize_error(str(e)))
@@ -1283,6 +1315,10 @@ class CodeExecutor:
         # Check circuit breaker before attempting Docker operation
         circuit_breaker = get_circuit_breaker()
         if not circuit_breaker.is_available:
+            logger.warning(
+                "Refusing job %s: Docker circuit breaker is open (repeated Docker failures)",
+                job_id,
+            )
             return {
                 "success": False,
                 "error": "Docker service unavailable (circuit breaker open)",
@@ -1337,6 +1373,12 @@ class CodeExecutor:
         requirements_file = input_dir / "_requirements.txt"
         if validated_reqs:
             if not self.config.allow_runtime_requirements:
+                logger.warning(
+                    "Refusing job %s: %d runtime requirement(s) requested but "
+                    "allow_runtime_requirements=false",
+                    job_id,
+                    len(validated_reqs),
+                )
                 return {
                     "success": False,
                     "error": "Runtime dependency installation is disabled",
@@ -1457,6 +1499,10 @@ class CodeExecutor:
 
         container_timeout = startup_timeout + timeout + 5
         if not validate_docker_run_args(cmd):
+            logger.error(
+                "Refusing job %s: docker run arguments failed safety validation",
+                job_id,
+            )
             return {
                 "success": False,
                 "error": "Unsafe Docker command rejected",
@@ -1525,7 +1571,15 @@ class CodeExecutor:
         except subprocess.TimeoutExpired as e:
             # Timeout is not a Docker failure, don't record with circuit breaker
             # Kill the orphaned container (subprocess died but container keeps running)
-            kill_container(container_name)
+            if not kill_container(container_name):
+                # An untrusted container that outlived its host timeout and
+                # could not be killed is a real containment concern — surface it.
+                logger.warning(
+                    "Failed to kill container %s after host timeout for job %s; "
+                    "it may still be running",
+                    container_name,
+                    job_id,
+                )
             return {
                 "success": False,
                 "error": f"Execution timeout exceeded ({timeout}s)",
@@ -1552,6 +1606,15 @@ class CodeExecutor:
         except Exception as e:
             # Other errors might be Docker-related
             # Kill container in case it was started before the error
+            logger.error(
+                "Unexpected error running container for job %s: %s",
+                job_id,
+                e,
+                exc_info=True,
+            )
+            # Best-effort kill; the container may never have started (error
+            # before `docker run`), so a False return here is often benign and
+            # not worth a warning — the finally block removes it regardless.
             kill_container(container_name)
             error_msg = str(e).lower()
             if "docker" in error_msg or "daemon" in error_msg or "connection" in error_msg:
