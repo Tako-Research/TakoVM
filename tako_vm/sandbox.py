@@ -510,14 +510,18 @@ class Sandbox:
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
-        # Shared isolation base: --rm/--init/--read-only, capability drops, and
-        # the gVisor --runtime flag, resolved via the shared resolver so the
+        # Shared isolation base: --rm/--init/--read-only, capability drops, the
+        # tako-vm-executor label (so startup cleanup can find orphans), and the
+        # gVisor --runtime flag, resolved via the shared resolver so the
         # library path enforces the same posture as CodeExecutor (and fails
-        # closed in strict mode when gVisor is unavailable).
+        # closed in strict mode when gVisor is unavailable). Library-mode runs
+        # have no ExecutionRecord, so the unique container name doubles as the
+        # traceability ID.
         cmd = base_isolation_args(
             container_name,
             runtime=resolve_runtime(get_config()),
             enable_cap_restrictions=self.config.enable_cap_restrictions,
+            execution_id=container_name,
         )
 
         # Network isolation

@@ -8,6 +8,8 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from tako_vm.execution.docker import (
+    CONTAINER_LABEL,
+    EXECUTION_ID_LABEL,
     base_isolation_args,
     generate_container_name,
     is_native_linux,
@@ -137,14 +139,30 @@ class TestBaseIsolationArgs:
     def test_always_on_flags_present(self):
         """The fixed isolation flags are always emitted, in order."""
         args = base_isolation_args("c1", runtime="runc")
-        assert args[:6] == [
+        assert args[:7] == [
             "docker",
             "run",
             "--rm",
             "--name=c1",
+            f"--label={CONTAINER_LABEL}",
             "--init",
             "--read-only",
         ]
+
+    def test_executor_label_always_applied(self):
+        """Every container gets the executor label so cleanup can find orphans."""
+        args = base_isolation_args("c1", runtime="runc")
+        assert f"--label={CONTAINER_LABEL}" in args
+
+    def test_execution_id_label_applied_when_given(self):
+        """The execution-id label maps a container back to its execution record."""
+        args = base_isolation_args("c1", runtime="runc", execution_id="job-42")
+        assert f"--label={EXECUTION_ID_LABEL}=job-42" in args
+
+    def test_execution_id_label_omitted_when_absent(self):
+        """No execution-id label when no execution id is provided."""
+        args = base_isolation_args("c1", runtime="runc")
+        assert not any(a.startswith(f"--label={EXECUTION_ID_LABEL}") for a in args)
 
     def test_caps_dropped_by_default(self):
         """Capabilities are dropped and only SETUID/SETGID re-added by default."""
