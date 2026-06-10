@@ -31,18 +31,65 @@ A preconfigured ``requests.Session`` may be supplied for retries, mTLS, proxies,
 connection pooling, etc.:
 
     client = TakoVM("https://tako.internal", session=my_session)
+
+Reliability notes:
+
+- When no session is supplied, the SDK builds a pooled ``requests.Session``
+  that transparently retries idempotent GETs (status/result polling, job
+  types, health) on 502/503/504. POSTs are never retried at the transport
+  layer because the sync ``/execute`` endpoint is not idempotent (a blind
+  retry could re-execute the code).
+- For retry-safe submission use ``submit()``/``submit_code()``, which go
+  through the async API with an auto-generated idempotency key so a retried
+  POST returns the existing job instead of double-executing.
+- Every request carries an ``X-Correlation-ID`` header; the id is exposed on
+  results and exceptions for end-to-end tracing.
+- HTTP failures raise a structured taxonomy: ``TransportError`` for
+  connection/timeout failures, ``ServerError`` (with ``retryable``) for 5xx,
+  and ``ClientError`` for 4xx, all carrying the server's ``detail`` and
+  correlation id. The sync ``send()``/``send_raw()`` path keeps its legacy
+  contract and reports these as a failed ``ExecutionResult`` instead.
 """
 
 import inspect
+import json
+import logging
 import textwrap
+import time
+import uuid
 from dataclasses import MISSING, asdict, dataclass, fields, is_dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, cast, get_type_hints
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+logger = logging.getLogger(__name__)
 
 # Type variables for generic typing
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
+
+# Header used by the server's CorrelationIdMiddleware
+CORRELATION_ID_HEADER = "X-Correlation-ID"
+
+# Connect timeout: establishing a TCP connection should be fast.
+DEFAULT_CONNECT_TIMEOUT = 10.0
+
+# Server-side caps (see ExecuteRequest in tako_vm/server/app.py):
+# execution timeout <= 300s, startup timeout <= 600s. When we cannot determine
+# the effective execution timeout, the HTTP read timeout must cover the worst
+# case so the client never kills a job that the server would still complete.
+MAX_SERVER_EXEC_TIMEOUT = 300.0
+MAX_SERVER_STARTUP_TIMEOUT = 600.0
+HTTP_TIMEOUT_BUFFER = 30.0
+FALLBACK_READ_TIMEOUT = MAX_SERVER_EXEC_TIMEOUT + MAX_SERVER_STARTUP_TIMEOUT + HTTP_TIMEOUT_BUFFER
+
+# Async submission: retries are safe because every submission carries an
+# idempotency key, so a retried POST returns the existing job.
+SUBMIT_MAX_ATTEMPTS = 3
+SUBMIT_BACKOFF_INITIAL = 0.5
+SUBMIT_BACKOFF_CAP = 8.0
 
 
 @dataclass
@@ -56,19 +103,78 @@ class ExecutionResult:
     stderr: str
     error: Optional[str] = None
     job_type: Optional[str] = None
+    exit_code: Optional[int] = None
+    correlation_id: Optional[str] = None
+    job_id: Optional[str] = None
 
 
 class TakoVMError(Exception):
     """Base exception for tako_vm errors."""
 
 
+class TransportError(TakoVMError):
+    """Raised when the HTTP request itself fails (connection, DNS, timeout).
+
+    The request may or may not have reached the server, so the SDK never
+    retries non-idempotent POSTs after this error.
+    """
+
+    def __init__(self, message: str, correlation_id: Optional[str] = None):
+        super().__init__(message)
+        self.correlation_id = correlation_id
+
+
+class APIError(TakoVMError):
+    """Base for HTTP error responses from the server (4xx/5xx)."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        detail: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = detail
+        self.correlation_id = correlation_id
+
+
+class ServerError(APIError):
+    """Raised on 5xx responses. ``retryable`` is True for 502/503/504."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        detail: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        retryable: bool = False,
+    ):
+        super().__init__(message, status_code, detail, correlation_id)
+        self.retryable = retryable
+
+
+class ClientError(APIError):
+    """Raised on 4xx responses (invalid request, not found, conflict, ...)."""
+
+
 class SDKExecutionError(TakoVMError):
     """Raised when code execution fails via the SDK."""
 
-    def __init__(self, message: str, stdout: str = "", stderr: str = ""):
+    def __init__(
+        self,
+        message: str,
+        stdout: str = "",
+        stderr: str = "",
+        exit_code: Optional[int] = None,
+        correlation_id: Optional[str] = None,
+    ):
         super().__init__(message)
         self.stdout = stdout
         self.stderr = stderr
+        self.exit_code = exit_code
+        self.correlation_id = correlation_id
 
 
 # Backward compatibility alias
@@ -77,6 +183,30 @@ ExecutionError = SDKExecutionError
 
 class ValidationError(TakoVMError):
     """Raised when input/output validation fails."""
+
+
+def _build_session(pool_size: int = 10) -> requests.Session:
+    """Build a pooled session that retries idempotent GETs only.
+
+    POSTs are deliberately excluded from transport-level retries: the sync
+    ``/execute`` endpoint is not idempotent, so a blind retry could execute
+    the submitted code twice. Retry-safe submission is provided by
+    ``TakoVM.submit()``/``submit_code()`` via the async API's idempotency keys.
+    """
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.5,
+        status_forcelist=(502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=pool_size, pool_maxsize=pool_size)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 class TakoVM:
@@ -98,6 +228,8 @@ class TakoVM:
         timeout: int = 30,
         headers: Optional[Dict[str, str]] = None,
         session: Optional[requests.Session] = None,
+        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+        correlation_id: Optional[str] = None,
     ):
         """
         Initialize the TakoVM client.
@@ -110,12 +242,51 @@ class TakoVM:
                 ``{"Authorization": "Bearer ..."}``); the SDK does not
                 interpret them.
             session: Optional preconfigured ``requests.Session`` (retries,
-                mTLS, proxies, pooling). A fresh session is created otherwise.
+                mTLS, proxies, pooling). When omitted, a pooled session with
+                a GET-only retry adapter is created.
+            connect_timeout: HTTP connect timeout in seconds (kept short).
+            correlation_id: Fixed correlation id to send on every request.
+                If not set, a fresh id is generated per request.
         """
         self.base_url = base_url.rstrip("/")
         self.default_timeout = timeout
+        self.connect_timeout = connect_timeout
+        self.correlation_id = correlation_id
         self._headers = dict(headers) if headers else {}
-        self._session = session or requests.Session()
+        self._session = session or _build_session()
+        # Cache of job type name -> effective execution timeout (or None).
+        self._job_type_timeouts: Dict[str, Optional[int]] = {}
+
+    # ------------------------------------------------------------------ #
+    # HTTP plumbing
+    # ------------------------------------------------------------------ #
+
+    def _resolve_correlation_id(self, correlation_id: Optional[str]) -> str:
+        return correlation_id or self.correlation_id or str(uuid.uuid4())
+
+    @staticmethod
+    def _parse_error_body(response: requests.Response) -> Tuple[str, Optional[str]]:
+        """Extract (detail, correlation_id) from a FastAPI JSON error body."""
+        detail: Optional[str] = None
+        correlation_id: Optional[str] = None
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            raw_detail = body.get("detail")
+            if isinstance(raw_detail, str):
+                detail = raw_detail
+            elif raw_detail is not None:
+                # 422 validation errors are a list of dicts
+                detail = json.dumps(raw_detail)
+            raw_cid = body.get("correlation_id")
+            if isinstance(raw_cid, str):
+                correlation_id = raw_cid
+        if detail is None:
+            text = (response.text or "").strip()
+            detail = text[:500] if text else f"HTTP {response.status_code}"
+        return detail, correlation_id
 
     def _request(
         self,
@@ -124,19 +295,106 @@ class TakoVM:
         *,
         expect_json: bool = True,
         http_timeout: Optional[float] = None,
+        correlation_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Any:
-        """Issue a request, forwarding the caller-supplied auth headers."""
-        merged = {**self._headers, **kwargs.pop("headers", {})}
-        response = self._session.request(
-            method,
-            f"{self.base_url}{path}",
-            headers=merged or None,
-            timeout=http_timeout if http_timeout is not None else self.default_timeout + 10,
-            **kwargs,
-        )
-        response.raise_for_status()
+        """Issue a request, forwarding the caller-supplied auth headers.
+
+        Every request carries an ``X-Correlation-ID`` header (caller-supplied
+        headers win on conflict). Failures are translated into the SDK error
+        taxonomy.
+
+        Raises:
+            TransportError: connection/DNS/timeout failures
+            ServerError: 5xx responses (``retryable`` set for 502/503/504)
+            ClientError: 4xx responses
+        """
+        cid = self._resolve_correlation_id(correlation_id)
+        merged = {CORRELATION_ID_HEADER: cid, **self._headers, **kwargs.pop("headers", {})}
+        read_timeout = http_timeout if http_timeout is not None else self.default_timeout + 10
+        try:
+            response = self._session.request(
+                method,
+                f"{self.base_url}{path}",
+                headers=merged,
+                timeout=(self.connect_timeout, read_timeout),
+                **kwargs,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning("Transport error on %s %s (correlation_id=%s): %s", method, path, cid, e)
+            raise TransportError(f"{method} {path} failed: {e}", correlation_id=cid) from e
+
+        if response.status_code >= 400:
+            detail, body_cid = self._parse_error_body(response)
+            resp_cid = body_cid or response.headers.get(CORRELATION_ID_HEADER) or cid
+            logger.warning(
+                "%s %s returned %s (correlation_id=%s): %s",
+                method,
+                path,
+                response.status_code,
+                resp_cid,
+                detail,
+            )
+            if response.status_code >= 500:
+                raise ServerError(
+                    f"Server error {response.status_code} on {method} {path}: {detail}",
+                    status_code=response.status_code,
+                    detail=detail,
+                    correlation_id=resp_cid,
+                    retryable=response.status_code in (502, 503, 504),
+                )
+            raise ClientError(
+                f"Client error {response.status_code} on {method} {path}: {detail}",
+                status_code=response.status_code,
+                detail=detail,
+                correlation_id=resp_cid,
+            )
         return response.json() if expect_json else response
+
+    def _job_type_timeout(self, job_type: Optional[str]) -> Optional[int]:
+        """Best-effort lookup of a job type's effective execution timeout.
+
+        Results (including lookup failures) are cached per client to keep
+        this cheap; it is only consulted when the caller omits ``timeout``.
+        """
+        name = (job_type or "default").split("@")[0]
+        if name in self._job_type_timeouts:
+            return self._job_type_timeouts[name]
+        resolved: Optional[int] = None
+        try:
+            info = self._request("GET", f"/job-types/{name}", http_timeout=10)
+            value = info.get("timeout") if isinstance(info, dict) else None
+            if isinstance(value, int):
+                resolved = value
+        except TakoVMError as e:
+            logger.debug("Could not resolve timeout for job type %r: %s", name, e)
+        self._job_type_timeouts[name] = resolved
+        return resolved
+
+    def _resolve_read_timeout(
+        self,
+        timeout: Optional[int],
+        startup_timeout: Optional[int],
+        job_type: Optional[str],
+    ) -> float:
+        """Pick an HTTP read timeout that always outlives the server-side job.
+
+        The server resolves an omitted ``timeout`` to the job type's default
+        and additionally allows a startup phase (dependency install), so a
+        naive ``default_timeout + 10`` read timeout would kill long jobs
+        client-side while they succeed server-side.
+        """
+        exec_t: Optional[float] = float(timeout) if timeout is not None else None
+        if exec_t is None:
+            jt = self._job_type_timeout(job_type)
+            if jt is not None:
+                exec_t = float(jt)
+        startup_t = (
+            float(startup_timeout) if startup_timeout is not None else MAX_SERVER_STARTUP_TIMEOUT
+        )
+        if exec_t is None:
+            return FALLBACK_READ_TIMEOUT
+        return exec_t + startup_t + HTTP_TIMEOUT_BUFFER
 
     # ------------------------------------------------------------------ #
     # Typed function execution (synchronous)
@@ -151,6 +409,7 @@ class TakoVM:
         requirements: Optional[List[str]] = None,
         startup_timeout: Optional[int] = None,
         idempotency_key: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> OutputT:
         """
         Execute a typed function in an isolated container and return its output.
@@ -164,6 +423,7 @@ class TakoVM:
                 ``["pandas", "numpy>=1.20"]`` (requires the server to allow it).
             startup_timeout: Timeout for the startup phase (container + deps).
             idempotency_key: Client key for idempotent submission.
+            correlation_id: Correlation id for tracing (auto-generated if omitted).
 
         Returns:
             Output dataclass instance.
@@ -182,11 +442,16 @@ class TakoVM:
             requirements=requirements,
             startup_timeout=startup_timeout,
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
         )
 
         if not result.success:
             raise ExecutionError(
-                result.error or "Execution failed", stdout=result.stdout, stderr=result.stderr
+                result.error or "Execution failed",
+                stdout=result.stdout,
+                stderr=result.stderr,
+                exit_code=result.exit_code,
+                correlation_id=result.correlation_id,
             )
 
         try:
@@ -205,6 +470,7 @@ class TakoVM:
         requirements: Optional[List[str]] = None,
         startup_timeout: Optional[int] = None,
         idempotency_key: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> ExecutionResult:
         """
         Execute a typed function and return the raw result.
@@ -222,6 +488,7 @@ class TakoVM:
             requirements=requirements,
             startup_timeout=startup_timeout,
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
         )
 
         if result.success and result.output:
@@ -268,8 +535,16 @@ class TakoVM:
         requirements: Optional[List[str]] = None,
         startup_timeout: Optional[int] = None,
         idempotency_key: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> ExecutionResult:
-        """Execute code synchronously via POST /execute."""
+        """Execute code synchronously via POST /execute.
+
+        This POST is intentionally never retried: ``/execute`` is not
+        idempotent, so a retry after an ambiguous transport failure could run
+        the code twice. Use submit()/submit_code() for retry-safe submission.
+        Transport and HTTP errors are reported as a failed ExecutionResult
+        (legacy contract) carrying the correlation id.
+        """
         payload = self._execute_payload(
             code,
             input_data,
@@ -279,14 +554,24 @@ class TakoVM:
             startup_timeout=startup_timeout,
             idempotency_key=idempotency_key,
         )
+        cid = self._resolve_correlation_id(correlation_id)
+        read_timeout = self._resolve_read_timeout(timeout, startup_timeout, job_type)
+        logger.debug(
+            "Submitting sync execution (correlation_id=%s, job_type=%s, read_timeout=%.0fs)",
+            cid,
+            job_type or "default",
+            read_timeout,
+        )
         try:
-            data = self._request(
+            response = self._request(
                 "POST",
                 "/execute",
                 json=payload,
-                http_timeout=(timeout or self.default_timeout) + 10,
+                expect_json=False,
+                http_timeout=read_timeout,
+                correlation_id=cid,
             )
-        except requests.exceptions.RequestException as e:
+        except (TransportError, APIError) as e:
             return ExecutionResult(
                 success=False,
                 output=None,
@@ -294,8 +579,16 @@ class TakoVM:
                 stdout="",
                 stderr="",
                 error=f"Request failed: {e}",
+                correlation_id=e.correlation_id or cid,
             )
 
+        data = response.json()
+        result_cid = response.headers.get(CORRELATION_ID_HEADER) or cid
+        logger.debug(
+            "Sync execution finished (correlation_id=%s, success=%s)",
+            result_cid,
+            data.get("success", False),
+        )
         return ExecutionResult(
             success=data.get("success", False),
             output=data.get("output"),
@@ -304,6 +597,9 @@ class TakoVM:
             stderr=data.get("stderr", ""),
             error=data.get("error"),
             job_type=data.get("job_type"),
+            exit_code=data.get("exit_code"),
+            correlation_id=result_cid,
+            job_id=data.get("execution_id") or data.get("job_id"),
         )
 
     @staticmethod
@@ -430,8 +726,17 @@ _execute()
         job_type: Optional[str] = None,
         requirements: Optional[List[str]] = None,
         idempotency_key: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
-        """Submit raw code for asynchronous execution; returns the job id."""
+        """Submit raw code for asynchronous execution; returns the job id.
+
+        An idempotency key is auto-generated when not supplied, which makes
+        submission retry-safe: transient failures (transport errors,
+        502/503/504) are retried with backoff using the *same* key, so the
+        server returns the existing job instead of executing the code twice.
+        """
+        key = idempotency_key or f"sdk-{uuid.uuid4().hex}"
+        cid = self._resolve_correlation_id(correlation_id)
         payload = self._execute_payload(
             code,
             input_data or {},
@@ -439,9 +744,30 @@ _execute()
             job_type=job_type,
             requirements=requirements,
             startup_timeout=startup_timeout,
-            idempotency_key=idempotency_key,
+            idempotency_key=key,
         )
-        return self._request("POST", "/execute/async", json=payload)["job_id"]
+        logger.debug("Submitting async job (correlation_id=%s, idempotency_key=%s)", cid, key)
+        for attempt in range(SUBMIT_MAX_ATTEMPTS):
+            try:
+                data = self._request("POST", "/execute/async", json=payload, correlation_id=cid)
+                break
+            except (TransportError, ServerError) as e:
+                if isinstance(e, ServerError) and not e.retryable:
+                    raise
+                if attempt == SUBMIT_MAX_ATTEMPTS - 1:
+                    raise
+                delay = min(SUBMIT_BACKOFF_INITIAL * (2**attempt), SUBMIT_BACKOFF_CAP)
+                logger.warning(
+                    "Async submit attempt %d failed (correlation_id=%s), retrying in %.1fs: %s",
+                    attempt + 1,
+                    cid,
+                    delay,
+                    e,
+                )
+                time.sleep(delay)
+        job_id = data["job_id"]
+        logger.debug("Async job %s queued (correlation_id=%s)", job_id, cid)
+        return job_id
 
     def submit(
         self,
@@ -453,6 +779,7 @@ _execute()
         job_type: Optional[str] = None,
         requirements: Optional[List[str]] = None,
         idempotency_key: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> str:
         """Submit a typed function for asynchronous execution; returns the job id."""
         input_cls, output_cls = self._resolve_io_types(func, input_data)
@@ -465,6 +792,7 @@ _execute()
             job_type=job_type,
             requirements=requirements,
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
         )
 
     def get_status(self, job_id: str) -> dict:
