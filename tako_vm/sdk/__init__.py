@@ -5,10 +5,14 @@ Provides a typed interface for executing functions in isolated containers.
 """
 
 from tako_vm.sdk.client import (
+    APIError,
+    ClientError,
     ExecutionError,
     ExecutionResult,
+    ServerError,
     TakoVM,
     TakoVMError,
+    TransportError,
     ValidationError,
     configure,
     get_job_type,
@@ -26,6 +30,10 @@ __all__ = [
     "TakoVM",
     "ExecutionResult",
     "TakoVMError",
+    "TransportError",
+    "APIError",
+    "ServerError",
+    "ClientError",
     "ExecutionError",
     "ValidationError",
 ]

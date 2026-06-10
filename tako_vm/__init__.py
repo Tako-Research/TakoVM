@@ -46,11 +46,15 @@ from tako_vm.models import Artifact, ExecutionRecord, JobVersion, ResourceUsage
 from tako_vm.sandbox import Sandbox, SandboxResult
 from tako_vm.sandbox import run as sandbox_run
 from tako_vm.sdk.client import (
+    APIError,
+    ClientError,
     ExecutionError,
     ExecutionResult,
     SDKExecutionError,
+    ServerError,
     TakoVM,
     TakoVMError,
+    TransportError,
     ValidationError,
     configure,
     get_job_type,
@@ -91,6 +95,10 @@ __all__ = [
     "MAX_REQUIREMENTS",
     # Exceptions
     "TakoVMError",
+    "TransportError",
+    "APIError",
+    "ServerError",
+    "ClientError",
     "SDKExecutionError",
     "ExecutionError",  # Backward compatibility alias for SDKExecutionError
     "ValidationError",
