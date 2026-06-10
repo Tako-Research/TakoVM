@@ -433,6 +433,14 @@ class Sandbox:
                     except json.JSONDecodeError:
                         pass
 
+                # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced by
+                # entrypoint.sh via timeout(1)) exits 124 when the code exceeds
+                # its budget, so most timeouts return here rather than through
+                # the TimeoutExpired backstop below. Surface them as timeouts.
+                error = None
+                if proc.returncode == 124:
+                    error = f"Execution timed out after {timeout}s"
+
                 return SandboxResult(
                     stdout=proc.stdout,
                     stderr=proc.stderr,
@@ -440,6 +448,7 @@ class Sandbox:
                     success=proc.returncode == 0,
                     output=output_data,
                     duration_ms=duration_ms,
+                    error=error,
                 )
 
             except subprocess.TimeoutExpired as exc:

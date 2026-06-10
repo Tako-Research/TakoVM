@@ -527,13 +527,18 @@ class CodeExecutor:
         input_data = job.get("input_data", {})
 
         job_type_name = job.get("job_type") or "default"
+        # created_at/queued_at are intentionally left to the model defaults
+        # (now): the executor runs at execution start and does not know the
+        # true submission timestamps. For async jobs, queue.submit() already
+        # persisted them, and storage.save_record's upsert preserves the
+        # existing row's submission-identity fields (created_at, queued_at,
+        # dequeued_at set by mark_record_running, idempotency fields, ...), so
+        # this record's values only matter for the fresh-insert (sync) path.
         record = ExecutionRecord(
             execution_id=job_id,
             status="queued",
             job_type=job_type_name,
             job_ref=f"{job_type_name}@latest",
-            created_at=datetime.now(timezone.utc),
-            queued_at=datetime.now(timezone.utc),
             code_hash=sha256_content(code),
             input_hash=sha256_json(input_data),
             client_ip=client_ip,

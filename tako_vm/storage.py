@@ -10,6 +10,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Mapping, Optional, cast
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -29,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 MIGRATION_LOCK_ID = 94857231
 RowMapping = Mapping[str, Any]
+
+# Statuses from which an execution record must never transition away. Once a
+# record is terminal, later writes (e.g. a stale executor result racing a
+# cancellation, or vice versa) are refused by the save_record upsert guard.
+TERMINAL_STATUSES = ("succeeded", "failed", "timeout", "oom", "cancelled")
+
+# Backoff schedule (seconds) for retrying save_record on transient connection
+# errors. Tests may monkeypatch this to avoid real sleeps.
+_SAVE_RECORD_RETRY_DELAYS = (0.2, 0.8, 2.0)
 
 # Minimum digest prefix length accepted by get_version_by_digest. Shorter
 # prefixes are too ambiguous to resolve safely (and an empty prefix would
@@ -241,7 +251,53 @@ class ExecutionStorage:
                 await conn.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
 
     async def save_record(self, record: ExecutionRecord) -> None:
-        """Insert or update execution record."""
+        """
+        Insert or update execution record.
+
+        Durability behavior:
+        - Transient connection errors (psycopg.OperationalError, which includes
+          psycopg_pool.PoolTimeout) are retried with backoff so a brief DB blip
+          cannot lose the record of code that already ran. Non-transient errors
+          (e.g. IntegrityError) are raised immediately.
+        - The upsert refuses to modify a record that is already in a terminal
+          status (see TERMINAL_STATUSES); such writes are logged and dropped.
+        """
+        attempts = len(_SAVE_RECORD_RETRY_DELAYS) + 1
+        for attempt in range(attempts):
+            try:
+                rowcount = await self._save_record_once(record)
+                break
+            except psycopg.OperationalError as e:
+                # Connection-level failure (includes psycopg_pool.PoolTimeout,
+                # which subclasses OperationalError). Retry with backoff;
+                # IntegrityError and friends derive from DatabaseError instead
+                # and propagate immediately.
+                if attempt >= attempts - 1:
+                    raise
+                delay = _SAVE_RECORD_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Transient error saving execution record %s (attempt %d/%d), "
+                    "retrying in %.1fs: %s",
+                    record.execution_id,
+                    attempt + 1,
+                    attempts,
+                    delay,
+                    e,
+                )
+                await asyncio.sleep(delay)
+
+        if rowcount == 0:
+            # The ON CONFLICT ... WHERE guard skipped the update: the existing
+            # row is already terminal and must not be regressed (e.g. a
+            # cancel/complete race).
+            logger.warning(
+                "Refused to overwrite terminal execution record %s with status %s",
+                record.execution_id,
+                record.status,
+            )
+
+    async def _save_record_once(self, record: ExecutionRecord) -> int:
+        """Execute the upsert once; return affected rowcount (0 = guard skip)."""
         resource_usage = record.resource_usage
         artifacts_json = [a.model_dump() for a in record.artifacts]
         input_artifacts_json = [a.model_dump() for a in record.input_artifacts]
@@ -249,10 +305,34 @@ class ExecutionStorage:
         result_json = record.result_json
         timing_json = record.timing.model_dump() if record.timing else None
 
+        terminal_list = ", ".join(f"'{s}'" for s in TERMINAL_STATUSES)
+
+        # Upsert column policy:
+        # - Submission-identity fields (created_at, queued_at, code_hash,
+        #   input_hash, params_hash, input_artifacts_hash, client_ip,
+        #   idempotency_key, idempotency_fingerprint, parent_execution_id,
+        #   relationship) describe WHEN/HOW the job was submitted. They are
+        #   written by queue.submit() and must survive later writes from the
+        #   executor, which rebuilds its record at execution start and does not
+        #   know the true submission timestamps. We keep the existing row's
+        #   value (COALESCE(existing, new) for nullables; plain existing for
+        #   NOT NULL created_at/queued_at, where COALESCE degenerates to the
+        #   existing value anyway).
+        # - dequeued_at is set once by mark_record_running(); COALESCE keeps it.
+        # - worker_id is also set by mark_record_running(); prefer the new
+        #   value when the writer knows it, otherwise keep the existing one.
+        # - Execution-outcome fields (status, started_at, ended_at,
+        #   duration_ms, attempt, exit_code, stdout/stderr, result/timing/
+        #   artifacts/error JSON, resource usage) take EXCLUDED: later writes
+        #   know more about the outcome. input_artifacts_json also takes
+        #   EXCLUDED because the executor enriches it with replay artifacts
+        #   that the preliminary queued record does not have.
+        # - The WHERE guard makes the whole update a no-op when the existing
+        #   row is already terminal, so terminal status can never regress.
         pool = self._get_pool()
         async with pool.connection() as conn:
-            await conn.execute(
-                """
+            cursor = await conn.execute(
+                f"""
                 INSERT INTO execution_records (
                     execution_id, status, job_type, job_ref,
                     created_at, queued_at, dequeued_at, started_at, ended_at, duration_ms,
@@ -274,21 +354,28 @@ class ExecutionStorage:
                     status = EXCLUDED.status,
                     job_type = EXCLUDED.job_type,
                     job_ref = EXCLUDED.job_ref,
-                    created_at = EXCLUDED.created_at,
-                    queued_at = EXCLUDED.queued_at,
-                    dequeued_at = EXCLUDED.dequeued_at,
+                    created_at = execution_records.created_at,
+                    queued_at = COALESCE(execution_records.queued_at, EXCLUDED.queued_at),
+                    dequeued_at = COALESCE(execution_records.dequeued_at, EXCLUDED.dequeued_at),
                     started_at = EXCLUDED.started_at,
                     ended_at = EXCLUDED.ended_at,
                     duration_ms = EXCLUDED.duration_ms,
                     attempt = EXCLUDED.attempt,
                     max_attempts = EXCLUDED.max_attempts,
-                    worker_id = EXCLUDED.worker_id,
-                    idempotency_key = EXCLUDED.idempotency_key,
-                    idempotency_fingerprint = EXCLUDED.idempotency_fingerprint,
-                    code_hash = EXCLUDED.code_hash,
-                    input_hash = EXCLUDED.input_hash,
-                    params_hash = EXCLUDED.params_hash,
-                    input_artifacts_hash = EXCLUDED.input_artifacts_hash,
+                    worker_id = COALESCE(EXCLUDED.worker_id, execution_records.worker_id),
+                    idempotency_key =
+                        COALESCE(execution_records.idempotency_key, EXCLUDED.idempotency_key),
+                    idempotency_fingerprint = COALESCE(
+                        execution_records.idempotency_fingerprint,
+                        EXCLUDED.idempotency_fingerprint
+                    ),
+                    code_hash = COALESCE(execution_records.code_hash, EXCLUDED.code_hash),
+                    input_hash = COALESCE(execution_records.input_hash, EXCLUDED.input_hash),
+                    params_hash = COALESCE(execution_records.params_hash, EXCLUDED.params_hash),
+                    input_artifacts_hash = COALESCE(
+                        execution_records.input_artifacts_hash,
+                        EXCLUDED.input_artifacts_hash
+                    ),
                     input_artifacts_json = EXCLUDED.input_artifacts_json,
                     exit_code = EXCLUDED.exit_code,
                     stdout = EXCLUDED.stdout,
@@ -302,9 +389,14 @@ class ExecutionStorage:
                     timing_json = EXCLUDED.timing_json,
                     artifacts_json = EXCLUDED.artifacts_json,
                     error_json = EXCLUDED.error_json,
-                    client_ip = EXCLUDED.client_ip,
-                    parent_execution_id = EXCLUDED.parent_execution_id,
-                    relationship = EXCLUDED.relationship
+                    client_ip = COALESCE(execution_records.client_ip, EXCLUDED.client_ip),
+                    parent_execution_id = COALESCE(
+                        execution_records.parent_execution_id,
+                        EXCLUDED.parent_execution_id
+                    ),
+                    relationship =
+                        COALESCE(execution_records.relationship, EXCLUDED.relationship)
+                WHERE execution_records.status NOT IN ({terminal_list})
                 """,
                 (
                     record.execution_id,
@@ -344,6 +436,7 @@ class ExecutionStorage:
                     record.relationship,
                 ),
             )
+            return cursor.rowcount
 
     async def get_record(self, execution_id: str) -> Optional[ExecutionRecord]:
         """Retrieve execution record by ID."""
