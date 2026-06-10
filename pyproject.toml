@@ -84,6 +84,7 @@ packages = ["tako_vm"]
 include = [
     "/tako_vm",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
     "/NOTICE",
 ]
