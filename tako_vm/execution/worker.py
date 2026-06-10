@@ -856,9 +856,7 @@ class CodeExecutor:
                     # Output existed but was unreadable/unparseable (truncated,
                     # non-UTF-8, device error). Surface it loudly instead of
                     # presenting result_json=None as "no output produced".
-                    logger.warning(
-                        "Failed to read/parse result.json for job %s: %s", job_id, e
-                    )
+                    logger.warning("Failed to read/parse result.json for job %s: %s", job_id, e)
 
             # Parse phase timing file (written by entrypoint.sh). The
             # root-only meta_dir copy is preferred; the /output copy is a

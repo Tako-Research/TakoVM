@@ -47,7 +47,16 @@ result = tako_vm.send(add, Input(10, 20))
 print(result.result)  # 30
 ```
 
-The module-level helpers (`tako_vm.send`, `send_raw`, `list_job_types`, `get_job_type`) use a default client configured via `tako_vm.configure()`. For authentication, multiple clients, or the async job lifecycle, instantiate `TakoVM` directly.
+The module-level helpers use a default client configured via `tako_vm.configure()`, and mirror the full `TakoVM` surface — typed execution (`send`, `send_raw`), the async job lifecycle (`submit`, `submit_code`, `get_status`, `get_result`, `cancel`, `rerun`, `fork`, `download_artifact`), history (`list_executions`, `get_execution`), and metadata (`list_job_types`, `get_job_type`, `build_job_type`, `pool_stats`, `dlq_stats`, `health`). `configure()` accepts the same arguments as `TakoVM` (`headers`, `session`, `connect_timeout`, `correlation_id`). Instantiate `TakoVM` directly when you need multiple independently-configured clients in one process.
+
+```python
+import tako_vm
+
+tako_vm.configure("http://localhost:8000", headers={"X-API-Key": KEY})
+
+job_id = tako_vm.submit(add, Input(10, 20))
+result = tako_vm.get_result(job_id, timeout=30)
+```
 
 ### The `TakoVM` client
 
@@ -86,7 +95,7 @@ sess = requests.Session(); sess.cert = ("client.crt", "client.key")
 client = TakoVM("https://tako.internal", session=sess)
 ```
 
-`tako_vm.configure(..., headers=...)` does the same for the module-level helpers.
+`tako_vm.configure(..., headers=..., session=...)` does the same for the module-level helpers.
 
 ### Reliability
 

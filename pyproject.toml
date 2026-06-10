@@ -59,7 +59,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-timeout>=2.1.0",
     "httpx>=0.24.0",
-    "ruff>=0.1.0",
+    "ruff==0.15.16",  # pinned: keep in sync with lint.yml + .pre-commit-config.yaml
 ]
 # Documentation
 docs = [
@@ -84,6 +84,7 @@ packages = ["tako_vm"]
 include = [
     "/tako_vm",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
     "/NOTICE",
 ]

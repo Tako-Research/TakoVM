@@ -811,3 +811,89 @@ class TestModuleLevelFunctions:
     def test_get_client_creates_default(self):
         configure(base_url="http://localhost:8000")
         assert _get_client() is not None
+
+    def test_configure_forwards_full_client_args(self):
+        """configure() must accept the same knobs as TakoVM, not just headers."""
+        sess = requests.Session()
+        configure(
+            base_url="http://test:9000",
+            timeout=45,
+            headers={"X-API-Key": "k"},
+            session=sess,
+            connect_timeout=3.0,
+            correlation_id="fixed-cid",
+        )
+        client = _get_client()
+        assert client._session is sess
+        assert client.connect_timeout == 3.0
+        assert client.correlation_id == "fixed-cid"
+
+    def test_send_forwards_new_kwargs(self):
+        """Module-level send() must pass through startup_timeout/idempotency_key/correlation_id."""
+        import tako_vm.sdk.client as client_mod
+
+        mock_client = MagicMock()
+        with patch.object(client_mod, "_get_client", return_value=mock_client):
+            client_mod.send(
+                add_numbers,
+                InputData(1, 2),
+                timeout=10,
+                job_type="cpu",
+                requirements=["numpy"],
+                startup_timeout=99,
+                idempotency_key="idem-1",
+                correlation_id="cid-1",
+            )
+        mock_client.send.assert_called_once_with(
+            add_numbers,
+            InputData(1, 2),
+            timeout=10,
+            job_type="cpu",
+            requirements=["numpy"],
+            startup_timeout=99,
+            idempotency_key="idem-1",
+            correlation_id="cid-1",
+        )
+
+    @pytest.mark.parametrize(
+        "fn_name, args, kwargs",
+        [
+            ("submit", (add_numbers, InputData(1, 2)), {"job_type": "cpu"}),
+            ("submit_code", ("print(1)",), {"idempotency_key": "k"}),
+            ("get_status", ("job-1",), {}),
+            ("get_result", ("job-1",), {"timeout": 5, "view": "full"}),
+            ("cancel", ("job-1",), {}),
+            ("rerun", ("job-1",), {"timeout": 7}),
+            ("fork", ("job-1", "print(2)"), {"job_type": "cpu"}),
+            ("download_artifact", ("job-1", "out.bin"), {}),
+            ("list_executions", (), {"status": "succeeded", "limit": 10}),
+            ("get_execution", ("exec-1",), {"view": "full"}),
+            ("pool_stats", (), {}),
+            ("dlq_stats", (), {}),
+            ("health", (), {}),
+            ("list_job_types", (), {}),
+            ("get_job_type", ("default",), {}),
+            ("build_job_type", ("default",), {}),
+        ],
+    )
+    def test_module_helpers_delegate_to_default_client(self, fn_name, args, kwargs):
+        """Every module-level helper forwards to the matching default-client method.
+
+        Wrappers forward positional args verbatim and pass keyword args through
+        (filling unset ones with the method defaults), so we assert the
+        positionals match exactly and every kwarg we supplied was forwarded.
+        """
+        import tako_vm.sdk.client as client_mod
+
+        mock_client = MagicMock()
+        with patch.object(client_mod, "_get_client", return_value=mock_client):
+            result = getattr(client_mod, fn_name)(*args, **kwargs)
+        method = getattr(mock_client, fn_name)
+        method.assert_called_once()
+        call = method.call_args
+        # Positionals we supplied are forwarded as a leading prefix (some wrappers
+        # additionally pass a defaulted positional, e.g. submit_code's input_data).
+        assert call.args[: len(args)] == args
+        for key, value in kwargs.items():
+            assert call.kwargs[key] == value
+        assert result is method.return_value

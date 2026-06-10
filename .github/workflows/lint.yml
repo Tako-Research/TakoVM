@@ -21,7 +21,9 @@ jobs:
           cache: 'pip'
 
       - name: Install ruff
-        run: pip install ruff
+        # Pinned so CI formatting matches local/pre-commit; bump deliberately.
+        # Must stay in sync with .pre-commit-config.yaml and pyproject [dev].
+        run: pip install ruff==0.15.16
 
       - name: Run ruff check
         run: ruff check .

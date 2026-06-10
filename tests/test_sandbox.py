@@ -496,7 +496,10 @@ class TestSandboxTimeoutEnforcement:
         assert result.exit_code == -1
         assert result.stdout == "partial stdout"
         assert result.stderr == "partial stderr"
-        assert "timed out" in result.error.lower()
+        # TimeoutExpired is the *host backstop* path, deliberately worded to
+        # distinguish it from the in-container (exit 124) timeout.
+        assert "host backstop" in result.error.lower()
+        assert "in-container timeout did not fire" in result.error.lower()
         # The container is no longer started with --rm, so the timeout path
         # must kill+remove it (docker rm -f) itself.
         assert removed["name"] == "fake-container"
