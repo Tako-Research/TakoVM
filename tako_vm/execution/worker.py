@@ -6,6 +6,7 @@ Provides both legacy dict-based results and new ExecutionRecord-based results.
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -22,6 +23,7 @@ from tako_vm.execution.docker import (
     generate_container_name,
     is_native_linux,
     kill_container,
+    remove_container,
 )
 from tako_vm.execution.health import get_circuit_breaker
 from tako_vm.execution.retry import RetryConfig, RetryContext, is_transient_error
@@ -155,6 +157,34 @@ def prune_old_run_dirs(data_dir: Path, ttl_days: int) -> int:
         except OSError as e:
             logger.warning("Failed to prune old run dir %s: %s", entry, e)
     return removed
+
+
+def _clear_output_dir(output_dir: Path) -> None:
+    """Remove the contents of the output dir between retry attempts.
+
+    A failed attempt may have left a partial ``result.json``, ``.tako_phase``
+    file, or artifacts behind; without clearing, those leftovers would be
+    reported as the next attempt's results. The directory itself is preserved
+    (it is bind-mounted by path and carries the 0o777 mode the container user
+    needs) — only its entries are removed. Symlinks are unlinked, never
+    followed: untrusted code may have planted a symlink at any name here.
+
+    Fail-soft: per-entry errors are logged and skipped.
+    """
+    try:
+        with os.scandir(output_dir) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                    else:
+                        # Regular files and symlinks: unlink removes the link
+                        # itself without following it.
+                        os.unlink(entry.path)
+                except OSError as e:
+                    logger.warning("Failed to clear stale output entry %s: %s", entry.path, e)
+    except OSError as e:
+        logger.warning("Failed to clear output dir %s: %s", output_dir, e)
 
 
 def check_gvisor_available() -> bool:
@@ -611,8 +641,24 @@ class CodeExecutor:
                     base_delay=self.config.retry_base_delay,
                 )
             )
+            # Surface retry behavior in the audit record: max_attempts is the
+            # configured ceiling; attempt is updated to the index of each
+            # attempt actually run (0 = no retries occurred).
+            record.max_attempts = self.config.max_retry_attempts
 
             while retry_ctx.should_retry():
+                attempt = retry_ctx.attempt
+                record.attempt = attempt
+                if attempt > 0:
+                    # Make retries idempotent. The previous attempt's
+                    # container may still exist (`--rm` removal can lag the
+                    # very daemon hiccup that triggered the retry), and its
+                    # partial output (result.json, .tako_phase, artifacts)
+                    # may still be in output_dir — remove both so the retry
+                    # cannot collide on a container name or report stale
+                    # results from the failed attempt.
+                    remove_container(generate_container_name("tako", job_id, attempt=attempt - 1))
+                    _clear_output_dir(output_dir)
                 try:
                     result = self._run_container(
                         code_dir=code_dir,
@@ -623,6 +669,7 @@ class CodeExecutor:
                         job_type=job_type,
                         extra_requirements=job.get("requirements"),
                         job_id=job_id,
+                        attempt=attempt,
                     )
 
                     # Host-level timeout: the job already consumed its full
@@ -678,9 +725,22 @@ class CodeExecutor:
             record.duration_ms = wall_time_ms
             record.exit_code = result.get("exit_code")
 
-            # Cap and sanitize outputs
-            record.stdout = cap_output(result.get("stdout", ""), self.config.max_stdout_bytes)
-            record.stderr = cap_output(result.get("stderr", ""), self.config.max_stderr_bytes)
+            # Cap and sanitize outputs. cap_output truncates in-band (appends
+            # a notice), so also surface truncation on the record flags — the
+            # API must not report truncated output as complete. The flag
+            # mirrors cap_output's own truncation condition (UTF-8 encoded
+            # size vs the cap), which is robust against the notice text
+            # legitimately appearing in user output.
+            raw_stdout = result.get("stdout", "")
+            raw_stderr = result.get("stderr", "")
+            record.stdout = cap_output(raw_stdout, self.config.max_stdout_bytes)
+            record.stderr = cap_output(raw_stderr, self.config.max_stderr_bytes)
+            record.stdout_truncated = (
+                len(raw_stdout.encode("utf-8", errors="replace")) > self.config.max_stdout_bytes
+            )
+            record.stderr_truncated = (
+                len(raw_stderr.encode("utf-8", errors="replace")) > self.config.max_stderr_bytes
+            )
 
             # Resource usage
             record.resource_usage = ResourceUsage(wall_time_ms=wall_time_ms)
@@ -939,6 +999,7 @@ class CodeExecutor:
         job_type: JobType,
         extra_requirements: Optional[List[str]] = None,
         job_id: Optional[str] = None,
+        attempt: int = 0,
     ) -> Dict[str, Any]:
         """
         Run Docker container with security restrictions.
@@ -951,6 +1012,10 @@ class CodeExecutor:
             startup_timeout: Startup timeout in seconds
             job_type: Job type configuration for container settings
             extra_requirements: Additional requirements to install (merged with job_type)
+            job_id: Job/execution ID used for the container name and label
+            attempt: Retry attempt index; attempts > 0 get a suffixed
+                container name so they cannot collide with a previous
+                attempt's not-yet-removed container
 
         Returns:
             Dictionary with execution results
@@ -1044,8 +1109,10 @@ class CodeExecutor:
                 "For true network isolation, use pre-built images via 'tako-vm build'."
             )
 
-        # Generate container name for tracking (allows cleanup on timeout)
-        container_name = generate_container_name("tako", job_id)
+        # Generate container name for tracking (allows cleanup on timeout).
+        # Retry attempts get a unique suffixed name; see
+        # generate_container_name for the queue.py cancel/watchdog caveat.
+        container_name = generate_container_name("tako", job_id, attempt=attempt)
 
         cmd = base_isolation_args(
             container_name,

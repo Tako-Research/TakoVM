@@ -1,7 +1,7 @@
 """
 Error plumbing tests for CodeExecutor._run_container / execute_job_with_record.
 
-Covers two bugs:
+Covers:
 
 1. Docker infrastructure failures (daemon down, `docker run` exit 125) were
    recorded as circuit breaker *successes*, returned without an "error" key
@@ -12,10 +12,19 @@ Covers two bugs:
    "timeout" and the partial stdout/stderr captured before the kill was
    discarded.
 
+3. Retry idempotency: a retry reused the exact container name of the failed
+   attempt (colliding with a not-yet-removed `--rm` container) and inherited
+   the failed attempt's leftover output dir contents; record.attempt /
+   record.max_attempts never reflected that retries happened.
+
+4. Truncation flags: cap_output truncated stdout/stderr in-band but
+   record.stdout_truncated / stderr_truncated were never set.
+
 All tests mock subprocess.run — no Docker required.
 """
 
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +119,51 @@ def _patch_subprocess(monkeypatch, side_effect):
     return calls
 
 
+def _output_mount_dir(cmd):
+    """Extract the host source dir of the /output bind mount from a docker run cmd."""
+    for arg in cmd:
+        if arg.startswith("--mount=type=bind,") and arg.endswith(",target=/output"):
+            return Path(arg.split("source=", 1)[1].split(",", 1)[0])
+    raise AssertionError("docker run command has no /output bind mount")
+
+
+def _patch_docker_cli(monkeypatch, run_results, on_run=None):
+    """Fake subprocess.run that distinguishes `docker run` from `docker rm`.
+
+    `docker run` invocations consume `run_results` in order (calling `on_run`
+    with (attempt_index, cmd) first, e.g. to seed stale files into the mounted
+    output dir); `docker rm` invocations are recorded and succeed. Any other
+    docker command fails the test.
+
+    Returns (run_cmds, rm_cmds) lists, appended to as calls happen.
+    """
+    run_cmds = []
+    rm_cmds = []
+    results = iter(run_results)
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:2] == ["docker", "run"]:
+            if on_run:
+                on_run(len(run_cmds), cmd)
+            run_cmds.append(cmd)
+            return next(results)
+        if cmd[:2] == ["docker", "rm"]:
+            rm_cmds.append(cmd)
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        raise AssertionError(f"unexpected docker command: {cmd}")
+
+    monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
+    return run_cmds, rm_cmds
+
+
+def _infra_failure():
+    return SimpleNamespace(returncode=125, stdout="", stderr=DAEMON_DOWN_STDERR)
+
+
+def _success(stdout="ok", stderr=""):
+    return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+
+
 class TestDockerInfraFailure:
     """`docker run` failing (exit 125 / daemon unreachable) is an infra failure."""
 
@@ -152,17 +206,14 @@ class TestDockerInfraFailure:
     def test_daemon_down_retries_and_record_is_service_unavailable(
         self, executor, breaker, monkeypatch
     ):
-        calls = _patch_subprocess(
-            monkeypatch,
-            lambda: SimpleNamespace(returncode=125, stdout="", stderr=DAEMON_DOWN_STDERR),
-        )
+        run_cmds, _ = _patch_docker_cli(monkeypatch, [_infra_failure(), _infra_failure()])
 
         record = executor.execute_job_with_record(
             "job-infra-1", {"code": "print('hi')", "input_data": {}}
         )
 
         # Retry loop fired: both configured attempts hit Docker
-        assert calls["count"] == 2
+        assert len(run_cmds) == 2
         assert len(breaker.failures) == 2
         assert breaker.successes == 0
 
@@ -171,6 +222,10 @@ class TestDockerInfraFailure:
         assert record.error is not None
         assert record.error.type == "service_unavailable"
         assert "Docker infrastructure failure" in record.error.message
+
+        # The audit record shows that retries happened
+        assert record.attempt == 1
+        assert record.max_attempts == 2
 
 
 class TestHostTimeout:
@@ -255,3 +310,132 @@ class TestUserCodeFailure:
         assert record.status == "succeeded"
         assert breaker.successes == 1
         assert breaker.failures == []
+
+
+class TestRetryIdempotency:
+    """Retries must not collide on container names or report stale outputs."""
+
+    def test_retry_uses_unique_container_name_and_removes_previous(
+        self, executor, breaker, monkeypatch
+    ):
+        """Attempt 2 gets a -r1 name and the attempt-1 container is force-removed first."""
+        run_cmds, rm_cmds = _patch_docker_cli(monkeypatch, [_infra_failure(), _success()])
+
+        record = executor.execute_job_with_record(
+            "job-retry-name", {"code": "print('hi')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert len(run_cmds) == 2
+        names = [next(a for a in cmd if a.startswith("--name=")) for cmd in run_cmds]
+        # Attempt 0 keeps the deterministic name (cancel/watchdog paths match
+        # it); the retry gets a unique suffix so a lingering --rm container
+        # from attempt 0 cannot cause a "name already in use" failure.
+        assert names == ["--name=tako-job-retry-name", "--name=tako-job-retry-name-r1"]
+        # Best-effort cleanup of the previous attempt's container fired
+        assert ["docker", "rm", "-f", "tako-job-retry-name"] in rm_cmds
+
+    def test_stale_output_cleared_between_attempts(self, executor, breaker, monkeypatch):
+        """Leftovers from a failed attempt must not be reported as retry results."""
+        seen_on_retry = {}
+
+        def on_run(attempt_idx, cmd):
+            out_dir = _output_mount_dir(cmd)
+            if attempt_idx == 0:
+                # Simulate a failed attempt that left partial output behind
+                (out_dir / "result.json").write_text('{"stale": true}')
+                (out_dir / ".tako_phase").write_text("phase=failed\nfailed_phase=startup\n")
+                (out_dir / "stale-artifact.txt").write_text("leftover")
+            else:
+                seen_on_retry["entries"] = sorted(p.name for p in out_dir.iterdir())
+
+        _patch_docker_cli(monkeypatch, [_infra_failure(), _success()], on_run=on_run)
+
+        record = executor.execute_job_with_record(
+            "job-retry-clean", {"code": "print('hi')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert seen_on_retry["entries"] == [], "output dir must be empty when a retry starts"
+        # Nothing stale leaked into the record
+        assert record.result_json is None
+        assert record.artifacts == []
+        assert record.timing is None
+
+    def test_attempt_and_max_attempts_recorded_on_retry(self, executor, breaker, monkeypatch):
+        """A successful retry is visible in the audit record."""
+        _patch_docker_cli(monkeypatch, [_infra_failure(), _success()])
+
+        record = executor.execute_job_with_record(
+            "job-retry-attempt", {"code": "print('hi')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert record.attempt == 1
+        assert record.max_attempts == 2
+
+    def test_attempt_zero_when_no_retry_needed(self, executor, breaker, monkeypatch):
+        """A first-attempt success records attempt 0 with the configured ceiling."""
+        run_cmds, rm_cmds = _patch_docker_cli(monkeypatch, [_success()])
+
+        record = executor.execute_job_with_record(
+            "job-no-retry", {"code": "print('hi')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert record.attempt == 0
+        assert record.max_attempts == 2
+        assert len(run_cmds) == 1
+        assert rm_cmds == [], "no retry means no defensive container removal"
+
+
+class TestTruncationFlags:
+    """cap_output truncation must be surfaced via record.stdout/stderr_truncated."""
+
+    def test_stdout_truncation_sets_flag(self, executor, breaker, monkeypatch):
+        big_stdout = "x" * (executor.config.max_stdout_bytes + 1000)
+        _patch_subprocess(
+            monkeypatch,
+            lambda: SimpleNamespace(returncode=0, stdout=big_stdout, stderr=""),
+        )
+
+        record = executor.execute_job_with_record(
+            "job-trunc-out", {"code": "print('x')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert record.stdout_truncated is True
+        assert record.stderr_truncated is False
+        assert len(record.stdout.encode("utf-8")) <= executor.config.max_stdout_bytes
+        assert "[TRUNCATED" in record.stdout
+
+    def test_stderr_truncation_sets_flag(self, executor, breaker, monkeypatch):
+        big_stderr = "e" * (executor.config.max_stderr_bytes + 1000)
+        _patch_subprocess(
+            monkeypatch,
+            lambda: SimpleNamespace(returncode=0, stdout="ok", stderr=big_stderr),
+        )
+
+        record = executor.execute_job_with_record(
+            "job-trunc-err", {"code": "print('x')", "input_data": {}}
+        )
+
+        assert record.stdout_truncated is False
+        assert record.stderr_truncated is True
+        assert len(record.stderr.encode("utf-8")) <= executor.config.max_stderr_bytes
+        assert "[TRUNCATED" in record.stderr
+
+    def test_flags_false_when_output_within_limits(self, executor, breaker, monkeypatch):
+        _patch_subprocess(
+            monkeypatch,
+            lambda: SimpleNamespace(returncode=0, stdout="small out", stderr="small err"),
+        )
+
+        record = executor.execute_job_with_record(
+            "job-no-trunc", {"code": "print('x')", "input_data": {}}
+        )
+
+        assert record.stdout_truncated is False
+        assert record.stderr_truncated is False
+        assert record.stdout == "small out"
+        assert record.stderr == "small err"

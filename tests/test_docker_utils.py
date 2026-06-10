@@ -14,6 +14,7 @@ from tako_vm.execution.docker import (
     generate_container_name,
     is_native_linux,
     kill_container,
+    remove_container,
 )
 
 
@@ -64,6 +65,20 @@ class TestGenerateContainerName:
         name = generate_container_name("my-app", job_id="job1")
         assert name == "my-app-job1"
 
+    def test_attempt_zero_keeps_plain_name(self):
+        """Attempt 0 keeps the deterministic name so cancel/watchdog kill paths match."""
+        assert generate_container_name("tako", job_id="abc123", attempt=0) == "tako-abc123"
+
+    def test_retry_attempts_get_unique_suffix(self):
+        """Attempts > 0 get a -r{attempt} suffix so retries never collide with attempt 0."""
+        assert generate_container_name("tako", job_id="abc123", attempt=1) == "tako-abc123-r1"
+        assert generate_container_name("tako", job_id="abc123", attempt=2) == "tako-abc123-r2"
+
+    def test_attempt_names_are_distinct_per_attempt(self):
+        """Every attempt index yields a distinct container name."""
+        names = {generate_container_name("tako", job_id="j", attempt=a) for a in range(4)}
+        assert len(names) == 4
+
 
 class TestKillContainer:
     """Tests for kill_container() function."""
@@ -102,6 +117,45 @@ class TestKillContainer:
         mock_run.side_effect = Exception("Unexpected error")
 
         assert kill_container("error-container") is False
+
+
+class TestRemoveContainer:
+    """Tests for remove_container() function."""
+
+    @patch("subprocess.run")
+    def test_remove_container_calls_docker_rm_force(self, mock_run):
+        """remove_container force-removes by name via docker rm -f."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        assert remove_container("tako-test-123") is True
+
+        mock_run.assert_called_once_with(
+            ["docker", "rm", "-f", "tako-test-123"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    @patch("subprocess.run")
+    def test_remove_container_returns_false_when_missing(self, mock_run):
+        """A nonexistent container (nonzero exit) is reported as not removed."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        assert remove_container("already-gone") is False
+
+    @patch("subprocess.run")
+    def test_remove_container_ignores_timeout(self, mock_run):
+        """remove_container silently ignores subprocess timeouts."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
+
+        assert remove_container("tako-test-123") is False
+
+    @patch("subprocess.run")
+    def test_remove_container_handles_exception(self, mock_run):
+        """remove_container handles unexpected exceptions."""
+        mock_run.side_effect = Exception("Unexpected error")
+
+        assert remove_container("error-container") is False
 
 
 class TestContainerNameValidation:
