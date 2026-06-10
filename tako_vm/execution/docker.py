@@ -4,13 +4,128 @@ Docker utilities for container management.
 Shared utilities for Docker operations across worker and sandbox.
 """
 
+import json
 import logging
 import platform
 import subprocess
+import time
 import uuid
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Default executor base image. Built from docker/Dockerfile.executor; carries
+# uv, gosu, the sandbox user, and the /entrypoint.sh contract (see
+# EXECUTOR_ENTRYPOINT).
+DEFAULT_EXECUTOR_IMAGE = "code-executor:latest"
+
+# The entrypoint every runnable Tako image must carry
+# (`ENTRYPOINT ["/entrypoint.sh"]` in docker/Dockerfile.executor). The
+# entrypoint is what enforces the in-container startup/execution timeouts,
+# installs runtime requirements, writes the phase/timing file, and runs
+# /code/main.py itself (as the sandbox user via gosu). An image without it
+# would run its default CMD instead of the user's code — for python:slim the
+# REPL exits 0 on EOF, recording a bogus "succeeded" for code that never ran.
+EXECUTOR_ENTRYPOINT = "/entrypoint.sh"
+
+# How long positive image-inspect results are cached (seconds). Only positive
+# results are cached: a missing image can be built/pulled at any moment, and
+# caching the miss would keep a freshly built job-type image unused.
+_IMAGE_CACHE_TTL_SECONDS = 60.0
+
+# image name -> monotonic expiry timestamp. Plain dicts: worst case under
+# concurrent workers is a duplicate `docker image inspect`, which is harmless.
+_image_exists_cache: dict[str, float] = {}
+_executor_entrypoint_cache: dict[str, float] = {}
+
+
+def reset_image_caches() -> None:
+    """Clear the image-inspect caches (for tests and after image rebuilds)."""
+    _image_exists_cache.clear()
+    _executor_entrypoint_cache.clear()
+
+
+def image_exists(image_name: str) -> bool:
+    """Check whether a Docker image exists locally (cached).
+
+    Positive results are cached for a short TTL so per-run lookups (e.g. "does
+    this job type have a pre-built image?") don't cost a daemon round-trip on
+    every execution. Negative results are never cached — see
+    ``_IMAGE_CACHE_TTL_SECONDS``.
+
+    Args:
+        image_name: Image reference to look up (e.g. "tako-vm-foo:latest")
+
+    Returns:
+        True if the image exists on the local daemon, False otherwise
+        (including when the daemon is unreachable or the inspect times out).
+    """
+    now = time.monotonic()
+    expiry = _image_exists_cache.get(image_name)
+    if expiry is not None and now < expiry:
+        return True
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", image_name],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception as e:
+        logger.debug("Failed to inspect image %s: %s", image_name, e)
+        return False
+    if result.returncode == 0:
+        _image_exists_cache[image_name] = now + _IMAGE_CACHE_TTL_SECONDS
+        return True
+    return False
+
+
+def image_has_executor_entrypoint(image_name: str) -> Optional[bool]:
+    """Check whether an image's ENTRYPOINT is exactly ``["/entrypoint.sh"]``.
+
+    This is the cheap, reliable test for "was this image derived from the
+    executor base image" — i.e. does it honor the contract the worker depends
+    on (in-container timeouts, dependency install, phase file, and running
+    /code/main.py itself). Positive results are cached with a short TTL,
+    mirroring ``image_exists``.
+
+    Args:
+        image_name: Image reference to inspect
+
+    Returns:
+        True if the entrypoint matches the executor contract, False if the
+        image exists but has a different/absent entrypoint, or None if the
+        inspect failed (image not present locally, daemon unreachable,
+        timeout, unparseable output). Callers must not treat None as a pass.
+    """
+    now = time.monotonic()
+    expiry = _executor_entrypoint_cache.get(image_name)
+    if expiry is not None and now < expiry:
+        return True
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", "--format", "{{json .Config.Entrypoint}}", image_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception as e:
+        logger.debug("Failed to inspect entrypoint of image %s: %s", image_name, e)
+        return None
+    if result.returncode != 0:
+        logger.debug("docker image inspect of %s failed (exit %s)", image_name, result.returncode)
+        return None
+    try:
+        entrypoint = json.loads((result.stdout or "").strip())
+    except json.JSONDecodeError:
+        logger.debug("Unparseable entrypoint for image %s: %r", image_name, result.stdout)
+        return None
+    if entrypoint == [EXECUTOR_ENTRYPOINT]:
+        _executor_entrypoint_cache[image_name] = now + _IMAGE_CACHE_TTL_SECONDS
+        return True
+    return False
+
 
 # Label applied to every executor container at `docker run` time. Cleanup
 # (DockerCleanup.cleanup_orphaned_containers) matches on this label, so it must

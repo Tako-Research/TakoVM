@@ -296,6 +296,11 @@ class TestExecutorRejectsUnsafeIds:
         input_dir.mkdir()
         output_dir.mkdir()
 
+        # Keep image resolution off the (shared) subprocess mock: this test
+        # asserts that NO docker command runs once the policy rejects the job,
+        # and the pre-built-image probe would otherwise count as a call.
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: False)
+
         fake_run = MagicMock()
         monkeypatch.setattr(worker_module.subprocess, "run", fake_run)
 

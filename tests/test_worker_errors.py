@@ -42,7 +42,7 @@ import pytest
 import tako_vm.execution.worker as worker_module
 from tako_vm.config import TakoVMConfig
 from tako_vm.execution.worker import CodeExecutor, parse_phase_file
-from tako_vm.job_types import JobType
+from tako_vm.job_types import JobType, JobTypeRegistry
 
 DAEMON_DOWN_STDERR = (
     "docker: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. "
@@ -71,6 +71,16 @@ class FakeCircuitBreaker:
 @pytest.fixture(autouse=True)
 def mock_gvisor_available(monkeypatch):
     monkeypatch.setattr(worker_module, "_gvisor_available", True)
+
+
+@pytest.fixture(autouse=True)
+def no_prebuilt_images(monkeypatch):
+    """Keep image resolution hermetic: behave as if no pre-built job-type
+    image exists and no image can be entrypoint-inspected (the helpers live in
+    docker.py and would otherwise hit the real daemon). TestImageResolution
+    overrides these per test."""
+    monkeypatch.setattr(worker_module, "image_exists", lambda name: False)
+    monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: None)
 
 
 @pytest.fixture
@@ -142,10 +152,19 @@ def _patch_subprocess(monkeypatch, side_effect):
 
 
 def _mount_source_dir(cmd, target):
-    """Extract the host source dir of a bind mount from a docker run cmd."""
+    """Extract the host source dir of a bind mount from a docker run cmd.
+
+    Parses the --mount key=value fields so it also matches mounts carrying
+    trailing flags (e.g. the readonly /code and /input mounts).
+    """
     for arg in cmd:
-        if arg.startswith("--mount=type=bind,") and arg.endswith(f",target={target}"):
-            return Path(arg.split("source=", 1)[1].split(",", 1)[0])
+        if not arg.startswith("--mount=type=bind,"):
+            continue
+        fields = dict(
+            field.split("=", 1) for field in arg[len("--mount=") :].split(",") if "=" in field
+        )
+        if fields.get("target") == target:
+            return Path(fields["source"])
     raise AssertionError(f"docker run command has no {target} bind mount")
 
 
@@ -812,6 +831,226 @@ class TestPhaseFileTrust:
         assert record.status == "succeeded"
         assert seen_on_retry["entries"] == [], "meta dir must be empty when a retry starts"
         assert record.timing is None
+
+
+class TestImageResolution:
+    """F7: images built by `tako-vm build` must actually be executed, and raw
+    base images without the executor entrypoint contract must be refused —
+    running them would execute the image's default CMD instead of
+    /code/main.py and record a bogus success for code that never ran."""
+
+    def _executor(self, tmp_path, job_type):
+        registry = JobTypeRegistry(config_path=tmp_path / "job_types.json")
+        registry.register(job_type, persist=False)
+        config = TakoVMConfig(
+            security_mode="permissive",
+            data_dir=str(tmp_path / "data"),
+            max_retry_attempts=2,
+            retry_base_delay=0.1,
+            allow_runtime_requirements=True,
+        )
+        return CodeExecutor(config=config, registry=registry)
+
+    def test_built_image_preferred_and_requirements_skipped(self, tmp_path, breaker, monkeypatch):
+        """A pre-built job-type image with the executor contract is executed,
+        and its baked-in requirements are NOT reinstalled at runtime."""
+        jt = JobType(name="custom", requirements=["pandas", "numpy"])
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
+        monkeypatch.setattr(
+            worker_module, "image_has_executor_entrypoint", lambda name: name == jt.image_name
+        )
+
+        seen = {}
+
+        def on_run(attempt_idx, cmd):
+            input_dir = _mount_source_dir(cmd, "/input")
+            seen["requirements_file_exists"] = (input_dir / "_requirements.txt").exists()
+
+        cli = _patch_docker_cli(monkeypatch, [_success()], on_run=on_run)
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-built-1", {"code": "import pandas", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert record.status == "succeeded"
+        # The built image is what actually ran
+        assert cli.run[0][-1] == "tako-vm-custom:latest"
+        # Requirements are baked into the image: no runtime install file...
+        assert seen["requirements_file_exists"] is False
+        # ...so no bridge network was needed for dependency installation
+        assert "--network=none" in cli.run[0]
+        assert "--network=bridge" not in cli.run[0]
+
+    def test_extra_requirements_still_installed_with_built_image(
+        self, tmp_path, breaker, monkeypatch
+    ):
+        """Per-job extra requirements are not baked in and still install at
+        runtime — but the job type's own requirements must not be re-listed."""
+        jt = JobType(name="custom", requirements=["pandas"])
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
+        monkeypatch.setattr(
+            worker_module, "image_has_executor_entrypoint", lambda name: name == jt.image_name
+        )
+
+        seen = {}
+
+        def on_run(attempt_idx, cmd):
+            input_dir = _mount_source_dir(cmd, "/input")
+            seen["requirements"] = (input_dir / "_requirements.txt").read_text(encoding="utf-8")
+
+        cli = _patch_docker_cli(monkeypatch, [_success()], on_run=on_run)
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-built-extra",
+            {
+                "code": "import requests",
+                "input_data": {},
+                "job_type": "custom",
+                "requirements": ["requests>=2.31"],
+            },
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "tako-vm-custom:latest"
+        assert seen["requirements"] == "requests>=2.31\n"
+
+    def test_fallback_to_default_image_when_no_built_image(self, tmp_path, breaker, monkeypatch):
+        """Without a built image, requirements install at runtime on the
+        default executor image (the legacy behavior)."""
+        jt = JobType(name="custom", requirements=["pandas"])
+        # autouse fixture: image_exists -> False everywhere
+
+        seen = {}
+
+        def on_run(attempt_idx, cmd):
+            input_dir = _mount_source_dir(cmd, "/input")
+            seen["requirements"] = (input_dir / "_requirements.txt").read_text(encoding="utf-8")
+
+        cli = _patch_docker_cli(monkeypatch, [_success()], on_run=on_run)
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-no-built", {"code": "import pandas", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "code-executor:latest"
+        assert seen["requirements"] == "pandas\n"
+
+    def test_default_job_type_path_unchanged(self, executor, breaker, monkeypatch):
+        """The default job type keeps running the default executor image."""
+        cli = _patch_docker_cli(monkeypatch, [_success()])
+
+        record = executor.execute_job_with_record(
+            "job-default-img", {"code": "print('hi')", "input_data": {}}
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "code-executor:latest"
+
+    def test_built_image_without_contract_is_ignored(self, tmp_path, breaker, monkeypatch):
+        """A stale built image lacking /entrypoint.sh (old `tako-vm build`)
+        must not be executed: fall back to the default executor image with
+        runtime dependency installation."""
+        jt = JobType(name="custom", requirements=["pandas"])
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
+        monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: False)
+
+        seen = {}
+
+        def on_run(attempt_idx, cmd):
+            input_dir = _mount_source_dir(cmd, "/input")
+            seen["requirements_file_exists"] = (input_dir / "_requirements.txt").exists()
+
+        cli = _patch_docker_cli(monkeypatch, [_success()], on_run=on_run)
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-stale-built", {"code": "import pandas", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "code-executor:latest"
+        assert seen["requirements_file_exists"] is True
+
+    def test_executor_derived_base_image_is_allowed(self, tmp_path, breaker, monkeypatch):
+        """A base_image that carries the executor entrypoint contract runs."""
+        jt = JobType(name="custom", base_image="my-executor:latest")
+        monkeypatch.setattr(
+            worker_module,
+            "image_has_executor_entrypoint",
+            lambda name: name == "my-executor:latest",
+        )
+
+        cli = _patch_docker_cli(monkeypatch, [_success()])
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-exec-base", {"code": "print('hi')", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "my-executor:latest"
+
+    def test_raw_base_image_is_refused_not_bogus_success(self, tmp_path, breaker, monkeypatch):
+        """A raw base image (no /entrypoint.sh) must fail fast with a config
+        error — previously python:slim's default CMD (the REPL) ran instead of
+        the user's code, exited 0 on EOF, and the job was recorded
+        'succeeded' with empty output for code that NEVER ran."""
+        jt = JobType(name="custom", base_image="python:3.11-slim")
+        monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: False)
+
+        cli = _patch_docker_cli(monkeypatch, [])
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-raw-base", {"code": "print('hi')", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert cli.run == [], "no container may ever run a contract-less raw image"
+        assert record.status == "failed"
+        assert record.status != "succeeded"
+        assert record.error is not None
+        assert record.error.type == "config_error"
+        assert "entrypoint" in record.error.message
+        assert "tako-vm build custom" in record.error.message
+
+    def test_unverifiable_base_image_is_refused(self, tmp_path, breaker, monkeypatch):
+        """An inspect failure (image not local / daemon hiccup) is NOT a pass:
+        the contract must be positively verified before a base image runs."""
+        jt = JobType(name="custom", base_image="ghcr.io/acme/runner:1")
+        # autouse fixture: image_has_executor_entrypoint -> None (inspect failed)
+
+        cli = _patch_docker_cli(monkeypatch, [])
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-unverified-base", {"code": "print('hi')", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert cli.run == []
+        assert record.status == "failed"
+        assert record.error is not None
+        assert record.error.type == "config_error"
+
+    def test_built_image_preferred_over_base_image(self, tmp_path, breaker, monkeypatch):
+        """When a job type has both a built image and a base_image, the built
+        image (requirements baked in) wins."""
+        jt = JobType(name="custom", base_image="my-executor:latest", requirements=["pandas"])
+        monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
+        monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: True)
+
+        cli = _patch_docker_cli(monkeypatch, [_success()])
+        executor = self._executor(tmp_path, jt)
+
+        record = executor.execute_job_with_record(
+            "job-built-over-base", {"code": "print('hi')", "input_data": {}, "job_type": "custom"}
+        )
+
+        assert record.status == "succeeded"
+        assert cli.run[0][-1] == "tako-vm-custom:latest"
 
 
 class TestEntrypointScript:

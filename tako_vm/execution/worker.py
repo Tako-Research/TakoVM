@@ -19,8 +19,11 @@ from typing import Any, Dict, List, Optional
 from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.constants import MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
 from tako_vm.execution.docker import (
+    EXECUTOR_ENTRYPOINT,
     base_isolation_args,
     generate_container_name,
+    image_exists,
+    image_has_executor_entrypoint,
     inspect_oom_killed,
     is_native_linux,
     kill_container,
@@ -925,6 +928,19 @@ class CodeExecutor:
                         ),
                         phase=phase,
                     )
+                elif result.get("config_error"):
+                    # The job was refused before any container ran (e.g. a raw
+                    # base_image without the executor entrypoint contract, or
+                    # an invalid image reference). Don't run classify_error on
+                    # the explanation text — this is a configuration problem,
+                    # not the user's code failing.
+                    record.error = ExecutionError(
+                        type="config_error",
+                        message=sanitize_error(
+                            result.get("error") or "Invalid job type configuration"
+                        ),
+                        phase=phase,
+                    )
                 else:
                     error_type, error_msg = classify_error(
                         result.get("exit_code", 1), result.get("stderr", ""), timed_out
@@ -1089,6 +1105,136 @@ class CodeExecutor:
 
         return replay_artifacts
 
+    def _resolve_image(
+        self, job_type: JobType
+    ) -> tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
+        """Resolve which Docker image to run for a job type.
+
+        Resolution order (each selection is logged for auditability):
+
+        1. **Pre-built job-type image** (``tako-vm-<name>:latest``, produced by
+           ``tako-vm build``) — preferred when it exists locally AND carries
+           the executor entrypoint contract (``ENTRYPOINT ["/entrypoint.sh"]``,
+           the cheap reliable marker of an executor-derived image). Its
+           ``job_type.requirements`` are baked in at build time, so the caller
+           skips runtime installation of those.
+        2. **``job_type.base_image``** — allowed ONLY when the image itself
+           carries the executor entrypoint contract (and is therefore present
+           locally, since the contract is verified via ``docker image
+           inspect``). A raw image (e.g. ``python:3.11-slim``) is refused with
+           a config error: without ``/entrypoint.sh`` the
+           TAKO_STARTUP_TIMEOUT/TAKO_EXECUTION_TIMEOUT env vars are ignored
+           (no in-container timeout at all), no phase/timing file is written,
+           and — worst — ``docker run`` appends only the image, so the image's
+           default CMD runs instead of ``/code/main.py``. For ``python:slim``
+           the REPL exits 0 on EOF, so the job would be recorded as
+           "succeeded" with empty output for code that NEVER ran.
+           ``ContainerBuilder`` exists precisely to wrap a base image with the
+           executor contract, so the error directs users to ``tako-vm build``.
+        3. **Default executor image** (``self.docker_image``) — the unchanged
+           legacy path; requirements are installed at container startup by the
+           entrypoint.
+
+        Returns:
+            ``(image_name, source, error)``: on success ``error`` is None and
+            ``source`` is ``"built"``/``"base"``/``"default"``; on failure
+            ``image_name``/``source`` are None and ``error`` is a
+            ready-to-return ``_run_container`` result dict.
+        """
+        built_image = job_type.image_name
+        if validate_docker_image(built_image) and image_exists(built_image):
+            if image_has_executor_entrypoint(built_image):
+                logger.info(
+                    "Job type '%s': using pre-built image %s "
+                    "(job type requirements baked in at build time)",
+                    job_type.name,
+                    built_image,
+                )
+                return built_image, "built", None
+            logger.warning(
+                "Job type '%s': pre-built image %s exists but its ENTRYPOINT is not %s "
+                "(likely built by an older 'tako-vm build' or from a non-executor "
+                "base_image); ignoring it. Rebuild with 'tako-vm build %s'.",
+                job_type.name,
+                built_image,
+                EXECUTOR_ENTRYPOINT,
+                job_type.name,
+            )
+
+        if job_type.base_image:
+            if not validate_docker_image(job_type.base_image):
+                return (
+                    None,
+                    None,
+                    {
+                        "success": False,
+                        "error": "Invalid base_image configuration",
+                        "stdout": "",
+                        "stderr": f"base_image '{job_type.base_image}' failed validation",
+                        "exit_code": -1,
+                        "config_error": True,
+                    },
+                )
+            if image_has_executor_entrypoint(job_type.base_image) is not True:
+                logger.error(
+                    "Job type '%s': refusing to run base_image %s — it does not carry "
+                    "the executor entrypoint contract (ENTRYPOINT %s) or is not present "
+                    "locally. Build an executor-derived image with 'tako-vm build %s'.",
+                    job_type.name,
+                    job_type.base_image,
+                    EXECUTOR_ENTRYPOINT,
+                    job_type.name,
+                )
+                return (
+                    None,
+                    None,
+                    {
+                        "success": False,
+                        "error": (
+                            f"base_image '{job_type.base_image}' for job type "
+                            f"'{job_type.name}' does not carry the executor entrypoint "
+                            f"({EXECUTOR_ENTRYPOINT}) or is not present locally; "
+                            f"run 'tako-vm build {job_type.name}' to build an "
+                            "executor-derived image for this job type"
+                        ),
+                        "stdout": "",
+                        "stderr": (
+                            "Raw base images cannot be run directly: without "
+                            "/entrypoint.sh the in-container timeouts are not enforced "
+                            "and the image's default CMD would run instead of "
+                            "/code/main.py, recording a bogus success for code that "
+                            f"never ran. Run 'tako-vm build {job_type.name}', or point "
+                            "base_image at an executor-derived image that exists on "
+                            "this host."
+                        ),
+                        "exit_code": -1,
+                        "config_error": True,
+                    },
+                )
+            logger.info(
+                "Job type '%s': using executor-derived base image %s",
+                job_type.name,
+                job_type.base_image,
+            )
+            return job_type.base_image, "base", None
+
+        image_name = self.docker_image
+        if not validate_docker_image(image_name):
+            return (
+                None,
+                None,
+                {
+                    "success": False,
+                    "error": "Invalid docker_image configuration",
+                    "stdout": "",
+                    "stderr": f"docker_image '{image_name}' failed validation",
+                    "exit_code": -1,
+                    "config_error": True,
+                },
+            )
+        logger.debug("Job type '%s': using default executor image %s", job_type.name, image_name)
+        return image_name, "default", None
+
     def _run_container(
         self,
         code_dir: Path,
@@ -1146,8 +1292,24 @@ class CodeExecutor:
                 "infra_failure": True,
             }
 
+        # Resolve which image to run: a pre-built job-type image, an
+        # executor-derived base image, or the default executor image. Raw
+        # base images without the executor entrypoint contract are refused
+        # here — running them would execute the image's default CMD instead
+        # of /code/main.py (see _resolve_image).
+        image_name, image_source, image_error = self._resolve_image(job_type)
+        if image_error is not None:
+            return image_error
+
         # Validate runtime requirements before deciding network and tmpfs policy.
-        all_requirements = list(job_type.requirements) if job_type.requirements else []
+        # A pre-built image already has job_type.requirements baked in at build
+        # time, so only per-job extra requirements still need runtime
+        # installation — otherwise the entrypoint would reinstall the full set
+        # on every run, defeating the point of `tako-vm build`.
+        if image_source == "built":
+            all_requirements = []
+        else:
+            all_requirements = list(job_type.requirements) if job_type.requirements else []
         if extra_requirements:
             all_requirements.extend(extra_requirements)
 
@@ -1187,30 +1349,6 @@ class CodeExecutor:
                 }
             requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
             requirements_file.chmod(0o444)
-
-        # Determine which image to use
-        # Use custom base_image if specified, otherwise use default executor
-        # Dependencies are installed at runtime from /input/_requirements.txt.
-        if job_type.base_image:
-            if not validate_docker_image(job_type.base_image):
-                return {
-                    "success": False,
-                    "error": "Invalid base_image configuration",
-                    "stdout": "",
-                    "stderr": f"base_image '{job_type.base_image}' failed validation",
-                    "exit_code": -1,
-                }
-            image_name = job_type.base_image
-        else:
-            image_name = self.docker_image
-            if not validate_docker_image(image_name):
-                return {
-                    "success": False,
-                    "error": "Invalid docker_image configuration",
-                    "stdout": "",
-                    "stderr": f"docker_image '{image_name}' failed validation",
-                    "exit_code": -1,
-                }
 
         # Check if runtime deps require network access
         has_runtime_deps = bool(validated_reqs)
