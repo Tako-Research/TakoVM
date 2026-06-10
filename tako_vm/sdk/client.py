@@ -106,6 +106,10 @@ class ExecutionResult:
     exit_code: Optional[int] = None
     correlation_id: Optional[str] = None
     job_id: Optional[str] = None
+    # Set when the run succeeded but the output dict could not be coerced into
+    # the expected dataclass (output stays a raw dict). Lets callers detect the
+    # mismatch programmatically instead of scraping logs.
+    deserialization_error: Optional[str] = None
 
 
 class TakoVMError(Exception):
@@ -181,8 +185,35 @@ class SDKExecutionError(TakoVMError):
 ExecutionError = SDKExecutionError
 
 
+class MalformedResponseError(TakoVMError):
+    """Raised when the server returns 2xx but the body violates the expected
+    schema (missing/renamed fields). Surfaces a contract mismatch loudly
+    instead of letting a naked KeyError escape with no correlation context."""
+
+    def __init__(self, message: str, correlation_id: Optional[str] = None):
+        super().__init__(message)
+        self.correlation_id = correlation_id
+
+
 class ValidationError(TakoVMError):
     """Raised when input/output validation fails."""
+
+
+def _require_job_id(data: Any, correlation_id: Optional[str]) -> str:
+    """Extract ``job_id`` from a server response, raising a structured,
+    correlated error if the body is malformed instead of a naked KeyError."""
+    if not isinstance(data, dict) or not data.get("job_id"):
+        keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+        logger.error(
+            "Server response missing 'job_id' (correlation_id=%s, keys=%s)",
+            correlation_id,
+            keys,
+        )
+        raise MalformedResponseError(
+            f"Server response did not contain a job_id (got keys: {keys})",
+            correlation_id=correlation_id,
+        )
+    return data["job_id"]
 
 
 def _build_session(pool_size: int = 10) -> requests.Session:
@@ -366,15 +397,20 @@ class TakoVM:
             value = info.get("timeout") if isinstance(info, dict) else None
             if isinstance(value, int):
                 resolved = value
+            # Only a definitive answer (success, whether or not a timeout was
+            # defined) is cached. A transient lookup failure below is NOT
+            # cached, so the client re-probes once the server recovers instead
+            # of pinning the conservative fallback for its whole lifetime.
+            self._job_type_timeouts[name] = resolved
         except TakoVMError as e:
             logger.warning(
                 "Could not resolve timeout for job type %r (%s); "
-                "falling back to the maximum read timeout of %.0fs for this client",
+                "falling back to the maximum read timeout of %.0fs for this call "
+                "(will re-check on next use)",
                 name,
                 e,
                 FALLBACK_READ_TIMEOUT,
             )
-        self._job_type_timeouts[name] = resolved
         return resolved
 
     def _resolve_read_timeout(
@@ -502,6 +538,9 @@ class TakoVM:
                 result.output = output_cls(**cast(Dict[str, Any], result.output))
             except (TypeError, ValueError, KeyError) as e:
                 # Keep as dict if deserialization fails (type mismatch, missing fields, etc.).
+                result.deserialization_error = (
+                    f"Could not deserialize output to {output_cls.__name__}: {e}"
+                )
                 logger.warning(
                     "Could not deserialize output to %s (correlation_id=%s); "
                     "returning the raw dict instead: %s",
@@ -617,6 +656,21 @@ class TakoVM:
                     f"Malformed response from server (HTTP {response.status_code}): "
                     f"{e}; body={snippet!r}"
                 ),
+                correlation_id=result_cid,
+            )
+        if not isinstance(data, dict) or "success" not in data:
+            # Valid JSON, but not the execution-result shape we expect. Surface
+            # the contract mismatch instead of coercing it to a vague
+            # "Execution failed" with no diagnostic.
+            keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+            logger.error(
+                "Execution response missing 'success' field "
+                "(correlation_id=%s, keys=%s)",
+                result_cid,
+                keys,
+            )
+            raise MalformedResponseError(
+                f"Execution response was missing the 'success' field (got keys: {keys})",
                 correlation_id=result_cid,
             )
         logger.debug(
@@ -782,6 +836,7 @@ _execute()
             idempotency_key=key,
         )
         logger.debug("Submitting async job (correlation_id=%s, idempotency_key=%s)", cid, key)
+        data: Optional[Dict[str, Any]] = None
         for attempt in range(SUBMIT_MAX_ATTEMPTS):
             try:
                 data = self._request("POST", "/execute/async", json=payload, correlation_id=cid)
@@ -808,7 +863,7 @@ _execute()
                     e,
                 )
                 time.sleep(delay)
-        job_id = data["job_id"]
+        job_id = _require_job_id(data, cid)
         logger.debug("Async job %s queued (correlation_id=%s)", job_id, cid)
         return job_id
 
@@ -875,7 +930,8 @@ _execute()
             body["job_type"] = job_type
         if timeout is not None:
             body["timeout"] = timeout
-        return self._request("POST", f"/jobs/{job_id}/rerun", json=body)["job_id"]
+        data = self._request("POST", f"/jobs/{job_id}/rerun", json=body)
+        return _require_job_id(data, None)
 
     def fork(
         self,
@@ -891,7 +947,8 @@ _execute()
             body["job_type"] = job_type
         if timeout is not None:
             body["timeout"] = timeout
-        return self._request("POST", f"/jobs/{job_id}/fork", json=body)["job_id"]
+        data = self._request("POST", f"/jobs/{job_id}/fork", json=body)
+        return _require_job_id(data, None)
 
     def download_artifact(self, job_id: str, artifact_name: str) -> bytes:
         """Download a job artifact's bytes (GET /jobs/{job_id}/artifacts/{name})."""

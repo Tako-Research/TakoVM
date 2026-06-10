@@ -21,6 +21,7 @@ from tako_vm.sdk.client import (
     ClientError,
     ExecutionError,
     ExecutionResult,
+    MalformedResponseError,
     ServerError,
     TakoVM,
     TakoVMError,
@@ -306,6 +307,60 @@ class TestExecution:
         result = client.send_raw(add_numbers, InputData(1, 2), timeout=5)
         assert result.success is True
         assert result.output == {"unexpected": 1}
+
+
+class TestServerContractViolations:
+    """A 2xx response with a schema-mismatched body must surface a structured,
+    correlated MalformedResponseError — never a naked KeyError or a vague
+    "Execution failed" — and must be logged loudly (verbose-on-failure)."""
+
+    def test_submit_code_missing_job_id_raises_malformed(self, caplog):
+        session = _mock_session({"status": "queued", "oops": 1})  # no job_id
+        client = TakoVM(session=session)
+        with caplog.at_level("ERROR"):
+            with pytest.raises(MalformedResponseError) as exc:
+                client.submit_code("print(1)", {})
+        assert exc.value.correlation_id is not None
+        assert any("missing 'job_id'" in r.getMessage() for r in caplog.records)
+
+    def test_submit_code_non_dict_body_raises_malformed(self):
+        session = _mock_session(["not", "a", "dict"])
+        client = TakoVM(session=session)
+        with pytest.raises(MalformedResponseError):
+            client.submit_code("print(1)", {})
+
+    def test_rerun_missing_job_id_raises_malformed(self):
+        session = _mock_session({"nope": True})
+        client = TakoVM(session=session)
+        with pytest.raises(MalformedResponseError):
+            client.rerun("job-x")
+
+    def test_fork_missing_job_id_raises_malformed(self):
+        session = _mock_session({"nope": True})
+        client = TakoVM(session=session)
+        with pytest.raises(MalformedResponseError):
+            client.fork("job-x", "print(1)")
+
+    def test_execute_missing_success_field_raises_malformed(self, caplog):
+        # Valid JSON, but not the execution-result shape. Must not be coerced
+        # into a vague "Execution failed".
+        session = _mock_session({"stdout": "", "exit_code": 0})  # no 'success'
+        client = TakoVM(session=session)
+        with caplog.at_level("ERROR"):
+            with pytest.raises(MalformedResponseError):
+                client._execute("print(1)", {})
+        assert any("missing 'success'" in r.getMessage() for r in caplog.records)
+
+    def test_submit_code_all_retries_fail_raises_transport(self, caplog):
+        # Every attempt fails -> the real transport error must surface, not an
+        # UnboundLocalError from `data` never being assigned.
+        session = MagicMock()
+        session.request.side_effect = requests.exceptions.ConnectionError("refused")
+        client = TakoVM(session=session)
+        with caplog.at_level("ERROR"):
+            with pytest.raises(TransportError):
+                client.submit_code("print(1)", {})
+        assert any("gave up after" in r.getMessage() for r in caplog.records)
 
 
 class TestAuthPassthrough:

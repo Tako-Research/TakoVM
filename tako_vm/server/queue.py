@@ -652,6 +652,16 @@ class WorkerPool:
                         except Exception:
                             pass
                 await asyncio.sleep(1)  # Prevent tight loop on errors
+            finally:
+                # Backstop cleanup: the inner try's finally handles the normal
+                # path, but an exception raised after a job is placed in
+                # _running_jobs (line ~502) but before the inner try is entered
+                # would otherwise strand it as 'running' forever. pop() is
+                # idempotent, so double-cleanup is harmless.
+                if job is not None:
+                    async with self._jobs_lock:
+                        self._active_jobs.pop(job.job_id, None)
+                        self._running_jobs.pop(job.job_id, None)
 
         logger.info(f"Worker {worker_id} stopped")
 

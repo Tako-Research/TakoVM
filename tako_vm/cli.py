@@ -24,12 +24,15 @@ except ImportError:
     pass
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/tako_vm"
 MANAGED_POSTGRES_URL = "postgresql://postgres:postgres@localhost:55432/tako_vm"
@@ -254,9 +257,12 @@ def run_setup(args):
     if result.returncode == 0 and "ok" in result.stdout:
         print("  Executor image works")
     else:
-        print("Warning: Image pulled but verification failed.", file=sys.stderr)
+        # The image is unusable — exit non-zero so `tako-vm setup && ...`
+        # doesn't proceed on a broken image and report success.
+        print("Error: Image pulled but verification failed.", file=sys.stderr)
         if result.stderr:
             print(f"  {result.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
 
     print("\nSetup complete! Ready to run jobs.")
 
@@ -339,7 +345,10 @@ def _can_connect_database(database_url: str, timeout: int = 2) -> bool:
 
         with psycopg.connect(database_url, connect_timeout=timeout):
             return True
-    except Exception:
+    except Exception as e:
+        # Log the real reason so a bad URL / missing driver / auth failure
+        # isn't indistinguishable from "database is down".
+        logger.debug("Database connectivity check failed: %s", e)
         return False
 
 
@@ -531,15 +540,28 @@ def check_status(args):
 
     try:
         response = requests.get(f"{args.url}/health", timeout=5)
+        # A non-2xx /health means the server is up but unhealthy — surface the
+        # status code and body instead of blindly parsing JSON (which could
+        # raise, or worse, print a healthy-looking "unknown").
+        if response.status_code >= 400:
+            body = (response.text or "").strip()
+            print(f"Error: server returned HTTP {response.status_code}", file=sys.stderr)
+            if body:
+                print(f"  {body[:500]}", file=sys.stderr)
+            sys.exit(1)
         data = response.json()
         print(f"Status: {data.get('status', 'unknown')}")
         print(f"Docker: {'available' if data.get('docker_available') else 'unavailable'}")
         print(f"Version: {data.get('version', 'unknown')}")
     except requests.exceptions.ConnectionError:
-        print(f"Error: Cannot connect to {args.url}")
+        print(f"Error: Cannot connect to {args.url}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        # Reachable but the body wasn't valid JSON — show what we got.
+        print(f"Error: invalid JSON from {args.url}/health: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -586,9 +608,11 @@ def validate_config(args):
             if config.job_types:
                 for jt in config.job_types:
                     print(f"    - {jt.name}")
-        except (ImportError, ValueError, AttributeError):
-            # Silently skip summary if config can't be loaded for display
-            pass
+        except (ImportError, ValueError, AttributeError) as e:
+            # validate_config_file passed but the full loader (which also
+            # applies env overrides + resolve_paths) failed — that divergence
+            # matters, so don't hide it behind "Configuration is valid!".
+            print(f"(could not render config summary: {e})", file=sys.stderr)
 
 
 def show_config(args):

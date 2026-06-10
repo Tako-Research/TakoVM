@@ -9,6 +9,7 @@ This middleware provides lightweight API-layer protections:
 from __future__ import annotations
 
 import hmac
+import logging
 import math
 import time
 from threading import Lock
@@ -24,6 +25,8 @@ from tako_vm.server.correlation import (
     get_correlation_id,
     set_correlation_id,
 )
+
+logger = logging.getLogger(__name__)
 
 _CORRELATION_ID_HEADER_BYTES = CORRELATION_ID_HEADER.lower().encode("ascii")
 _RATE_LIMIT_EXEMPT_PATHS = {
@@ -105,6 +108,39 @@ class ApiProtectionMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # This middleware wraps the app *outside* FastAPI's exception handlers,
+        # so an unexpected error in the protection logic would otherwise escape
+        # as an opaque 500 with no correlated log line. Catch it, log loudly,
+        # and emit a sanitized 500 — unless the response has already started
+        # streaming, in which case we can only re-raise.
+        response_started = False
+
+        async def tracked_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self._dispatch(scope, receive, tracked_send)
+        except Exception as e:
+            logger.error(
+                "Unhandled error in API protection middleware (correlation_id=%s): %s",
+                get_correlation_id(),
+                e,
+                exc_info=True,
+            )
+            if response_started:
+                raise
+            await self._send_error_response(
+                scope,
+                receive,
+                send,
+                status_code=500,
+                detail="Internal server error.",
+            )
+
+    async def _dispatch(self, scope: Scope, receive: Receive, send: Send) -> None:
         config = self._config_getter()
         path = scope.get("path", "")
         authenticated_identity = None
