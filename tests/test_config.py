@@ -677,3 +677,23 @@ max_workers: 16
             assert found == Path(config_path)
         finally:
             Path(config_path).unlink()
+
+
+class TestDLQTTLConfig:
+    """Tests for dlq_ttl_days retention config."""
+
+    def test_dlq_ttl_days_default_matches_record_retention(self):
+        """DLQ TTL defaults to 30 days, same as execution record retention."""
+        config = TakoVMConfig()
+        assert config.dlq_ttl_days == 30
+        assert config.dlq_ttl_days == config.execution_record_ttl_days
+
+    def test_dlq_ttl_days_bounds(self):
+        """dlq_ttl_days accepts 1-365 and rejects values outside that range."""
+        assert TakoVMConfig(dlq_ttl_days=1).dlq_ttl_days == 1
+        assert TakoVMConfig(dlq_ttl_days=365).dlq_ttl_days == 365
+
+        with pytest.raises(ValueError):
+            TakoVMConfig(dlq_ttl_days=0)
+        with pytest.raises(ValueError):
+            TakoVMConfig(dlq_ttl_days=366)

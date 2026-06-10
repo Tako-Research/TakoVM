@@ -416,3 +416,70 @@ class TestDeadLetterEntry:
         for error_type in valid_types:
             entry = DeadLetterEntry(job_id="job", job_data={}, error_type=error_type)
             assert entry.error_type == error_type
+
+
+class TestDeadLetterJobSummary:
+    """Tests for DeadLetterEntry.build_job_summary redaction policy."""
+
+    def test_summary_keeps_fingerprints_and_metadata(self):
+        """Summary carries hashes, sizes, and non-secret diagnostics."""
+        code = "print('hello')"
+        input_data = {"key": "value"}
+        job_data = {
+            "code": code,
+            "input_data": input_data,
+            "job_type": "svg-processing",
+            "timeout": 45,
+            "startup_timeout": 120,
+            "requirements": ["numpy", "pillow==10.0.0"],
+            "correlation_id": "corr-1",
+            "parent_execution_id": "parent-1",
+            "idempotency_key": "idem-secret",
+        }
+
+        summary = DeadLetterEntry.build_job_summary(job_data)
+
+        assert summary["job_type"] == "svg-processing"
+        assert summary["code_hash"] == sha256_content(code)
+        assert summary["input_hash"] == sha256_json(input_data)
+        assert summary["code_size_bytes"] == len(code.encode("utf-8"))
+        assert summary["input_size_bytes"] == len(b'{"key":"value"}')
+        assert summary["timeout"] == 45
+        assert summary["startup_timeout"] == 120
+        assert summary["requirements"] == ["numpy", "pillow==10.0.0"]
+        assert summary["correlation_id"] == "corr-1"
+        assert summary["parent_execution_id"] == "parent-1"
+        assert summary["has_idempotency_key"] is True
+
+    def test_summary_drops_raw_payloads(self):
+        """Raw code, input_data values, and idempotency keys never appear."""
+        job_data = {
+            "code": "import os; os.environ['SECRET']",
+            "input_data": {"api_key": "sk-live-supersecret"},
+            "idempotency_key": "idem-key-abc",
+        }
+
+        summary = DeadLetterEntry.build_job_summary(job_data)
+
+        assert "code" not in summary
+        assert "input_data" not in summary
+        assert "idempotency_key" not in summary
+        serialized = str(summary)
+        assert "sk-live-supersecret" not in serialized
+        assert "idem-key-abc" not in serialized
+        assert "import os" not in serialized
+
+    def test_summary_minimal_job(self):
+        """Summary of an empty job has stable defaults and omits absent fields."""
+        summary = DeadLetterEntry.build_job_summary({})
+
+        assert summary["job_type"] == "default"
+        assert summary["code_hash"] == sha256_content("")
+        assert summary["input_hash"] == sha256_json({})
+        assert summary["code_size_bytes"] == 0
+        assert summary["has_idempotency_key"] is False
+        assert "timeout" not in summary
+        assert "startup_timeout" not in summary
+        assert "requirements" not in summary
+        assert "correlation_id" not in summary
+        assert "parent_execution_id" not in summary

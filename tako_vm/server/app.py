@@ -173,7 +173,7 @@ async def _periodic_cleanup(
     record_ttl_days: int,
     data_dir: Path,
     workspace_max_age_seconds: int,
-    dlq_ttl_days: int = 7,
+    dlq_ttl_days: int,
 ):
     """Background task for periodic database + on-disk cleanup."""
     cleanup_interval = 3600  # Run every hour
@@ -259,6 +259,7 @@ async def lifespan(app: FastAPI):
             state.config.execution_record_ttl_days,
             state.config.data_dir,
             workspace_max_age,
+            state.config.dlq_ttl_days,
         )
     )
 

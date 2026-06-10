@@ -784,3 +784,83 @@ async def test_cancelled_skip_path_does_not_inherit_previous_correlation_id():
     assert contexts["job-corr-first"] == "corr-a"
     # Job B's cancelled-skip save must NOT see job A's correlation id.
     assert contexts["job-cancelled-skip"] is None
+
+
+@pytest.mark.asyncio
+async def test_internal_error_dlq_entry_is_redacted():
+    """Internal-error DLQ entries must hold a redacted forensic summary.
+
+    The persisted entry keeps fingerprints/sizes/metadata but never the raw
+    code string, input_data values, or the idempotency key itself.
+    """
+    from tako_vm.models import sha256_content, sha256_json
+
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    storage.mark_record_running = AsyncMock()
+    storage.add_to_dlq = AsyncMock()
+
+    pool = WorkerPool(executor=MagicMock(), storage=storage, queue_wait_timeout=0.05)
+
+    async def boom(job):
+        raise RuntimeError("executor exploded")
+
+    pool._execute_job = boom
+
+    secret_code = "import os; print(os.environ['AWS_SECRET_ACCESS_KEY'])"
+    secret_input = {"api_key": "sk-live-supersecret", "nested": {"token": "tok-12345"}}
+
+    loop = asyncio.get_running_loop()
+    job = QueuedJob(
+        job_id="job-redact",
+        job_data={
+            "code": secret_code,
+            "input_data": secret_input,
+            "idempotency_key": "idem-key-abc-123",
+            "job_type": "default",
+            "timeout": 30,
+            "startup_timeout": 60,
+            "requirements": ["numpy", "pandas"],
+            "correlation_id": "corr-redact",
+            "parent_execution_id": "parent-1",
+        },
+        client_ip=None,
+        future=loop.create_future(),
+    )
+    pool._active_jobs[job.job_id] = job
+    pool._queue.put_nowait(job)
+
+    worker = asyncio.create_task(pool._worker_loop(0))
+    try:
+        record = await asyncio.wait_for(job.future, timeout=5.0)
+    finally:
+        pool._shutdown = True
+        await asyncio.wait_for(worker, timeout=5.0)
+
+    assert record.status == "failed"
+    storage.add_to_dlq.assert_awaited_once()
+    entry = storage.add_to_dlq.await_args.args[0]
+    summary = entry.job_data
+
+    # Forensic fingerprints, sizes, flags, and metadata are retained.
+    assert summary["code_hash"] == sha256_content(secret_code)
+    assert summary["input_hash"] == sha256_json(secret_input)
+    assert summary["code_size_bytes"] == len(secret_code.encode("utf-8"))
+    assert summary["input_size_bytes"] > 0
+    assert summary["has_idempotency_key"] is True
+    assert summary["job_type"] == "default"
+    assert summary["timeout"] == 30
+    assert summary["startup_timeout"] == 60
+    assert summary["requirements"] == ["numpy", "pandas"]
+    assert summary["correlation_id"] == "corr-redact"
+    assert summary["parent_execution_id"] == "parent-1"
+
+    # Raw payloads and the key itself never reach storage.
+    assert "code" not in summary
+    assert "input_data" not in summary
+    assert "idempotency_key" not in summary
+    serialized = entry.model_dump_json()
+    assert secret_code not in serialized
+    assert "sk-live-supersecret" not in serialized
+    assert "tok-12345" not in serialized
+    assert "idem-key-abc-123" not in serialized

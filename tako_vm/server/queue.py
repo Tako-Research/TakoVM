@@ -590,9 +590,11 @@ class WorkerPool:
 
                     # Add to dead letter queue for internal errors (P3 fix)
                     try:
+                        # Redact: DLQ persists a forensic summary (hashes,
+                        # sizes, metadata), never raw code/input_data/keys.
                         dlq_entry = DeadLetterEntry(
                             job_id=job.job_id,
-                            job_data=job.job_data,
+                            job_data=DeadLetterEntry.build_job_summary(job.job_data),
                             error_type=error_type,
                             error_message=error_msg,
                             retry_count=0,

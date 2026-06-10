@@ -845,7 +845,12 @@ class ExecutionStorage:
         )
 
     async def add_to_dlq(self, entry: DeadLetterEntry) -> int:
-        """Add a failed job to the dead letter queue."""
+        """Add a failed job to the dead letter queue.
+
+        ``entry.job_data`` is persisted verbatim as JSONB, so callers must
+        pass a redacted forensic summary (DeadLetterEntry.build_job_summary),
+        never raw code/input_data/idempotency keys.
+        """
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(

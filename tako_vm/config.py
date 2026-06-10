@@ -421,6 +421,16 @@ class TakoVMConfig(BaseModel):
 
     # Retention
     execution_record_ttl_days: int = Field(default=30, ge=1, le=3650)
+    dlq_ttl_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description=(
+            "Days to retain dead-letter-queue entries. Defaults to 30 to match "
+            "execution record retention: DLQ entries are forensic records of "
+            "internal failures and should not expire sooner than ordinary records."
+        ),
+    )
 
     # Docker
     docker_image: str = Field(default="code-executor:latest")
