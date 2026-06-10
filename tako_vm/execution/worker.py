@@ -21,6 +21,7 @@ from tako_vm.constants import MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
 from tako_vm.execution.docker import (
     base_isolation_args,
     generate_container_name,
+    inspect_oom_killed,
     is_native_linux,
     kill_container,
     remove_container,
@@ -187,6 +188,50 @@ def _clear_output_dir(output_dir: Path) -> None:
         logger.warning("Failed to clear output dir %s: %s", output_dir, e)
 
 
+# Fixed uid of the in-container sandbox user (``useradd -u 1000 sandbox`` in
+# Dockerfile.executor); user code always runs as this uid via gosu.
+_SANDBOX_UID = 1000
+
+
+def _make_meta_dir(meta_dir: Path) -> Optional[Path]:
+    """Create the control-metadata dir mounted read-write at ``/tako-meta``.
+
+    The entrypoint writes ``.tako_phase`` (phase/timing data that feeds status
+    determination) here instead of the 0777 ``/output`` mount, because the
+    sandbox user (uid 1000) can unlink and re-create anything in ``/output``
+    and thereby forge timing/phase data. Mode 0755 means only the directory's
+    owner (the host server process uid) can write. The container runs with
+    ``--cap-drop=ALL`` (no CAP_DAC_OVERRIDE), so writes inside the container
+    are subject to plain permission checks against that host owner uid:
+
+    - Server running as root (the supported production deployment,
+      ``Dockerfile.server``): the dir is uid-0-owned, container root (the
+      entrypoint) can write, the sandbox user (uid 1000) cannot. Secure.
+    - Server running as a non-root host user: container root cannot write
+      either; the entrypoint detects this and falls back to the legacy
+      ``/output`` location (and ``parse_phase_file`` falls back with it) —
+      no worse than the previous behavior.
+    - Server running as host uid 1000 exactly: the dir would be owned by the
+      sandbox user inside the container, which as owner could chmod and write
+      it — the "trusted" location would be forgeable. Returns None so the
+      mount is skipped entirely and the legacy behavior applies.
+
+    Returns:
+        The created directory, or None when a trusted meta dir cannot be
+        provided (host uid collides with the sandbox uid).
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == _SANDBOX_UID:
+        logger.debug(
+            "Server uid collides with in-container sandbox uid %s; "
+            "skipping /tako-meta mount (phase file stays in /output)",
+            _SANDBOX_UID,
+        )
+        return None
+    meta_dir.mkdir()
+    meta_dir.chmod(0o755)
+    return meta_dir
+
+
 def check_gvisor_available() -> bool:
     """
     Check if gVisor (runsc) runtime is available.
@@ -234,7 +279,9 @@ DEFAULT_JOB_TYPE = JobType(
 )
 
 
-def parse_phase_file(output_dir: Path) -> Optional[ExecutionTiming]:
+def parse_phase_file(
+    output_dir: Path, meta_dir: Optional[Path] = None
+) -> Optional[ExecutionTiming]:
     """
     Parse the phase tracking file written by entrypoint.sh.
 
@@ -246,18 +293,37 @@ def parse_phase_file(output_dir: Path) -> Optional[ExecutionTiming]:
     - total_ms: total container runtime
     - failed_phase: which phase failed (if phase=failed)
 
+    Trust model: the entrypoint prefers writing the phase file to the
+    root-only ``/tako-meta`` control mount (``meta_dir`` on the host), which
+    sandboxed user code (uid 1000) cannot write to. When the meta copy exists
+    it is authoritative and a (possibly forged) ``/output/.tako_phase`` is
+    ignored. The ``output_dir`` fallback only applies when no meta copy was
+    written — a stale executor image that predates ``/tako-meta``, or a host
+    setup where container root could not write the mount — and that fallback
+    copy lives in the 0777 output dir, so it remains untrusted legacy data.
+
     Args:
-        output_dir: Path to output directory containing .tako_phase file
+        output_dir: Path to output directory (legacy/fallback location)
+        meta_dir: Path to the root-only control metadata directory mounted at
+            /tako-meta (preferred location), or None if not mounted
 
     Returns:
         ExecutionTiming with parsed timing info, or None if file not found
     """
-    phase_file = output_dir / ".tako_phase"
-    # Untrusted code could point .tako_phase at a host file; never follow it.
-    if phase_file.is_symlink():
-        logger.warning("Phase file is a symlink, ignoring")
-        return None
-    if not phase_file.exists():
+    phase_file = None
+    candidates = []
+    if meta_dir is not None:
+        candidates.append(meta_dir / ".tako_phase")
+    candidates.append(output_dir / ".tako_phase")
+    for candidate in candidates:
+        # Untrusted code could point .tako_phase at a host file; never follow it.
+        if candidate.is_symlink():
+            logger.warning("Phase file %s is a symlink, ignoring", candidate)
+            continue
+        if candidate.exists():
+            phase_file = candidate
+            break
+    if phase_file is None:
         return None
 
     try:
@@ -482,6 +548,10 @@ class CodeExecutor:
             input_dir.mkdir()
             output_dir.mkdir()
             output_dir.chmod(0o777)  # Writable by container user (uid 1000)
+            # Control metadata (.tako_phase) mount: writable by container
+            # root only, NOT by the sandbox user — see _make_meta_dir.
+            # None when a trusted dir cannot be provided (mount is skipped).
+            meta_dir = _make_meta_dir(workspace / "meta")
 
             # Write generated code to file
             code_file = code_dir / "main.py"
@@ -503,6 +573,7 @@ class CodeExecutor:
                 job_type=job_type,
                 extra_requirements=job.get("requirements"),
                 job_id=job_id,
+                meta_dir=meta_dir,
             )
 
             # Add job type info to result
@@ -610,6 +681,10 @@ class CodeExecutor:
             input_dir.mkdir()
             output_dir.mkdir()
             output_dir.chmod(0o777)  # Writable by container user (uid 1000)
+            # Control metadata (.tako_phase) mount: writable by container
+            # root only, NOT by the sandbox user — see _make_meta_dir.
+            # None when a trusted dir cannot be provided (mount is skipped).
+            meta_dir = _make_meta_dir(workspace / "meta")
 
             # Write generated code to file
             code_file = code_dir / "main.py"
@@ -651,14 +726,17 @@ class CodeExecutor:
                 record.attempt = attempt
                 if attempt > 0:
                     # Make retries idempotent. The previous attempt's
-                    # container may still exist (`--rm` removal can lag the
-                    # very daemon hiccup that triggered the retry), and its
-                    # partial output (result.json, .tako_phase, artifacts)
-                    # may still be in output_dir — remove both so the retry
+                    # container may still exist (its removal is best-effort
+                    # and can fail during the very daemon hiccup that
+                    # triggered the retry), and its partial output
+                    # (result.json, .tako_phase, artifacts) may still be in
+                    # output_dir/meta_dir — remove all of these so the retry
                     # cannot collide on a container name or report stale
                     # results from the failed attempt.
                     remove_container(generate_container_name("tako", job_id, attempt=attempt - 1))
                     _clear_output_dir(output_dir)
+                    if meta_dir is not None:
+                        _clear_output_dir(meta_dir)
                 try:
                     result = self._run_container(
                         code_dir=code_dir,
@@ -670,6 +748,7 @@ class CodeExecutor:
                         extra_requirements=job.get("requirements"),
                         job_id=job_id,
                         attempt=attempt,
+                        meta_dir=meta_dir,
                     )
 
                     # Host-level timeout: the job already consumed its full
@@ -759,8 +838,10 @@ class CodeExecutor:
                 except json.JSONDecodeError:
                     pass
 
-            # Parse phase timing file (written by entrypoint.sh)
-            timing = parse_phase_file(output_dir)
+            # Parse phase timing file (written by entrypoint.sh). The
+            # root-only meta_dir copy is preferred; the /output copy is a
+            # legacy fallback that sandboxed code can forge.
+            timing = parse_phase_file(output_dir, meta_dir)
             record.timing = timing
 
             # Determine which phase timed out (if applicable)
@@ -802,13 +883,32 @@ class CodeExecutor:
                         phase=timing.phase_at_exit if timing else None,
                     )
             elif result.get("exit_code") == 137:
-                record.status = "oom"
+                # Exit 137 means SIGKILL, but not necessarily the OOM killer:
+                # `docker kill` (cancel path), a pids-limit kill, or user code
+                # calling sys.exit(137) all look identical. _run_container
+                # inspects State.OOMKilled before removing the container:
+                # True -> genuine OOM; False -> killed but NOT by the memory
+                # limit; None (inspect failed) -> fall back to the historical
+                # behavior of reporting OOM so a flaky inspect never loses a
+                # true OOM.
                 phase = timing.phase_at_exit if timing else None
-                record.error = ExecutionError(
-                    type="oom",
-                    message="Execution exceeded memory limit",
-                    phase=phase,
-                )
+                if result.get("oom_killed") is False:
+                    record.status = "failed"
+                    record.error = ExecutionError(
+                        type="killed",
+                        message=(
+                            "Process was killed (SIGKILL) but not by the memory "
+                            "limit (no OOM kill recorded for the container)"
+                        ),
+                        phase=phase,
+                    )
+                else:
+                    record.status = "oom"
+                    record.error = ExecutionError(
+                        type="oom",
+                        message="Execution exceeded memory limit",
+                        phase=phase,
+                    )
             elif result.get("success"):
                 record.status = "succeeded"
             else:
@@ -1000,9 +1100,17 @@ class CodeExecutor:
         extra_requirements: Optional[List[str]] = None,
         job_id: Optional[str] = None,
         attempt: int = 0,
+        meta_dir: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """
         Run Docker container with security restrictions.
+
+        The container is started WITHOUT ``--rm`` so that on exit code 137 the
+        exited container can be inspected for ``State.OOMKilled`` (the only
+        authoritative OOM signal — ``--rm`` would race the inspect). Every
+        exit path from this method removes the container via a best-effort
+        ``docker rm -f`` in a ``finally`` block; the labeled orphan cleanup at
+        startup remains as a backstop only.
 
         Args:
             code_dir: Path to directory containing code (will be mounted read-only)
@@ -1016,9 +1124,15 @@ class CodeExecutor:
             attempt: Retry attempt index; attempts > 0 get a suffixed
                 container name so they cannot collide with a previous
                 attempt's not-yet-removed container
+            meta_dir: Host dir mounted at /tako-meta for control metadata
+                (.tako_phase) writable by container root but not the sandbox
+                user, or None to skip the mount (entrypoint then falls back
+                to the legacy /output location)
 
         Returns:
-            Dictionary with execution results
+            Dictionary with execution results. On exit code 137 it includes
+            ``oom_killed``: True/False from docker inspect, or None if the
+            inspect failed (callers should treat None as "assume OOM").
         """
         # Check circuit breaker before attempting Docker operation
         circuit_breaker = get_circuit_breaker()
@@ -1114,11 +1228,16 @@ class CodeExecutor:
         # generate_container_name for the queue.py cancel/watchdog caveat.
         container_name = generate_container_name("tako", job_id, attempt=attempt)
 
+        # auto_remove=False: keep the exited container so a 137 exit can be
+        # checked against `docker inspect .State.OOMKilled` (with --rm the
+        # daemon removes the container before it can be inspected). The
+        # finally block below guarantees removal on every exit path.
         cmd = base_isolation_args(
             container_name,
             runtime=self._runtime,
             enable_cap_restrictions=self.config.enable_cap_restrictions,
             execution_id=job_id,
+            auto_remove=False,
         )
 
         # Mount uv cache volume for faster repeated installs
@@ -1164,6 +1283,12 @@ class CodeExecutor:
             ]
         )
 
+        # Control-metadata mount: the entrypoint (running as container root)
+        # writes .tako_phase here instead of the sandbox-writable /output, so
+        # user code cannot forge phase/timing data. See _make_meta_dir.
+        if meta_dir is not None:
+            cmd.append(f"--mount=type=bind,source={meta_dir.absolute()},target=/tako-meta")
+
         # Add seccomp profile if enabled and exists (native Linux only)
         # Docker Desktop (macOS/Windows) has issues with custom seccomp profiles
         # Some CI environments (GitHub Actions) may also have issues with custom seccomp
@@ -1192,16 +1317,17 @@ class CodeExecutor:
         # Add image name
         cmd.append(image_name)
 
+        container_timeout = startup_timeout + timeout + 5
+        if not validate_docker_run_args(cmd):
+            return {
+                "success": False,
+                "error": "Unsafe Docker command rejected",
+                "stdout": "",
+                "stderr": "Docker command arguments failed validation",
+                "exit_code": -1,
+            }
+
         try:
-            container_timeout = startup_timeout + timeout + 5
-            if not validate_docker_run_args(cmd):
-                return {
-                    "success": False,
-                    "error": "Unsafe Docker command rejected",
-                    "stdout": "",
-                    "stderr": "Docker command arguments failed validation",
-                    "exit_code": -1,
-                }
             result = subprocess.run(
                 cmd, timeout=container_timeout, capture_output=True, text=True, check=False
             )
@@ -1240,11 +1366,22 @@ class CodeExecutor:
             # non-zero exit from user code) means Docker itself is healthy.
             circuit_breaker.record_success()
 
+            # Exit 137 is SIGKILL — could be the OOM killer, but also `docker
+            # kill` (cancel path), a pids-limit kill, or user sys.exit(137).
+            # Only the exited container's State.OOMKilled distinguishes them;
+            # inspect before the finally block removes the container. Note:
+            # in-container timeout kills are already remapped to 124 by the
+            # entrypoint, so a 137 seen here is a genuine SIGKILL.
+            oom_killed: Optional[bool] = None
+            if result.returncode == 137:
+                oom_killed = inspect_oom_killed(container_name)
+
             return {
                 "success": result.returncode == 0,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "exit_code": result.returncode,
+                "oom_killed": oom_killed,
             }
 
         except subprocess.TimeoutExpired as e:
@@ -1289,6 +1426,15 @@ class CodeExecutor:
                 "stderr": "",
                 "exit_code": -1,
             }
+        finally:
+            # The container is started without --rm (so a 137 exit can be
+            # inspected for State.OOMKilled above), which makes this method
+            # responsible for removal on EVERY exit path: success, user-code
+            # failure, infra failure, host timeout (kill_container above only
+            # kills, it does not remove), and unexpected exceptions. Removal
+            # is best-effort (`docker rm -f`, errors swallowed); the labeled
+            # orphan cleanup at startup is the backstop if it fails.
+            remove_container(container_name)
 
 
 if __name__ == "__main__":

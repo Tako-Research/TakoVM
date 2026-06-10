@@ -12,6 +12,7 @@ from tako_vm.execution.docker import (
     EXECUTION_ID_LABEL,
     base_isolation_args,
     generate_container_name,
+    inspect_oom_killed,
     is_native_linux,
     kill_container,
     remove_container,
@@ -158,6 +159,62 @@ class TestRemoveContainer:
         assert remove_container("error-container") is False
 
 
+class TestInspectOomKilled:
+    """Tests for inspect_oom_killed() — the authoritative OOM signal."""
+
+    @patch("subprocess.run")
+    def test_inspect_calls_docker_with_oomkilled_format(self, mock_run):
+        """inspect_oom_killed asks docker inspect for State.OOMKilled with a short timeout."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="true\n")
+
+        assert inspect_oom_killed("tako-test-123") is True
+
+        mock_run.assert_called_once_with(
+            ["docker", "inspect", "--format", "{{.State.OOMKilled}}", "tako-test-123"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+    @patch("subprocess.run")
+    def test_returns_false_when_not_oom_killed(self, mock_run):
+        """A SIGKILL that was not the OOM killer reports OOMKilled=false."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="false\n")
+
+        assert inspect_oom_killed("tako-test-123") is False
+
+    @patch("subprocess.run")
+    def test_returns_none_when_container_missing(self, mock_run):
+        """A failed inspect (container already gone) returns None, not False."""
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="Error: No such object: tako-test-123"
+        )
+
+        assert inspect_oom_killed("tako-test-123") is None
+
+    @patch("subprocess.run")
+    def test_returns_none_on_unparseable_output(self, mock_run):
+        """Unexpected inspect output is treated as unknown (None)."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="<no value>\n")
+
+        assert inspect_oom_killed("tako-test-123") is None
+
+    @patch("subprocess.run")
+    def test_returns_none_on_timeout(self, mock_run):
+        """A hung docker inspect returns None instead of raising."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
+
+        assert inspect_oom_killed("tako-test-123") is None
+
+    @patch("subprocess.run")
+    def test_returns_none_on_unexpected_exception(self, mock_run):
+        """Any unexpected failure is swallowed and reported as unknown."""
+        mock_run.side_effect = Exception("boom")
+
+        assert inspect_oom_killed("tako-test-123") is None
+
+
 class TestContainerNameValidation:
     """Tests for container name format validation."""
 
@@ -237,3 +294,21 @@ class TestBaseIsolationArgs:
     def test_runc_is_implicit(self):
         """runc is docker's default and is not passed explicitly."""
         assert not any(a.startswith("--runtime") for a in base_isolation_args("c1", runtime="runc"))
+
+    def test_auto_remove_default_includes_rm(self):
+        """By default the container is auto-removed on exit (--rm)."""
+        assert "--rm" in base_isolation_args("c1", runtime="runc")
+
+    def test_auto_remove_false_omits_rm(self):
+        """auto_remove=False omits --rm so the exited container can be inspected."""
+        args = base_isolation_args("c1", runtime="runc", auto_remove=False)
+        assert "--rm" not in args
+        # The rest of the isolation posture is unchanged
+        assert args[:6] == [
+            "docker",
+            "run",
+            "--name=c1",
+            f"--label={CONTAINER_LABEL}",
+            "--init",
+            "--read-only",
+        ]

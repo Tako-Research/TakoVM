@@ -1,8 +1,22 @@
 #!/bin/bash
 set -e
 
-# Phase tracking file - Tako VM reads this to know which phase timed out
+# Phase tracking file - Tako VM reads this to know which phase timed out.
+#
+# Prefer the root-only /tako-meta control mount: /output is world-writable
+# (0777) and the sandbox user (uid 1000) could unlink and re-create
+# /output/.tako_phase to forge phase/timing data that feeds the server's
+# status determination. /tako-meta is mounted 0755 owned by the server uid,
+# so only this entrypoint (container root) can write it. Fall back to the
+# legacy /output location when /tako-meta is absent (old server that does
+# not mount it) or not writable by container root (server running as a
+# non-root host user; --cap-drop=ALL strips CAP_DAC_OVERRIDE, so root is
+# subject to normal permission checks on the bind mount). The writability
+# probe runs as root, before any privilege drop.
 PHASE_FILE="/output/.tako_phase"
+if [ -d /tako-meta ] && touch /tako-meta/.tako_phase 2>/dev/null; then
+    PHASE_FILE="/tako-meta/.tako_phase"
+fi
 
 # Helper to get current time in milliseconds
 get_time_ms() {

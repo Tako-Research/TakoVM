@@ -114,12 +114,13 @@ def remove_container(container_name: str) -> bool:
     Force-remove a container by name (best-effort).
 
     ``docker rm -f`` kills the container if it is running and removes it in
-    one step. Used before a retry attempt to clean up the previous attempt's
-    container so it cannot linger (``--rm`` removal can lag behind a daemon
-    hiccup — the very condition that triggers retries).
+    one step. Used by the worker after every run (its containers are started
+    without ``--rm`` so a 137 exit can be inspected for ``State.OOMKilled``)
+    and before a retry attempt to clean up the previous attempt's container
+    so it cannot linger (removal can lag behind a daemon hiccup — the very
+    condition that triggers retries).
 
-    Silently ignores errors (the container has usually already been removed
-    by ``--rm``).
+    Silently ignores errors (the container may already be gone).
 
     Args:
         container_name: Name of the container to remove
@@ -145,12 +146,55 @@ def remove_container(container_name: str) -> bool:
         return False
 
 
+def inspect_oom_killed(container_name: str) -> Optional[bool]:
+    """Check whether a container's process was OOM-killed via ``docker inspect``.
+
+    ``State.OOMKilled`` is the only authoritative signal that exit code 137
+    came from the kernel/cgroup OOM killer rather than some other SIGKILL
+    (``docker kill`` from a cancel path, a pids-limit kill, or user code
+    calling ``sys.exit(137)``). Requires the container to still exist, i.e.
+    the run must not use ``--rm`` (see ``base_isolation_args(auto_remove=
+    False)``); the caller is responsible for removing the container afterward.
+
+    Args:
+        container_name: Name of the container to inspect
+
+    Returns:
+        True/False from ``State.OOMKilled``, or None if the inspect failed
+        (container already gone, daemon unreachable, timeout, unparseable
+        output). Callers should treat None as "unknown" and fall back to
+        their previous heuristic so a flaky inspect never loses a true OOM.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.OOMKilled}}", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.debug("docker inspect of %s failed (exit %s)", container_name, result.returncode)
+            return None
+        value = (result.stdout or "").strip().lower()
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        logger.debug("Unexpected OOMKilled value for %s: %r", container_name, result.stdout)
+        return None
+    except Exception as e:
+        logger.debug("Failed to inspect container %s: %s", container_name, e)
+        return None
+
+
 def base_isolation_args(
     container_name: str,
     *,
     runtime: str,
     enable_cap_restrictions: bool = True,
     execution_id: Optional[str] = None,
+    auto_remove: bool = True,
 ) -> list[str]:
     """Leading ``docker run`` args shared by every isolated-execution path.
 
@@ -174,6 +218,11 @@ def base_isolation_args(
         execution_id: Optional execution/job ID recorded as the
             ``tako-vm.execution-id`` label so orphaned containers can be traced
             back to their execution records.
+        auto_remove: Pass ``--rm`` so the daemon removes the container on
+            exit. Callers that need to ``docker inspect`` the exited container
+            (e.g. to read ``State.OOMKilled`` and distinguish a real OOM from
+            any other SIGKILL) must set this to False and remove the container
+            themselves (``remove_container``) once inspection is done.
 
     Returns:
         The leading argument list, ready to have path-specific flags and the
@@ -182,7 +231,10 @@ def base_isolation_args(
     args = [
         "docker",
         "run",
-        "--rm",
+    ]
+    if auto_remove:
+        args.append("--rm")
+    args += [
         f"--name={container_name}",
         # Identify the container as ours so startup cleanup can find orphans.
         f"--label={CONTAINER_LABEL}",
