@@ -851,6 +851,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1742,6 +1753,16 @@
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span><span class="s2">&quot;https://tako.internal&quot;</span><span class="p">,</span> <span class="n">session</span><span class="o">=</span><span class="n">sess</span><span class="p">)</span>
 </span></code></pre></div>
 <p><code>tako_vm.configure(..., headers=...)</code> does the same for the module-level helpers.</p>
+<h3 id="reliability">Reliability<a class="headerlink" href="#reliability" title="Permanent link">&para;</a></h3>
+<p>The client ships with a reliability layer; all of it is automatic:</p>
+<ul>
+<li><strong>Transport retries (GETs only).</strong> The default session retries idempotent GETs (status/result polling, job types, health) on 502/503/504 with backoff. POSTs are never retried at the transport layer — the sync <code>POST /execute</code> is not idempotent, so a blind retry could run code twice. Passing your own <code>session=</code> replaces this adapter.</li>
+<li><strong>Retry-safe async submission.</strong> <code>submit()</code>/<code>submit_code()</code> auto-generate a server-compatible <code>idempotency_key</code> when you don't pass one and retry transient failures (connection errors, 502/503/504) with the <em>same</em> key, so the server returns the existing job instead of re-executing.</li>
+<li><strong>Correlation IDs.</strong> Every request carries an <code>X-Correlation-ID</code> header (auto-generated, or fixed via <code>TakoVM(correlation_id=...)</code>). The id is exposed as <code>.correlation_id</code> on <code>ExecutionResult</code> and on SDK exceptions for end-to-end tracing.</li>
+<li><strong>Structured errors.</strong> HTTP failures raise <code>TransportError</code> (connection/timeout), <code>ServerError</code> (5xx, with <code>.retryable</code> set for 502/503/504), or <code>ClientError</code> (4xx) — all subclasses of <code>TakoVMError</code> carrying <code>.status_code</code>, <code>.detail</code> (parsed from the server's error body), and <code>.correlation_id</code>. The sync <code>send()</code>/<code>send_raw()</code> path keeps its legacy contract and reports these as a failed <code>ExecutionResult</code> instead of raising them.</li>
+<li><strong>Client-side timeouts that outlive the server.</strong> When <code>timeout</code> is omitted, the HTTP read timeout is resolved from the job type's default (<code>GET /job-types/{name}</code>, cached per client) plus the startup budget, with a generous fallback — so long-running jobs are never killed client-side while they would still complete server-side. If the job-type lookup fails, the client logs a warning and falls back to the maximum read timeout.</li>
+<li><strong>Verbose on failure.</strong> Every failure path logs at <code>WARNING</code>/<code>ERROR</code> on the <code>tako_vm.sdk.client</code> logger with the correlation id, status, and server detail. A non-JSON 2xx body and an output that doesn't fit the return dataclass are both logged and surfaced (a failed <code>ExecutionResult</code> and the raw dict, respectively) rather than swallowed silently. Enable it with <code>logging.getLogger("tako_vm.sdk.client").setLevel(logging.DEBUG)</code>.</li>
+</ul>
 <hr />
 <h2 id="synchronous-execution">Synchronous execution<a class="headerlink" href="#synchronous-execution" title="Permanent link">&para;</a></h2>
 <h3 id="send-send_raw"><code>send()</code> / <code>send_raw()</code><a class="headerlink" href="#send-send_raw" title="Permanent link">&para;</a></h3>
@@ -1976,7 +1997,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 10, 2026 20:38:16 UTC"><span class="timeago" datetime="2026-06-10T20:38:16+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 10, 2026 20:38:16 UTC">2026-06-10</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 10, 2026 20:46:11 UTC"><span class="timeago" datetime="2026-06-10T20:46:11+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 10, 2026 20:46:11 UTC">2026-06-10</span>
   </span>
 
     
