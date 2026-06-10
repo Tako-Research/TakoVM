@@ -30,7 +30,8 @@ from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
     base_isolation_args,
     generate_container_name,
-    kill_container,
+    inspect_oom_killed,
+    remove_container,
 )
 from tako_vm.security import validate_pip_requirement
 
@@ -414,55 +415,85 @@ class Sandbox:
                 subprocess_timeout += self.config.startup_timeout
 
             start_time = time.time()
+            # The container runs without --rm (see _build_docker_command), so
+            # this try/finally — entered only once `docker run` is attempted —
+            # owns removal on every exit path: success, failure, OOM, host
+            # timeout, and unexpected exceptions. remove_container does
+            # `docker rm -f`, which also kills a still-running container (the
+            # TimeoutExpired case, where subprocess.run killed the docker CLI
+            # but the container kept running in the daemon).
             try:
-                proc = subprocess.run(
-                    cmd,
-                    timeout=subprocess_timeout,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                duration_ms = int((time.time() - start_time) * 1000)
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        timeout=subprocess_timeout,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    duration_ms = int((time.time() - start_time) * 1000)
 
-                # Read output
-                output_data = None
-                output_file = output_dir / "result.json"
-                if output_file.exists():
-                    try:
-                        output_data = json.loads(output_file.read_text())
-                    except json.JSONDecodeError:
-                        pass
+                    # Read output
+                    output_data = None
+                    output_file = output_dir / "result.json"
+                    if output_file.exists():
+                        try:
+                            output_data = json.loads(output_file.read_text())
+                        except json.JSONDecodeError:
+                            pass
 
-                # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced by
-                # entrypoint.sh via timeout(1)) exits 124 when the code exceeds
-                # its budget, so most timeouts return here rather than through
-                # the TimeoutExpired backstop below. Surface them as timeouts.
-                error = None
-                if proc.returncode == 124:
-                    error = f"Execution timed out after {timeout}s"
+                    # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced
+                    # by entrypoint.sh via timeout(1)) exits 124 when the code
+                    # exceeds its budget, so most timeouts return here rather
+                    # than through the TimeoutExpired backstop below. Surface
+                    # them as timeouts.
+                    error = None
+                    if proc.returncode == 124:
+                        error = f"Execution timed out after {timeout}s"
+                    elif proc.returncode == 137:
+                        # Exit 137 is SIGKILL — could be the OOM killer, but
+                        # also `docker kill` or user code calling
+                        # sys.exit(137). Only the exited container's
+                        # State.OOMKilled distinguishes them; inspect before
+                        # the finally block removes the container. In-container
+                        # timeout kills are already remapped to 124 by the
+                        # entrypoint, so a 137 seen here is a genuine SIGKILL.
+                        # None (inspect failed) falls back to reporting OOM so
+                        # a flaky inspect never loses a true OOM — same policy
+                        # as the server-side CodeExecutor.
+                        oom_killed = inspect_oom_killed(container_name)
+                        if oom_killed is False:
+                            error = "Process was killed (SIGKILL) but not by the memory limit"
+                        else:
+                            error = (
+                                "Container killed: out of memory "
+                                f"(memory_limit={self.config.memory_limit})"
+                            )
 
-                return SandboxResult(
-                    stdout=proc.stdout,
-                    stderr=proc.stderr,
-                    exit_code=proc.returncode,
-                    success=proc.returncode == 0,
-                    output=output_data,
-                    duration_ms=duration_ms,
-                    error=error,
-                )
+                    return SandboxResult(
+                        stdout=proc.stdout,
+                        stderr=proc.stderr,
+                        exit_code=proc.returncode,
+                        success=proc.returncode == 0,
+                        output=output_data,
+                        duration_ms=duration_ms,
+                        error=error,
+                    )
 
-            except subprocess.TimeoutExpired as exc:
-                # Kill the orphaned container (subprocess died but container keeps running)
-                kill_container(container_name)
-                duration_ms = int((time.time() - start_time) * 1000)
-                return SandboxResult(
-                    stdout=_decode_stream(exc.stdout),
-                    stderr=_decode_stream(exc.stderr),
-                    exit_code=-1,
-                    success=False,
-                    error=f"Execution timed out after {timeout}s",
-                    duration_ms=duration_ms,
-                )
+                except subprocess.TimeoutExpired as exc:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    return SandboxResult(
+                        stdout=_decode_stream(exc.stdout),
+                        stderr=_decode_stream(exc.stderr),
+                        exit_code=-1,
+                        success=False,
+                        error=f"Execution timed out after {timeout}s",
+                        duration_ms=duration_ms,
+                    )
+            finally:
+                # Best-effort kill+remove (`docker rm -f`, errors swallowed);
+                # the labeled orphan cleanup at startup is the backstop.
+                remove_container(container_name)
 
         finally:
             # Cleanup
@@ -510,18 +541,24 @@ class Sandbox:
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
-        # Shared isolation base: --rm/--init/--read-only, capability drops, the
+        # Shared isolation base: --init/--read-only, capability drops, the
         # tako-vm-executor label (so startup cleanup can find orphans), and the
         # gVisor --runtime flag, resolved via the shared resolver so the
         # library path enforces the same posture as CodeExecutor (and fails
         # closed in strict mode when gVisor is unavailable). Library-mode runs
         # have no ExecutionRecord, so the unique container name doubles as the
         # traceability ID.
+        #
+        # auto_remove=False: keep the exited container so a 137 exit can be
+        # checked against `docker inspect .State.OOMKilled` (with --rm the
+        # daemon removes the container before it can be inspected). The
+        # try/finally in run() guarantees removal on every exit path.
         cmd = base_isolation_args(
             container_name,
             runtime=resolve_runtime(get_config()),
             enable_cap_restrictions=self.config.enable_cap_restrictions,
             execution_id=container_name,
+            auto_remove=False,
         )
 
         # Network isolation
