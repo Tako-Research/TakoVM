@@ -26,6 +26,37 @@ Complete reference for the Tako VM HTTP API.
 http://localhost:8000
 ```
 
+An interactive OpenAPI spec is served by the server itself: Swagger UI at `/docs`, raw spec at `/openapi.json`.
+
+## Authentication
+
+API-key authentication is built in but **disabled by default** for development convenience.
+
+!!! warning "Anyone who can reach an unauthenticated port can execute code"
+    For anything beyond localhost, enable authentication and/or keep the server on a private network. The server logs a warning at startup when it binds to a non-loopback host with auth disabled.
+
+Enable it in `tako_vm.yaml`:
+
+```yaml
+api_auth_enabled: true
+api_keys:
+  - "your-api-key-min-16-chars"   # one or more accepted keys
+# api_auth_header: X-API-Key      # default header name
+```
+
+Then pass the key on every request:
+
+```bash
+curl -X POST http://localhost:8000/execute \
+  -H "X-API-Key: your-api-key-min-16-chars" \
+  -H "Content-Type: application/json" \
+  -d '{"code": "print(1 + 1)"}'
+```
+
+The Python SDK forwards custom headers on every request: `TakoVM(headers={"X-API-Key": "..."})` or `tako_vm.configure(..., headers={...})`.
+
+Built-in rate limiting is **enabled by default** (120 requests per 60s window, configurable via `api_rate_limit_*`). For internet-facing deployments, additionally terminate TLS at a reverse proxy — see [Securing the API](../deployment/security.md#api-security) in the hardening guide.
+
 ## Headers
 
 ### Request Headers
@@ -33,6 +64,7 @@ http://localhost:8000
 | Header | Description |
 |--------|-------------|
 | `Content-Type` | `application/json` for all POST requests |
+| `X-API-Key` | Required when `api_auth_enabled: true` (header name configurable) |
 | `X-Correlation-ID` | Optional. Pass your own correlation ID for tracing |
 
 ### Response Headers

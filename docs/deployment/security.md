@@ -273,14 +273,41 @@ Stack traces are sanitized to prevent information leakage:
 
 ## API Security
 
-### HTTPS
+### Authentication
 
-Always use TLS in production:
+The API ships with auth **disabled** for development. In production, always enable the built-in API-key auth and bind to a private interface:
+
+```yaml
+server_host: 127.0.0.1        # or a private network interface
+api_auth_enabled: true
+api_keys:
+  - "your-api-key-min-16-chars"
+api_rate_limit_enabled: true  # default: 120 requests / 60s
+```
+
+Clients pass the key via the `X-API-Key` header (name configurable with `api_auth_header`); the Python SDK forwards it via `TakoVM(headers={"X-API-Key": ...})`. See [REST API: Authentication](../api/rest.md#authentication).
+
+### Reverse proxy reference setup
+
+For anything internet-facing, terminate TLS at a reverse proxy in front of the server and enforce limits there as defense-in-depth:
 
 ```nginx
-listen 443 ssl http2;
-ssl_protocols TLSv1.2 TLSv1.3;
+server {
+    listen 443 ssl http2;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 2m;          # matches the server's payload cap
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header X-Correlation-ID $request_id;
+        # Optionally enforce the API key at the edge as well:
+        # if ($http_x_api_key != "your-api-key-min-16-chars") { return 401; }
+    }
+}
 ```
+
+With Caddy the equivalent is two lines (`reverse_proxy 127.0.0.1:8000` under a site block — TLS is automatic). For OIDC/SSO, put an auth-proxy (oauth2-proxy, Pomerium) in front instead of API keys.
 
 ## Threat Model
 

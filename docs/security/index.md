@@ -1,15 +1,21 @@
 ---
-description: "Tako VM security documentation index — threat-model assessment, /proc exposure analysis, and proposed mitigations."
+description: "Tako VM security documentation — vulnerability reporting, threat model, hardening guidance, and advisories."
 ---
 
-# Tako VM Security Documentation
+# Security
 
-## Quick Links
+Tako VM runs untrusted, often AI-generated, code. This section documents the isolation model, what it does and does not protect against, and how to harden a deployment.
 
-- **[Honest Assessment](honest-assessment.md)** - Practical security analysis based on threat models
-- **[Proc Exposure Analysis](proc-exposure-vulnerability.md)** - Technical details of `/proc` filesystem access
-- **[Proposed Mitigations](mitigations.md)** - Implementation options (AppArmor, gVisor, env var migration)
-- **[Solutions Summary](SOLUTIONS.md)** - What can/can't be fixed and why
+!!! tip "Found a vulnerability?"
+    Report it privately via [GitHub security advisories](https://github.com/las7/TakoVM/security/advisories/new) — never in a public issue. See the [security policy](policy.md) for response timelines.
+
+## In this section
+
+- **[Security Policy](policy.md)** — how to report vulnerabilities, response timelines, supported versions
+- **[Threat Model](honest-assessment.md)** — practical security analysis: what's protected, what isn't, and for which workloads
+- **[Hardening Guide](../deployment/security.md)** — production configuration: `security_mode: strict`, gVisor, seccomp, network policy
+- **[Advisory: /proc exposure](proc-exposure-vulnerability.md)** — technical analysis of `/proc` filesystem access from sandboxed code
+- **[Mitigations](mitigations.md)** — implementation options (AppArmor, gVisor, env var migration)
 
 ## Security Status
 
@@ -17,15 +23,17 @@ description: "Tako VM security documentation index — threat-model assessment, 
 
 **Container Isolation:**
 - Docker namespace isolation (PID, network, mount, IPC)
-- Non-root execution (uid 1000)
+- Non-root execution (uid 1000, dropped via `gosu` after dependency install)
 - Read-only root filesystem
 - Capability dropping (`--cap-drop=ALL`)
-- No privilege escalation (`--security-opt=no-new-privileges`)
+
+!!! note "`no-new-privileges` trade-off"
+    Tako VM deliberately does **not** set `--security-opt=no-new-privileges`: it would block the `gosu` setuid call that drops from root to the sandbox user after installing dependencies. The [hardening guide](../deployment/security.md) explains the privilege-drop flow and compensating controls.
 
 **Seccomp Filtering:** (Enabled by default)
 - Blocks dangerous syscalls: `ptrace`, `process_vm_readv/writev`, module loading
 - Prevents most privilege escalation attempts
-- Profile: [tako_vm/seccomp_profile.json](../../tako_vm/seccomp_profile.json)
+- Profile: [tako_vm/seccomp_profile.json](https://github.com/las7/TakoVM/blob/main/tako_vm/seccomp_profile.json)
 
 **Resource Limits:**
 - Memory, CPU, file size, process count
