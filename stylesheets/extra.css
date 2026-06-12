@@ -1,0 +1,57 @@
+/* Tako VM brand palette — deep ink primary, takoyaki accent */
+:root {
+  --md-primary-fg-color: #1c1e26;
+  --md-primary-fg-color--light: #2e3140;
+  --md-primary-fg-color--dark: #13141b;
+  --md-accent-fg-color: #ff5a3c;
+  --md-accent-fg-color--transparent: rgba(255, 90, 60, 0.1);
+}
+
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #d6452a;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #13141b;
+  --md-typeset-a-color: #ff8a70;
+  --md-accent-fg-color: #ff6d52;
+}
+
+/* Landing page hero */
+.tako-hero {
+  text-align: center;
+  margin: 1.5rem 0 2rem;
+}
+
+.tako-hero h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.tako-hero .tako-tagline {
+  font-size: 1.05rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 38rem;
+  margin: 0 auto 1rem;
+}
+
+.tako-hero .md-button {
+  margin: 0.2rem 0.3rem;
+}
+
+/* Badge row */
+.tako-badges {
+  text-align: center;
+  margin-bottom: 1.2rem;
+}
+
+.tako-badges img {
+  margin: 0 0.15rem;
+  vertical-align: middle;
+}
+
+/* Slightly tighter grid cards */
+.md-typeset .grid.cards > ul > li {
+  border-radius: 0.4rem;
+}

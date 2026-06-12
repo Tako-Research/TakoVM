@@ -9,6 +9,10 @@
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
+         <loc>https://las7.github.io/TakoVM/changelog/</loc>
+         <lastmod>2026-06-12</lastmod>
+    </url>
+    <url>
          <loc>https://las7.github.io/TakoVM/comparison/</loc>
          <lastmod>2026-06-12</lastmod>
     </url>
@@ -41,10 +45,6 @@
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
-         <loc>https://las7.github.io/TakoVM/design/dind-support/</loc>
-         <lastmod>2026-06-12</lastmod>
-    </url>
-    <url>
          <loc>https://las7.github.io/TakoVM/development/troubleshooting/</loc>
          <lastmod>2026-06-12</lastmod>
     </url>
@@ -58,6 +58,10 @@
     </url>
     <url>
          <loc>https://las7.github.io/TakoVM/getting-started/quickstart/</loc>
+         <lastmod>2026-06-12</lastmod>
+    </url>
+    <url>
+         <loc>https://las7.github.io/TakoVM/guide/agent-tools/</loc>
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
@@ -89,19 +93,15 @@
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
-         <loc>https://las7.github.io/TakoVM/security/SOLUTIONS/</loc>
-         <lastmod>2026-06-12</lastmod>
-    </url>
-    <url>
-         <loc>https://las7.github.io/TakoVM/security/env-var-mitigation/</loc>
-         <lastmod>2026-06-12</lastmod>
-    </url>
-    <url>
          <loc>https://las7.github.io/TakoVM/security/honest-assessment/</loc>
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
          <loc>https://las7.github.io/TakoVM/security/mitigations/</loc>
+         <lastmod>2026-06-12</lastmod>
+    </url>
+    <url>
+         <loc>https://las7.github.io/TakoVM/security/policy/</loc>
          <lastmod>2026-06-12</lastmod>
     </url>
     <url>
