@@ -105,6 +105,10 @@ See [SECURITY.md](SECURITY.md) for the threat model and hardening guidance, and 
 
 **Found a vulnerability?** Report it privately via the [Security tab](https://github.com/las7/TakoVM/security) → **Report a vulnerability**. Please do not open public issues for security findings.
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, testing, and PR conventions. Good entry points are issues labeled [`good first issue`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), and [Discussions](https://github.com/las7/TakoVM/discussions) is open for questions and ideas.
+
 ## License
 
 Apache License 2.0

@@ -1,0 +1,82 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! **If this is a security vulnerability, do not file it here** — use
+        [private vulnerability reporting](https://github.com/las7/TakoVM/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Tako VM version
+      description: Output of `tako-vm version`
+      placeholder: "0.1.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - PyPI (pip / uv)
+        - From source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / macOS 15 (colima)"
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Container runtime
+      description: Which runtime executes jobs? (`curl localhost:8000/health` reports `gvisor_available`)
+      options:
+        - runc (standard Docker)
+        - runsc (gVisor)
+        - Docker Desktop
+        - colima
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: security-mode
+    attributes:
+      label: security_mode
+      options:
+        - permissive (default)
+        - strict
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code or API calls that trigger the bug
+      placeholder: |
+        curl -X POST localhost:8000/execute -H 'Content-Type: application/json' \
+          -d '{"code": "..."}'
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs
+      description: >
+        Tako VM logs every failure verbosely — the server log around the time of the error
+        is usually the fastest path to a diagnosis. Paste the relevant lines (redact anything sensitive).
+      render: text
+    validations:
+      required: true

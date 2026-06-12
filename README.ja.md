@@ -94,6 +94,10 @@ tako-vm --config my.yaml server   # 指定した設定ファイルを使用
 | デプロイ | [docs/deployment/how-to-deploy.md](docs/deployment/how-to-deploy.md) |
 | 設定リファレンス | [tako_vm.yaml.example](tako_vm.yaml.example) |
 
+## コントリビューション
+
+コントリビューションを歓迎します！開発環境のセットアップ、テスト、PR の規約については [CONTRIBUTING.md](CONTRIBUTING.md)（英語）をご覧ください。[`good first issue`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) ラベルの付いた Issue から始めるのがおすすめです。質問やアイデアは [Discussions](https://github.com/las7/TakoVM/discussions) へどうぞ。
+
 ## ライセンス
 
 Apache License 2.0
