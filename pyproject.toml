@@ -7,7 +7,7 @@ name = "tako-vm"
 version = "0.1.4"
 description = "Secure Python code execution in isolated Docker containers"
 readme = "README.md"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
     { name = "Tako VM Team" }
@@ -16,14 +16,18 @@ keywords = [
     "code-execution",
     "docker",
     "sandbox",
+    "sandboxing",
     "security",
     "ai",
+    "ai-agents",
     "llm",
+    "gvisor",
+    "code-interpreter",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -69,10 +73,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/las7/tako-vm"
-Documentation = "https://github.com/las7/tako-vm#readme"
-Repository = "https://github.com/las7/tako-vm"
-Issues = "https://github.com/las7/tako-vm/issues"
+Homepage = "https://las7.github.io/TakoVM/"
+Documentation = "https://las7.github.io/TakoVM/"
+Repository = "https://github.com/las7/TakoVM"
+Issues = "https://github.com/las7/TakoVM/issues"
+Changelog = "https://github.com/las7/TakoVM/blob/main/CHANGELOG.md"
 
 [project.scripts]
 tako-vm = "tako_vm.cli:main"
