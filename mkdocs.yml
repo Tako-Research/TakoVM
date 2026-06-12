@@ -4,41 +4,62 @@ site_url: https://las7.github.io/TakoVM/
 site_author: Tako VM
 
 repo_url: https://github.com/las7/TakoVM
-repo_name: TakoVM
+repo_name: las7/TakoVM
 edit_uri: edit/main/docs/
+
+# Internal triage / design notes — not part of the public docs site.
+exclude_docs: |
+  security/SOLUTIONS.md
+  security/env-var-mitigation.md
+  design/dind-support.md
 
 theme:
   name: material
+  custom_dir: overrides
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
     - navigation.tracking
     - navigation.path
+    - navigation.footer
     - search.suggest
     - search.highlight
     - search.share
     - content.code.copy
     - content.code.select
+    - content.code.annotate
     - content.action.edit
     - content.tabs.link
-    - toc.integrate
+    - toc.follow
+    - announce.dismiss
 
 nav:
   - Home: index.md
@@ -46,27 +67,34 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
     - Configuration: getting-started/configuration.md
-  - Architecture: architecture.md
-  - API Reference:
-    - REST API: api/rest.md
-    - Python SDK: api/sdk.md
   - Guide:
-    - Tutorial: guide/tutorial.md
+    - "Tutorial: build a data pipeline": guide/tutorial.md
     - Basic Execution: guide/basic-execution.md
     - Async Jobs: guide/async-jobs.md
+    - Agent Integration: guide/agent-tools.md
     - Environments: guide/environments.md
     - Custom Libraries: guide/custom-libraries.md
     - Error Handling: guide/error-handling.md
+    - Troubleshooting: development/troubleshooting.md
+  - API Reference:
+    - REST API: api/rest.md
+    - Python SDK: api/sdk.md
+  - Architecture: architecture.md
+  - Security:
+    - security/index.md
+    - Security Policy: security/policy.md
+    - Hardening Guide: deployment/security.md
+    - Threat Model: security/honest-assessment.md
+    - "Analysis: /proc exposure": security/proc-exposure-vulnerability.md
+    - Mitigations: security/mitigations.md
   - Deployment:
-    - How to Deploy: deployment/how-to-deploy.md
-    - Production Setup: deployment/production.md
+    - Deployment Options: deployment/how-to-deploy.md
+    - Production Checklist: deployment/production.md
     - Scaling: deployment/scaling.md
     - Operations: deployment/operations.md
-    - Security: deployment/security.md
-  - Security:
-    - Mitigations: security/mitigations.md
-    - Vulnerability Analysis: security/proc-exposure-vulnerability.md
-  - Comparison: comparison.md
+  - About:
+    - Comparison: comparison.md
+    - Changelog: changelog.md
 
 plugins:
   - search
@@ -74,8 +102,11 @@ plugins:
       # Set CARDS=false to skip social-card image generation locally
       # (avoids needing the Cairo/Pango imaging libraries during `mkdocs serve`).
       cards: !ENV [CARDS, true]
+      cards_layout_options:
+        background_color: "#1c1e26"
+        color: "#ffffff"
   - git-revision-date-localized:
-      enable_creation_date: true
+      enable_creation_date: false
       type: timeago
 
 markdown_extensions:
@@ -87,7 +118,11 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
@@ -95,12 +130,18 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.mark
+  - pymdownx.snippets:
+      base_path: ['.']
+      check_paths: true
   - admonition
   - tables
   - attr_list
   - md_in_html
   - footnotes
   - def_list
+
+extra_css:
+  - stylesheets/extra.css
 
 extra:
   # Uncomment and set your Google Analytics 4 property ID to enable analytics.
@@ -110,3 +151,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/las7/TakoVM
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/tako-vm/
+
+copyright: Copyright &copy; 2026 Tako VM contributors — Apache-2.0

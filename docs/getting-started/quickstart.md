@@ -23,8 +23,8 @@ tako-vm server --port 9000
 !!! note "gVisor on Linux"
     Tako VM defaults to `permissive` mode, which falls back to runc if gVisor is not installed. For production, set `security_mode: strict` to require gVisor. See [Security](../deployment/security.md#gvisor-runtime) for installation instructions.
 
-!!! warning "Security: Environment Variables"
-    Do not pass secrets (API keys, tokens, passwords) as job type environment variables. User code can read them via `/proc/self/environ`. Pass sensitive data through `input_data` instead, which is scoped to a single job. See [Security Mitigations](../security/mitigations.md) for details.
+!!! warning "Security: Secrets"
+    Do not pass secrets (API keys, tokens, passwords) as job type environment variables — user code can read them via `/proc/self/environ`. For **trusted code**, `input_data` is acceptable for sensitive inputs (scoped to a single job). For **untrusted or AI-generated code**, keep secrets out of the job entirely: anything in `input_data` or the environment is readable by the code — use an external secret manager and have trusted infrastructure, not the sandboxed code, hold credentials. See [Security Mitigations](../security/mitigations.md).
 
 ## Execute Code
 
@@ -66,7 +66,7 @@ response = requests.post(
     json={
         "code": code,
         "input_data": {"x": 10, "y": 20},
-        "requirements": ["numpy"]  # Optional: ad-hoc dependencies
+        "requirements": ["numpy"]  # needs allow_runtime_requirements: true (see note below)
     }
 )
 
@@ -75,6 +75,9 @@ print(f"Success: {result['success']}")
 print(f"Output: {result['output']}")
 print(f"Stdout: {result['stdout']}")
 ```
+
+!!! note "Runtime dependencies are off by default"
+    `requirements` installs packages at job startup, which is disabled out of the box (`allow_runtime_requirements: false`) so untrusted jobs can't fetch and execute package setup code. Enable it in `tako_vm.yaml` for trusted workloads, or use [pre-built job-type images](../guide/environments.md) to ship dependencies without runtime installs.
 
 ## Sync vs Async Execution
 

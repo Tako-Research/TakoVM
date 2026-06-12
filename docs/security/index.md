@@ -1,15 +1,21 @@
 ---
-description: "Tako VM security documentation index — threat-model assessment, /proc exposure analysis, and proposed mitigations."
+description: "Tako VM security documentation — vulnerability reporting, threat model, hardening guidance, and advisories."
 ---
 
-# Tako VM Security Documentation
+# Security
 
-## Quick Links
+Tako VM runs untrusted, often AI-generated, code. This section documents the isolation model, what it does and does not protect against, and how to harden a deployment.
 
-- **[Honest Assessment](honest-assessment.md)** - Practical security analysis based on threat models
-- **[Proc Exposure Analysis](proc-exposure-vulnerability.md)** - Technical details of `/proc` filesystem access
-- **[Proposed Mitigations](mitigations.md)** - Implementation options (AppArmor, gVisor, env var migration)
-- **[Solutions Summary](SOLUTIONS.md)** - What can/can't be fixed and why
+!!! tip "Found a vulnerability?"
+    Report it privately via [GitHub security advisories](https://github.com/las7/TakoVM/security/advisories/new) — never in a public issue. See the [security policy](policy.md) for response timelines.
+
+## In this section
+
+- **[Security Policy](policy.md)** — how to report vulnerabilities, response timelines, supported versions
+- **[Threat Model](honest-assessment.md)** — practical security analysis: what's protected, what isn't, and for which workloads
+- **[Hardening Guide](../deployment/security.md)** — production configuration: `security_mode: strict`, gVisor, seccomp, network policy
+- **[Analysis: /proc exposure](proc-exposure-vulnerability.md)** — technical analysis of `/proc` filesystem access from sandboxed code
+- **[Mitigations](mitigations.md)** — implementation options (AppArmor, gVisor, env var migration)
 
 ## Security Status
 
@@ -17,15 +23,17 @@ description: "Tako VM security documentation index — threat-model assessment, 
 
 **Container Isolation:**
 - Docker namespace isolation (PID, network, mount, IPC)
-- Non-root execution (uid 1000)
+- Non-root execution (uid 1000, dropped via `gosu` after dependency install)
 - Read-only root filesystem
 - Capability dropping (`--cap-drop=ALL`)
-- No privilege escalation (`--security-opt=no-new-privileges`)
+
+!!! note "`no-new-privileges` trade-off"
+    Tako VM deliberately does **not** set `--security-opt=no-new-privileges`: it would block the `gosu` setuid call that drops from root to the sandbox user after installing dependencies. The [hardening guide](../deployment/security.md) explains the privilege-drop flow and compensating controls.
 
 **Seccomp Filtering:** (Enabled by default)
 - Blocks dangerous syscalls: `ptrace`, `process_vm_readv/writev`, module loading
 - Prevents most privilege escalation attempts
-- Profile: [tako_vm/seccomp_profile.json](../../tako_vm/seccomp_profile.json)
+- Profile: [tako_vm/seccomp_profile.json](https://github.com/las7/TakoVM/blob/main/tako_vm/seccomp_profile.json)
 
 **Resource Limits:**
 - Memory, CPU, file size, process count
@@ -52,8 +60,8 @@ Code needs access to its configuration to function. If code requires an API key 
 ### 🔵 Optional Enhancements (For Specific Threat Models)
 
 **For untrusted/AI-generated code:**
+- The built-in gVisor runtime (`container_runtime: runsc` + `security_mode: strict`) — see the [hardening guide](../deployment/security.md)
 - External secret management (AWS Secrets Manager, HashiCorp Vault)
-- gVisor runtime for stronger isolation
 - AppArmor/SELinux to restrict `/proc` access (Linux only)
 - Artifact scanning for leaked credentials
 
@@ -122,9 +130,9 @@ For trusted code execution, env vars are simpler and equally secure.
 ### Q: How does Tako VM compare to AWS Lambda security?
 
 **Tako VM:**
-- Docker namespace isolation (shared kernel)
-- Can read `/proc` filesystem
-- Good for trusted code
+- Docker namespace isolation (shared kernel under `runc`)
+- With gVisor enabled, syscalls hit a userspace kernel and `/proc` is a synthetic view
+- Good for trusted code out of the box; enable strict gVisor mode for untrusted code
 
 **AWS Lambda:**
 - Firecracker microVMs (separate kernel per function)
@@ -143,22 +151,21 @@ Tako VM is closer to Docker-based platforms (Modal, Replit) than Lambda.
 
 For paranoid deployments, use gVisor (user-space kernel) or Kata (VM isolation).
 
-## Implementation Priorities
+## Current State and Roadmap
 
-### Immediate (Already Done)
-- ✅ Seccomp enabled by default
-- ✅ Security documentation with honest assessment
-- ✅ Container hardening (non-root, read-only FS, capabilities)
+**Shipped today:**
 
-### Short-term (If Needed)
-- 🔵 AppArmor profile for Linux deployments (optional)
-- 🔵 Audit logging for job submissions
-- 🔵 Artifact scanning for leaked credentials
+- gVisor (runsc) runtime support with `permissive`/`strict` security modes
+- Seccomp filtering, enabled by default
+- Container hardening: non-root execution, read-only filesystem, dropped capabilities
+- Network isolation (`--network=none` by default), resource and input limits
+- API-key authentication and rate limiting (auth off by default — [enable it in production](../deployment/security.md#api-security))
 
-### Long-term (Multi-Tenant)
-- 🔵 gVisor runtime support
-- 🔵 Per-tenant resource isolation
-- 🔵 Kata Containers for VMs
+**Roadmap** (tracked in [GitHub issues](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity)):
+
+- AppArmor profile for `/proc` path restrictions under runc
+- Per-tenant quotas and audit logging
+- Artifact scanning for leaked credentials
 
 ## References
 
