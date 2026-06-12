@@ -4,7 +4,7 @@ description: "Tako VM vs E2B vs Daytona — compare secure code execution platfo
 
 # Tako VM vs E2B vs Daytona
 
-Comparison of secure code execution platforms (as of January 2026)
+Comparison of secure code execution platforms (last reviewed June 2026 — competitor details change quickly; verify against their current docs)
 
 ## Quick Comparison
 
@@ -13,7 +13,7 @@ Comparison of secure code execution platforms (as of January 2026)
 | **Deployment** | Local-first, self-hosted | Cloud-native (+ BYOC) | Hybrid (cloud/self-hosted) |
 | **Pricing** | Free (Apache-2.0 license) | Commercial + open-source | Commercial + open-source |
 | **Startup Time** | ~1-2s (Docker) | <200ms (Firecracker) | <90ms |
-| **Isolation** | Docker containers | Firecracker microVMs | Sandboxes |
+| **Isolation** | Docker + gVisor (runsc) | Firecracker microVMs | Sandboxes |
 | **Language** | Python only | Multiple | Multiple |
 | **Primary Protocol** | REST API | REST API (external)<br/>gRPC (internal) | REST API |
 | **SDK Support** | Python | Python, JavaScript/TS | Python, TypeScript |
@@ -37,8 +37,7 @@ Comparison of secure code execution platforms (as of January 2026)
 **Daytona:**
 - **Public API:** REST over HTTP (OpenAPI 2.0)
 - **Internal:** FRPS (Fast Reverse Proxy), Headscale networking, WebSocket support
-- **Communication:** No evidence of gRPC usage
-- **Stack:** 90% TypeScript (Next.js backend, React frontend), 10% Go (CLI & workspace internals)
+- **Stack:** TypeScript backend with Go CLI and workspace internals
 
 ### 2. Deployment Model
 

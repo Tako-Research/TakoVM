@@ -54,8 +54,8 @@ job_types:
 ```
 
 **Use:**
-- Pass secrets through `/input/data.json` (mounted read-only, scoped to one job)
-- Use your platform's secret management (Vault, AWS Secrets Manager)
+- For **trusted code**: pass secrets through `input_data` / `/input/data.json` (mounted read-only, scoped to one job)
+- For **untrusted or AI-generated code**: don't give the job secrets at all — code can read `/input/` exactly as easily as `/proc/self/environ`. Keep credentials in trusted infrastructure (your platform's secret manager: Vault, AWS Secrets Manager) and have it perform the privileged calls
 - Use pre-built images with secrets baked in at build time (not at runtime)
 
 ### Enable gVisor for Production

@@ -57,8 +57,9 @@ tako-vm server                  # start server (auto-starts PostgreSQL via Docke
 
     tako_vm.configure("http://localhost:8000")
 
-    job_id = tako_vm.submit_code("print(1 + 1)", requirements=["numpy"])
+    job_id = tako_vm.submit_code("print(sum(i * i for i in range(10**6)))")
     result = tako_vm.get_result(job_id, timeout=60)
+    print(result["stdout"])
     ```
 
 <div class="grid cards" markdown>

@@ -265,13 +265,8 @@ For even higher throughput, consider lighter isolation than full Docker containe
 
 ```yaml
 # tako_vm.yaml
-docker_runtime: runsc  # Use gVisor instead of runc
-```
-
-```python
-# In worker.py _run_container():
-if self.config.docker_runtime:
-    cmd.append(f"--runtime={self.config.docker_runtime}")
+container_runtime: runsc  # Use gVisor instead of runc
+security_mode: strict     # fail instead of silently falling back to runc
 ```
 
 ---

@@ -1,8 +1,8 @@
 ---
-description: "An honest security assessment of Tako VM — strong isolation for trusted code, and the real-world limits for untrusted AI-generated code."
+description: "Tako VM threat model — strong isolation for trusted code, and the real-world limits for untrusted AI-generated code."
 ---
 
-# Honest Security Assessment: Tako VM
+# Threat Model
 
 **TL;DR:** Tako VM provides strong isolation for **trusted code execution**. If you're running your own code, CI/CD pipelines, or data processing jobs, the current security is good. The `/proc` exposure and env var concerns are mostly relevant for **untrusted AI-generated code**, which is a different threat model.
 
@@ -34,7 +34,7 @@ description: "An honest security assessment of Tako VM — strong isolation for 
 
 **Limitations:**
 - Kernel vulnerabilities could allow escape (rare, quickly patched)
-- Shared kernel with host (use gVisor/Kata for VM-level isolation)
+- Shared kernel with host under `runc` — enable the built-in gVisor support (`container_runtime: runsc` + `security_mode: strict`) for a userspace-kernel boundary, or Kata for full VM isolation
 
 ### ✅ Resource Exhaustion (GOOD)
 ```yaml
@@ -224,7 +224,7 @@ Malicious dependencies might scan env vars. Files require explicit reads.
 **You need stronger isolation:**
 - ✅ **Don't pass secrets in job submission**
 - ✅ Use external secret manager (AWS Secrets Manager, Vault)
-- ✅ Consider gVisor runtime (`docker_runtime: runsc`)
+- ✅ Enable the gVisor runtime (`container_runtime: runsc` + `security_mode: strict`)
 - ✅ Consider AppArmor/SELinux to block `/proc` reads
 - ✅ Artifact scanning before download
 - ✅ Separate execution hosts per tenant

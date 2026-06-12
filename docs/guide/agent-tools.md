@@ -13,7 +13,10 @@ The pattern is identical in every framework:
 3. Return stdout on success and **return the error text on failure** — the model uses tracebacks to fix its own code, so never raise them away.
 
 !!! warning "Treat AI-generated code as untrusted"
-    Run agent workloads with `security_mode: strict` so jobs fail rather than silently falling back from gVisor to plain `runc`, and never pass secrets in `input_data`. See the [threat model](../security/honest-assessment.md).
+    Run agent workloads with `security_mode: strict` so jobs fail rather than silently falling back from gVisor to plain `runc`, and never pass secrets in `input_data` — anything the job receives is readable by the code. See the [threat model](../security/honest-assessment.md).
+
+!!! note "Letting agents install packages"
+    The `requirements` parameter needs `allow_runtime_requirements: true` in `tako_vm.yaml` (off by default). For tighter control, define [pre-built job types](environments.md) with the packages your agents need and drop the parameter entirely.
 
 ## The core tool function
 
@@ -72,15 +75,36 @@ python_sandbox = StructuredTool.from_function(
 )
 ```
 
-Bind it to any tool-calling model:
+Bind it to any tool-calling model with LangChain's LangGraph-based agent API:
 
 ```python
-from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain.agents import create_agent
 
-agent = create_tool_calling_agent(llm, [python_sandbox], prompt)
-executor = AgentExecutor(agent=agent, tools=[python_sandbox])
-executor.invoke({"input": "What is the 50th Fibonacci number? Compute it, don't recall it."})
+agent = create_agent(
+    model="anthropic:claude-sonnet-4-6",
+    tools=[python_sandbox],
+    system_prompt="You can execute Python via run_python. Compute, don't recall.",
+)
+
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "What is the 50th Fibonacci number?"}]
+})
+print(result["messages"][-1].content)
 ```
+
+### Using it from asyncio
+
+The SDK is `requests`-based and blocking, so don't call `run_python` directly inside an async agent loop — wrap it so the event loop stays free:
+
+```python
+import asyncio
+
+
+async def arun_python(code: str, requirements: list[str] | None = None) -> str:
+    return await asyncio.to_thread(run_python, code, requirements)
+```
+
+Register `arun_python` as the tool's coroutine (LangChain's `StructuredTool.from_function(coroutine=arun_python, ...)`) and `ainvoke` works without blocking. The block happens in `get_result`, which long-polls the server — cheap to park on a thread.
 
 ## OpenAI tool calling
 

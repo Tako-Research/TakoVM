@@ -60,8 +60,8 @@ Code needs access to its configuration to function. If code requires an API key 
 ### 🔵 Optional Enhancements (For Specific Threat Models)
 
 **For untrusted/AI-generated code:**
+- The built-in gVisor runtime (`container_runtime: runsc` + `security_mode: strict`) — see the [hardening guide](../deployment/security.md)
 - External secret management (AWS Secrets Manager, HashiCorp Vault)
-- gVisor runtime for stronger isolation
 - AppArmor/SELinux to restrict `/proc` access (Linux only)
 - Artifact scanning for leaked credentials
 
@@ -130,9 +130,9 @@ For trusted code execution, env vars are simpler and equally secure.
 ### Q: How does Tako VM compare to AWS Lambda security?
 
 **Tako VM:**
-- Docker namespace isolation (shared kernel)
-- Can read `/proc` filesystem
-- Good for trusted code
+- Docker namespace isolation (shared kernel under `runc`)
+- With gVisor enabled, syscalls hit a userspace kernel and `/proc` is a synthetic view
+- Good for trusted code out of the box; enable strict gVisor mode for untrusted code
 
 **AWS Lambda:**
 - Firecracker microVMs (separate kernel per function)
@@ -151,22 +151,21 @@ Tako VM is closer to Docker-based platforms (Modal, Replit) than Lambda.
 
 For paranoid deployments, use gVisor (user-space kernel) or Kata (VM isolation).
 
-## Implementation Priorities
+## Current State and Roadmap
 
-### Immediate (Already Done)
-- ✅ Seccomp enabled by default
-- ✅ Security documentation with honest assessment
-- ✅ Container hardening (non-root, read-only FS, capabilities)
+**Shipped today:**
 
-### Short-term (If Needed)
-- 🔵 AppArmor profile for Linux deployments (optional)
-- 🔵 Audit logging for job submissions
-- 🔵 Artifact scanning for leaked credentials
+- gVisor (runsc) runtime support with `permissive`/`strict` security modes
+- Seccomp filtering, enabled by default
+- Container hardening: non-root execution, read-only filesystem, dropped capabilities
+- Network isolation (`--network=none` by default), resource and input limits
+- API-key authentication and rate limiting (auth off by default — [enable it in production](../deployment/security.md#api-security))
 
-### Long-term (Multi-Tenant)
-- 🔵 gVisor runtime support
-- 🔵 Per-tenant resource isolation
-- 🔵 Kata Containers for VMs
+**Roadmap** (tracked in [GitHub issues](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity)):
+
+- AppArmor profile for `/proc` path restrictions under runc
+- Per-tenant quotas and audit logging
+- Artifact scanning for leaked credentials
 
 ## References
 
