@@ -22,6 +22,10 @@ AI が生成したコードを、隔離された Docker コンテナ内で実行
   <a href="https://las7.github.io/TakoVM/"><strong>ドキュメント</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>クイックスタート</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API リファレンス</strong></a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="デモ: REST API による Python 実行、ランタイム依存関係のインストール、ネットワーク隔離" width="940">
+</p>
+
 ```bash
 # インストール（Docker と Python 3.10 以上が必要）
 pip install "tako-vm[server]"

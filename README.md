@@ -23,6 +23,10 @@ Job queues, retries, and execution history included.
   <a href="https://las7.github.io/TakoVM/"><strong>Documentation</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>Quick Start</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API Reference</strong></a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Demo: executing Python, installing runtime dependencies, and network isolation via the Tako VM REST API" width="940">
+</p>
+
 ```bash
 # Install (requires Docker + Python 3.10+)
 pip install "tako-vm[server]"
