@@ -633,8 +633,24 @@ class TestAsyncLifecycle:
         session = _mock_session({"status": "completed"})
         client = TakoVM(session=session)
         client.get_result("j", timeout=30, view="full")
-        assert session.request.call_args.kwargs["params"] == {"timeout": 30, "view": "full"}
+        assert session.request.call_args.kwargs["params"] == {
+            "wait": "true",
+            "timeout": 30,
+            "view": "full",
+        }
         assert session.request.call_args.args[1].endswith("/jobs/j/result")
+
+    def test_get_result_without_timeout_does_not_wait(self):
+        session = _mock_session({"status": "queued"})
+        client = TakoVM(session=session)
+        client.get_result("j")
+        assert session.request.call_args.kwargs["params"] == {}
+
+    def test_get_result_clamps_timeout_to_server_wait_cap(self):
+        session = _mock_session({"status": "completed"})
+        client = TakoVM(session=session)
+        client.get_result("j", timeout=900)
+        assert session.request.call_args.kwargs["params"] == {"wait": "true", "timeout": 300}
 
     def test_cancel(self):
         session = _mock_session({"status": "cancelled", "job_id": "j"})
