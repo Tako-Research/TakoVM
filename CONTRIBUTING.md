@@ -46,9 +46,10 @@ TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
 
 ## Lint and format
 
-Install the pre-commit hooks once and they'll handle everything:
+`pre-commit` and `pyright` live in the `tools` dependency group (PEP 735), which the `[dev]` extra does **not** install. Install them once, then enable the hooks:
 
 ```bash
+pip install --group tools      # pip >= 25.1; or: uv sync --group tools
 pre-commit install
 ```
 

@@ -35,7 +35,7 @@ body:
     id: runtime
     attributes:
       label: Container runtime
-      description: Which runtime executes jobs? (`tako-vm status` shows whether gVisor is active)
+      description: Which runtime executes jobs? (`curl localhost:8000/health` reports `gvisor_available`)
       options:
         - runc (standard Docker)
         - runsc (gVisor)
