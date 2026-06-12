@@ -11,7 +11,7 @@ Comparison of secure code execution platforms (as of January 2026)
 | Feature | Tako VM | E2B | Daytona |
 |---------|---------|-----|---------|
 | **Deployment** | Local-first, self-hosted | Cloud-native (+ BYOC) | Hybrid (cloud/self-hosted) |
-| **Pricing** | Free (AGPL-3.0 license) | Commercial + open-source | Commercial + open-source |
+| **Pricing** | Free (Apache-2.0 license) | Commercial + open-source | Commercial + open-source |
 | **Startup Time** | ~1-2s (Docker) | <200ms (Firecracker) | <90ms |
 | **Isolation** | Docker containers | Firecracker microVMs | Sandboxes |
 | **Language** | Python only | Multiple | Multiple |
@@ -210,7 +210,7 @@ Features:
 ### 8. Cost Model
 
 **Tako VM:**
-- **$0 license cost** (AGPL-3.0)
+- **$0 license cost** (Apache-2.0)
 - Pay only for infrastructure (Docker host)
 - No per-execution fees
 - No API usage limits
@@ -255,7 +255,7 @@ Features:
 
 ### Choose Tako VM if you want:
 - ✅ **Local-first development** without cloud dependencies
-- ✅ **Zero licensing costs** with AGPL-3.0 license
+- ✅ **Zero licensing costs** with Apache-2.0 license
 - ✅ **Simple, transparent architecture** you can understand in an afternoon
 - ✅ **Full control** over infrastructure and data
 - ✅ **Predictable costs** (no per-execution fees)
