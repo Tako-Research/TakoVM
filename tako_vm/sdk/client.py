@@ -66,6 +66,10 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
+# Server-side cap on /jobs/{id}/result?wait=true long-polling
+# (MAX_WAIT_TIMEOUT in tako_vm/server/app.py).
+_MAX_RESULT_WAIT_SECONDS = 300
+
 # Type variables for generic typing
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -901,12 +905,25 @@ _execute()
     ) -> dict:
         """
         Get an async job's result, waiting up to ``timeout`` seconds for it
-        (GET /jobs/{job_id}/result). Pass ``view="full"`` for artifacts,
-        resource usage, hashes, and lineage.
+        (GET /jobs/{job_id}/result?wait=true). Without ``timeout``, returns
+        the current record immediately (which may still be queued/running).
+        Pass ``view="full"`` for artifacts, resource usage, hashes, and lineage.
         """
         params: Dict[str, Any] = {}
-        if timeout is not None:
-            params["timeout"] = timeout
+        if timeout:
+            # The server only honors ``timeout`` when ``wait`` is set, and caps
+            # the long-poll at MAX_WAIT_TIMEOUT (300s). Clamp rather than 422.
+            wait_timeout = min(timeout, _MAX_RESULT_WAIT_SECONDS)
+            if wait_timeout != timeout:
+                logger.warning(
+                    "get_result(timeout=%s) exceeds the server's %ss long-poll cap; "
+                    "waiting %ss per request instead",
+                    timeout,
+                    _MAX_RESULT_WAIT_SECONDS,
+                    wait_timeout,
+                )
+            params["wait"] = "true"
+            params["timeout"] = wait_timeout
         if view:
             params["view"] = view
         return self._request(
