@@ -85,10 +85,10 @@ nav:
     - Security Policy: security/policy.md
     - Hardening Guide: deployment/security.md
     - Threat Model: security/honest-assessment.md
-    - "Advisory: /proc exposure": security/proc-exposure-vulnerability.md
+    - "Analysis: /proc exposure": security/proc-exposure-vulnerability.md
     - Mitigations: security/mitigations.md
   - Deployment:
-    - Deploy with Docker Compose: deployment/how-to-deploy.md
+    - Deployment Options: deployment/how-to-deploy.md
     - Production Checklist: deployment/production.md
     - Scaling: deployment/scaling.md
     - Operations: deployment/operations.md

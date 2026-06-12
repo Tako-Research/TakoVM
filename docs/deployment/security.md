@@ -293,7 +293,10 @@ For anything internet-facing, terminate TLS at a reverse proxy in front of the s
 
 ```nginx
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
+    ssl_certificate     /etc/nginx/certs/tako.example.com.pem;
+    ssl_certificate_key /etc/nginx/certs/tako.example.com.key;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     client_max_body_size 2m;          # matches the server's payload cap

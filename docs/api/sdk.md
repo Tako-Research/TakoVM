@@ -182,7 +182,7 @@ client.dlq_stats()                   # dead-letter-queue stats
 `list_executions()` returns a paginated response (`{"items": [...], "limit", "offset", "has_more", "count"}`).
 
 !!! note "Sessions"
-    A long-lived **session** API is in development and not yet part of this client. Until it lands, call the session REST endpoints directly over HTTP (e.g. with `requests` against the [REST API](rest.md)) — SDK support will follow once the API stabilizes.
+    A long-lived **session** API is in development — neither the REST endpoints nor SDK support have shipped yet. This note will link to both once the API stabilizes.
 
 ---
 

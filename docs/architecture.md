@@ -116,7 +116,7 @@ Security Layers:
 │  --network=none     No network access (or bridge for deps)                  │
 │  --read-only        Read-only filesystem                                    │
 │  --cap-drop=ALL     No Linux capabilities                                   │
-│  gVisor (runsc)     Userspace-kernel syscall interception (strict mode)     │
+│  gVisor (runsc)     Userspace kernel (default; runc fallback in permissive) │
 │  uid 1000           Non-root execution via gosu                             │
 │  seccomp            Syscall filtering                                       │
 │  resource limits    Memory, CPU, PIDs, file size                            │

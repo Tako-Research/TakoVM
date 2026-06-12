@@ -137,7 +137,7 @@ Three core concepts:
 
 - **Sandbox** — a gVisor-backed, single-use container that executes one job and is destroyed.
 - **Job** — an asynchronous unit of work with a persisted `ExecutionRecord` lifecycle (`queued → running → succeeded/failed/timeout/oom/cancelled`).
-- **Executor image** — the container image jobs run in; runtime `requirements` are installed per-job via `uv` with a shared cache.
+- **Executor image** — the container image jobs run in; runtime `requirements` can be installed per-job via `uv` (opt-in: `allow_runtime_requirements`), with an optional shared cache (`enable_runtime_dependency_cache`) to speed up repeat installs.
 
 ## Next steps
 

@@ -14,7 +14,7 @@ Tako VM runs untrusted, often AI-generated, code. This section documents the iso
 - **[Security Policy](policy.md)** — how to report vulnerabilities, response timelines, supported versions
 - **[Threat Model](honest-assessment.md)** — practical security analysis: what's protected, what isn't, and for which workloads
 - **[Hardening Guide](../deployment/security.md)** — production configuration: `security_mode: strict`, gVisor, seccomp, network policy
-- **[Advisory: /proc exposure](proc-exposure-vulnerability.md)** — technical analysis of `/proc` filesystem access from sandboxed code
+- **[Analysis: /proc exposure](proc-exposure-vulnerability.md)** — technical analysis of `/proc` filesystem access from sandboxed code
 - **[Mitigations](mitigations.md)** — implementation options (AppArmor, gVisor, env var migration)
 
 ## Security Status

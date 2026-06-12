@@ -16,7 +16,7 @@ The pattern is identical in every framework:
     Run agent workloads with `security_mode: strict` so jobs fail rather than silently falling back from gVisor to plain `runc`, and never pass secrets in `input_data` — anything the job receives is readable by the code. See the [threat model](../security/honest-assessment.md).
 
 !!! note "Letting agents install packages"
-    The `requirements` parameter needs `allow_runtime_requirements: true` in `tako_vm.yaml` (off by default). For tighter control, define [pre-built job types](environments.md) with the packages your agents need and drop the parameter entirely.
+    The `requirements` parameter needs `allow_runtime_requirements: true` in `tako_vm.yaml` (off by default), and a job that installs packages runs **with network access** — the container attaches to the bridge network for the install and stays attached for the run. For untrusted code, prefer [pre-built job types](environments.md) with the packages your agents need: that keeps `--network=none` and drops the parameter entirely.
 
 ## The core tool function
 
@@ -68,8 +68,10 @@ python_sandbox = StructuredTool.from_function(
     func=run_python,
     name="run_python",
     description=(
-        "Execute Python code in an isolated sandbox (no network access). "
-        "Returns stdout, or the error/traceback if execution failed."
+        "Execute Python code in an isolated sandbox. No network access, unless "
+        "requirements are passed (installing them attaches the container to the "
+        "network for that job). Returns stdout, or the error/traceback if "
+        "execution failed."
     ),
     args_schema=RunPythonArgs,
 )
@@ -118,8 +120,9 @@ TOOLS = [{
     "type": "function",
     "function": {
         "name": "run_python",
-        "description": "Execute Python code in an isolated sandbox (no network). "
-                       "Returns stdout, or the error if execution failed.",
+        "description": "Execute Python code in an isolated sandbox (no network "
+                       "unless requirements are passed). Returns stdout, or the "
+                       "error if execution failed.",
         "parameters": {
             "type": "object",
             "properties": {
