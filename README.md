@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>File system and Python execution for your agents. Job queues and Docker isolation built-in. Used by teams deploying in enterprise.</strong>
+  <strong>File system and python execution for your agents. Job queues and Docker isolation built-in. Used by teams deploying in enterprise.</strong>
 </p>
 
 <p align="center">
