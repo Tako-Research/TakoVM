@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Run untrusted Python safely. Job queues and Docker isolation built-in. Used by enterprises.</strong>
+  <strong>A secure file system and python execution for your agents. Job queues and Docker isolation built-in. Used by teams deploying in enterprise.</strong>
 </p>
 
 <p align="center">
