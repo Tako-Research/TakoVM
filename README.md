@@ -16,8 +16,13 @@
   <strong>English</strong> | <a href="README.ja.md">日本語</a>
 </p>
 
-Run AI-generated code in isolated Docker containers with optional gVisor sandboxing.
-Job queues, retries, and execution history included.
+**A secure file system for your agents to execute code.** Every job runs in its own
+isolated Docker container — with an ephemeral workspace, optional gVisor sandboxing, job
+queues, retries, and execution history included.
+
+> **Where this is headed:** durable, per-agent workspaces that persist and rehydrate
+> across runs — a serverless filesystem for agents. Today each container is single-use;
+> persistent workspaces are on the roadmap. gVisor remains the sole isolation boundary.
 
 <p align="center">
   <a href="https://las7.github.io/TakoVM/"><strong>Documentation</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>Quick Start</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API Reference</strong></a>
