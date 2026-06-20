@@ -1,6 +1,8 @@
 # Tako VM
 
-Secure Python code execution in isolated Docker containers. Lets AI agents and platforms run untrusted code safely by sandboxing it behind a gVisor-backed container boundary. REST API for sync/async job execution, plus a Python SDK for library-mode usage.
+A secure file system and Python execution layer for AI agents. Lets agents and platforms run untrusted code safely in gVisor-backed, isolated containers — each with its own workspace — backed by job queues, retries, and execution history. REST API for sync/async job execution, plus a Python SDK for library-mode usage.
+
+**Direction:** evolving toward a "serverless filesystem for agents" — durable, per-agent workspaces that persist and rehydrate across runs (object-store-backed, content-addressed snapshots, hydrate/flush at run boundary). Today each container is single-use; persistent workspaces are on the roadmap. gVisor remains the sole isolation boundary.
 
 ## Why gVisor?
 

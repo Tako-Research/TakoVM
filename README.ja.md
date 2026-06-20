@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>信頼できない Python コードを安全に実行。ジョブキューと Docker による隔離を標準搭載。エンタープライズでの採用実績あり。</strong>
+  <strong>エージェントのためのファイルシステムと Python 実行環境。ジョブキューと Docker による隔離を標準搭載。エンタープライズの開発チームで採用。</strong>
 </p>
 
 <p align="center">
@@ -16,7 +16,9 @@
   <a href="README.md">English</a> | <strong>日本語</strong>
 </p>
 
-AI が生成したコードを、隔離された Docker コンテナ内で実行します。必要に応じて gVisor によるサンドボックス化にも対応可能です。ジョブキュー・リトライ・実行履歴を標準で搭載しています。
+**エージェントが安全にコードを実行するためのファイルシステム。** 各ジョブは、専用ワークスペースを備えた隔離された Docker コンテナ内で実行されます。必要に応じて gVisor によるサンドボックス化にも対応し、ジョブキュー・リトライ・実行履歴を標準で搭載しています。
+
+> **今後の方向性：** 実行をまたいで永続化・再ハイドレートできる、エージェントごとの耐久性のあるワークスペース（エージェントのためのサーバーレスファイルシステム）を目指しています。現時点では各コンテナは使い捨てで、永続ワークスペースはロードマップ上の機能です。隔離境界は引き続き gVisor のみに依存します。
 
 <p align="center">
   <a href="https://las7.github.io/TakoVM/"><strong>ドキュメント</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>クイックスタート</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API リファレンス</strong></a>

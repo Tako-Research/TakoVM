@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tako-vm"
 version = "0.1.4"
-description = "Secure Python code execution in isolated Docker containers"
+description = "A secure file system and Python execution layer for AI agents — isolated Docker/gVisor containers with job queues, retries, and history"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -14,6 +14,8 @@ authors = [
 ]
 keywords = [
     "code-execution",
+    "filesystem",
+    "agent-infrastructure",
     "docker",
     "sandbox",
     "sandboxing",

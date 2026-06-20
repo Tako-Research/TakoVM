@@ -1,5 +1,5 @@
 ---
-description: "Tako VM is job queue infrastructure for AI agents — secure Python code execution in gVisor-isolated Docker containers, with queue, workers, retries, and replay."
+description: "Tako VM is a secure file system and Python execution layer for AI agents — gVisor-isolated Docker containers with job queues, workers, retries, and replay."
 hide:
   - navigation
   - toc
@@ -9,8 +9,8 @@ hide:
 
 # Tako VM
 
-<p class="tako-tagline"><strong>Job queue infrastructure for AI agents. Not just a sandbox.</strong><br>
-Run untrusted Python in gVisor-isolated containers — with the queue, workers, execution history, retries, and replay you'd otherwise build yourself.</p>
+<p class="tako-tagline"><strong>A secure file system for your agents to execute code.</strong><br>
+File system and Python execution for your agents — run untrusted code in gVisor-isolated containers, with the queue, workers, execution history, retries, and replay you'd otherwise build yourself.</p>
 
 <div class="tako-badges" markdown>
 [![PyPI](https://img.shields.io/pypi/v/tako-vm)](https://pypi.org/project/tako-vm/)
@@ -138,6 +138,9 @@ Three core concepts:
 - **Sandbox** — a gVisor-backed, single-use container that executes one job and is destroyed.
 - **Job** — an asynchronous unit of work with a persisted `ExecutionRecord` lifecycle (`queued → running → succeeded/failed/timeout/oom/cancelled`).
 - **Executor image** — the container image jobs run in; runtime `requirements` can be installed per-job via `uv` (opt-in: `allow_runtime_requirements`), with an optional shared cache (`enable_runtime_dependency_cache`) to speed up repeat installs.
+
+!!! note "Where Tako VM is headed"
+    The direction is a **serverless filesystem for agents**: durable, per-agent workspaces that persist and rehydrate across runs, spinning up on demand and scaling to zero with state preserved. Today each container is single-use; persistent workspaces are on the roadmap. gVisor remains the sole isolation boundary.
 
 ## Next steps
 
