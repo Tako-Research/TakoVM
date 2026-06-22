@@ -75,11 +75,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://las7.github.io/TakoVM/"
-Documentation = "https://las7.github.io/TakoVM/"
-Repository = "https://github.com/las7/TakoVM"
-Issues = "https://github.com/las7/TakoVM/issues"
-Changelog = "https://github.com/las7/TakoVM/blob/main/CHANGELOG.md"
+Homepage = "https://tako-research.github.io/TakoVM/"
+Documentation = "https://tako-research.github.io/TakoVM/"
+Repository = "https://github.com/Tako-Research/TakoVM"
+Issues = "https://github.com/Tako-Research/TakoVM/issues"
+Changelog = "https://github.com/Tako-Research/TakoVM/blob/main/CHANGELOG.md"
 
 [project.scripts]
 tako-vm = "tako_vm.cli:main"

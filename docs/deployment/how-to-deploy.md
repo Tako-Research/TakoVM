@@ -55,7 +55,7 @@ sudo apt install -y python3
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone Tako VM
-git clone https://github.com/las7/TakoVM.git
+git clone https://github.com/Tako-Research/TakoVM.git
 cd tako-vm
 
 # Install Tako VM with server dependencies
@@ -114,7 +114,7 @@ Run Tako VM itself in a container. The repo includes a ready-to-use `docker-comp
 
 ```bash
 # Clone the repo
-git clone https://github.com/las7/TakoVM.git
+git clone https://github.com/Tako-Research/TakoVM.git
 cd tako-vm
 
 # Build both images and start the server
@@ -365,7 +365,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone Tako VM
 if [ ! -d "tako-vm" ]; then
-    git clone https://github.com/las7/TakoVM.git
+    git clone https://github.com/Tako-Research/TakoVM.git
 fi
 cd tako-vm
 

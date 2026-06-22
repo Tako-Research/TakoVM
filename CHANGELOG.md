@@ -85,7 +85,7 @@ end-to-end for durability, traceability, and security.
 
 Earlier releases (0.1.0–0.1.3) established the core sandbox, REST API, async job
 queue, PostgreSQL persistence, and the initial library-mode `Sandbox`. See the
-[git history](https://github.com/las7/tako-vm/commits/v0.1.3) for details.
+[git history](https://github.com/Tako-Research/TakoVM/commits/v0.1.3) for details.
 
-[0.1.4]: https://github.com/las7/tako-vm/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/las7/tako-vm/releases/tag/v0.1.3
+[0.1.4]: https://github.com/Tako-Research/TakoVM/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Tako-Research/TakoVM/releases/tag/v0.1.3

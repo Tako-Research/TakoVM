@@ -44,7 +44,7 @@ uv pip install tako-vm[all]
 
 ```bash
 # Clone the repository
-git clone https://github.com/las7/TakoVM.git
+git clone https://github.com/Tako-Research/TakoVM.git
 cd tako-vm
 uv venv && source .venv/bin/activate
 

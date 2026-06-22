@@ -182,7 +182,7 @@ def run_setup(args):
     from tako_vm import __version__
     from tako_vm.constants import DEFAULT_IMAGE
 
-    ghcr_image = f"ghcr.io/las7/takovm/executor:{__version__}"
+    ghcr_image = f"ghcr.io/tako-research/takovm/executor:{__version__}"
 
     # Check Docker is available
     print("Checking Docker...")
@@ -221,7 +221,7 @@ def run_setup(args):
     )
     if result.returncode != 0:
         # Fall back to latest tag
-        ghcr_latest = "ghcr.io/las7/takovm/executor:latest"
+        ghcr_latest = "ghcr.io/tako-research/takovm/executor:latest"
         print(f"Version {__version__} not found, trying latest...")
         result = subprocess.run(
             ["docker", "pull", ghcr_latest],
@@ -230,7 +230,7 @@ def run_setup(args):
         if result.returncode != 0:
             print("Error: Failed to pull executor image.", file=sys.stderr)
             print(
-                "Build manually: git clone https://github.com/las7/tako-vm.git && "
+                "Build manually: git clone https://github.com/Tako-Research/TakoVM.git && "
                 "cd tako-vm && docker build -t code-executor:latest -f docker/Dockerfile.executor .",
                 file=sys.stderr,
             )

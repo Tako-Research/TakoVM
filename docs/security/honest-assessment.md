@@ -18,7 +18,7 @@ description: "Tako VM threat model — strong isolation for trusted code, and th
 
 **Why it matters:** External attackers can't escape artifact directories via API.
 
-**Implementation:** [app.py:1036-1042](https://github.com/las7/TakoVM/blob/main/tako_vm/server/app.py#L1036-L1042)
+**Implementation:** [app.py:1036-1042](https://github.com/Tako-Research/TakoVM/blob/main/tako_vm/server/app.py#L1036-L1042)
 
 ### ✅ Container Escape (GOOD with proper config)
 ```python
