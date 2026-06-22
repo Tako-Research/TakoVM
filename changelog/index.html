@@ -1666,6 +1666,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#015-2026-06-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.5 - 2026-06-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.5 - 2026-06-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#014-2026-06-10" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1689,7 +1717,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1791,6 +1819,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#015-2026-06-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.5 - 2026-06-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.5 - 2026-06-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#014-2026-06-10" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1814,7 +1870,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1950,6 +2006,20 @@
 <p>All notable changes to Tako VM are documented in this file.</p>
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<h2 id="015-2026-06-22"><a href="https://github.com/Tako-Research/TakoVM/compare/v0.1.4...v0.1.5">0.1.5</a> - 2026-06-22<a class="headerlink" href="#015-2026-06-22" title="Permanent link">&para;</a></h2>
+<p>Housekeeping release. Tako VM now lives under the Tako Research organization.
+There are no functional or API changes.</p>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Moved to the Tako Research org.</strong> The repository is now
+  <a href="https://github.com/Tako-Research/TakoVM">github.com/Tako-Research/TakoVM</a>,
+  the documentation is served at
+  <a href="https://tako-research.github.io/TakoVM/">tako-research.github.io/TakoVM</a>, and
+  the prebuilt executor and server images are published to
+  <code>ghcr.io/tako-research/takovm</code>. The previous <code>github.com/las7</code> URLs redirect,
+  and the existing <code>ghcr.io/las7/takovm</code> images remain available.</li>
+<li>Copyright attribution updated to Tako Research.</li>
+</ul>
 <h2 id="014-2026-06-10"><a href="https://github.com/Tako-Research/TakoVM/compare/v0.1.3...v0.1.4">0.1.4</a> - 2026-06-10<a class="headerlink" href="#014-2026-06-10" title="Permanent link">&para;</a></h2>
 <p>The largest release since Tako VM's first PyPI publish. It graduates the Python
 SDK to a complete, production-grade client and hardens the execution engine
@@ -1975,7 +2045,7 @@ end-to-end for durability, traceability, and security.</p>
   refused (#85).</li>
 <li><strong>Security policy, threat model, and vulnerability reporting process.</strong></li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Synchronous <code>/execute</code> now runs off the event loop and persists an
   <code>ExecutionRecord</code> (#71).</li>
