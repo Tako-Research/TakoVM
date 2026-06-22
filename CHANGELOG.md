@@ -5,6 +5,22 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-06-22
+
+Housekeeping release. Tako VM now lives under the Tako Research organization.
+There are no functional or API changes.
+
+### Changed
+
+- **Moved to the Tako Research org.** The repository is now
+  [github.com/Tako-Research/TakoVM](https://github.com/Tako-Research/TakoVM),
+  the documentation is served at
+  [tako-research.github.io/TakoVM](https://tako-research.github.io/TakoVM/), and
+  the prebuilt executor and server images are published to
+  `ghcr.io/tako-research/takovm`. The previous `github.com/las7` URLs redirect,
+  and the existing `ghcr.io/las7/takovm` images remain available.
+- Copyright attribution updated to Tako Research.
+
 ## [0.1.4] - 2026-06-10
 
 The largest release since Tako VM's first PyPI publish. It graduates the Python
@@ -87,5 +103,6 @@ Earlier releases (0.1.0–0.1.3) established the core sandbox, REST API, async j
 queue, PostgreSQL persistence, and the initial library-mode `Sandbox`. See the
 [git history](https://github.com/Tako-Research/TakoVM/commits/v0.1.3) for details.
 
+[0.1.5]: https://github.com/Tako-Research/TakoVM/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Tako-Research/TakoVM/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Tako-Research/TakoVM/releases/tag/v0.1.3
