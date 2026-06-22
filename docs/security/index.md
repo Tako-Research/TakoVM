@@ -7,7 +7,7 @@ description: "Tako VM security documentation — vulnerability reporting, threat
 Tako VM runs untrusted, often AI-generated, code. This section documents the isolation model, what it does and does not protect against, and how to harden a deployment.
 
 !!! tip "Found a vulnerability?"
-    Report it privately via [GitHub security advisories](https://github.com/las7/TakoVM/security/advisories/new) — never in a public issue. See the [security policy](policy.md) for response timelines.
+    Report it privately via [GitHub security advisories](https://github.com/Tako-Research/TakoVM/security/advisories/new) — never in a public issue. See the [security policy](policy.md) for response timelines.
 
 ## In this section
 
@@ -33,7 +33,7 @@ Tako VM runs untrusted, often AI-generated, code. This section documents the iso
 **Seccomp Filtering:** (Enabled by default)
 - Blocks dangerous syscalls: `ptrace`, `process_vm_readv/writev`, module loading
 - Prevents most privilege escalation attempts
-- Profile: [tako_vm/seccomp_profile.json](https://github.com/las7/TakoVM/blob/main/tako_vm/seccomp_profile.json)
+- Profile: [tako_vm/seccomp_profile.json](https://github.com/Tako-Research/TakoVM/blob/main/tako_vm/seccomp_profile.json)
 
 **Resource Limits:**
 - Memory, CPU, file size, process count
@@ -161,7 +161,7 @@ For paranoid deployments, use gVisor (user-space kernel) or Kata (VM isolation).
 - Network isolation (`--network=none` by default), resource and input limits
 - API-key authentication and rate limiting (auth off by default — [enable it in production](../deployment/security.md#api-security))
 
-**Roadmap** (tracked in [GitHub issues](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity)):
+**Roadmap** (tracked in [GitHub issues](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity)):
 
 - AppArmor profile for `/proc` path restrictions under runc
 - Per-tenant quotas and audit logging

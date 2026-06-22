@@ -4,18 +4,18 @@ Thanks for your interest in contributing! This guide covers everything you need 
 
 ## Where to start
 
-- Issues labeled [`good first issue`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are well-scoped entry points.
-- Issues labeled [`help wanted`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) are larger pieces where design input is welcome — comment on the issue before starting.
-- Questions and ideas: [GitHub Discussions](https://github.com/las7/TakoVM/discussions).
+- Issues labeled [`good first issue`](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are well-scoped entry points.
+- Issues labeled [`help wanted`](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) are larger pieces where design input is welcome — comment on the issue before starting.
+- Questions and ideas: [GitHub Discussions](https://github.com/Tako-Research/TakoVM/discussions).
 
-**Security issues are the exception: never open a public issue.** Report privately via the [Security tab](https://github.com/las7/TakoVM/security/advisories/new) — see [SECURITY.md](SECURITY.md).
+**Security issues are the exception: never open a public issue.** Report privately via the [Security tab](https://github.com/Tako-Research/TakoVM/security/advisories/new) — see [SECURITY.md](SECURITY.md).
 
 ## Development setup
 
 Requirements: Python 3.10+, Docker, and `git`.
 
 ```bash
-git clone https://github.com/las7/TakoVM.git
+git clone https://github.com/Tako-Research/TakoVM.git
 cd TakoVM
 
 # Install in editable mode with dev + server extras

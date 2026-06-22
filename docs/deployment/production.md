@@ -41,7 +41,7 @@ curl -X POST http://localhost:8000/job-types/data-processing/build
 docker images | grep tako-vm
 ```
 
-!!! note "CLI support for building images is planned — see [GitHub #30](https://github.com/las7/TakoVM/issues/30)."
+!!! note "CLI support for building images is planned — see [GitHub #30](https://github.com/Tako-Research/TakoVM/issues/30)."
 
 ## Running with Systemd
 

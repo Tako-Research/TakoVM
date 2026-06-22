@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="https://pypi.org/project/tako-vm/"><img src="https://img.shields.io/pypi/v/tako-vm" alt="PyPI"></a>
-  <a href="https://github.com/las7/TakoVM/actions"><img src="https://github.com/las7/TakoVM/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
-  <a href="https://github.com/las7/TakoVM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
+  <a href="https://github.com/Tako-Research/TakoVM/actions"><img src="https://github.com/Tako-Research/TakoVM/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/Tako-Research/TakoVM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 > **今後の方向性：** 実行をまたいで永続化・再ハイドレートできる、エージェントごとの耐久性のあるワークスペース（エージェントのためのサーバーレスファイルシステム）を目指しています。現時点では各コンテナは使い捨てで、永続ワークスペースはロードマップ上の機能です。隔離境界は引き続き gVisor のみに依存します。
 
 <p align="center">
-  <a href="https://las7.github.io/TakoVM/"><strong>ドキュメント</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>クイックスタート</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API リファレンス</strong></a>
+  <a href="https://tako-research.github.io/TakoVM/"><strong>ドキュメント</strong></a> · <a href="https://tako-research.github.io/TakoVM/getting-started/quickstart/"><strong>クイックスタート</strong></a> · <a href="https://tako-research.github.io/TakoVM/api/rest/"><strong>API リファレンス</strong></a>
 </p>
 
 <p align="center">
@@ -98,7 +98,7 @@ tako-vm --config my.yaml server   # 指定した設定ファイルを使用
 
 ## コントリビューション
 
-コントリビューションを歓迎します！開発環境のセットアップ、テスト、PR の規約については [CONTRIBUTING.md](CONTRIBUTING.md)（英語）をご覧ください。[`good first issue`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) ラベルの付いた Issue から始めるのがおすすめです。質問やアイデアは [Discussions](https://github.com/las7/TakoVM/discussions) へどうぞ。
+コントリビューションを歓迎します！開発環境のセットアップ、テスト、PR の規約については [CONTRIBUTING.md](CONTRIBUTING.md)（英語）をご覧ください。[`good first issue`](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) ラベルの付いた Issue から始めるのがおすすめです。質問やアイデアは [Discussions](https://github.com/Tako-Research/TakoVM/discussions) へどうぞ。
 
 ## ライセンス
 

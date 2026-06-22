@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="https://pypi.org/project/tako-vm/"><img src="https://img.shields.io/pypi/v/tako-vm" alt="PyPI"></a>
-  <a href="https://github.com/las7/TakoVM/actions"><img src="https://github.com/las7/TakoVM/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
-  <a href="https://github.com/las7/TakoVM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
+  <a href="https://github.com/Tako-Research/TakoVM/actions"><img src="https://github.com/Tako-Research/TakoVM/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/Tako-Research/TakoVM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@ queues, retries, and execution history included.
 > persistent workspaces are on the roadmap. gVisor remains the sole isolation boundary.
 
 <p align="center">
-  <a href="https://las7.github.io/TakoVM/"><strong>Documentation</strong></a> · <a href="https://las7.github.io/TakoVM/getting-started/quickstart/"><strong>Quick Start</strong></a> · <a href="https://las7.github.io/TakoVM/api/rest/"><strong>API Reference</strong></a>
+  <a href="https://tako-research.github.io/TakoVM/"><strong>Documentation</strong></a> · <a href="https://tako-research.github.io/TakoVM/getting-started/quickstart/"><strong>Quick Start</strong></a> · <a href="https://tako-research.github.io/TakoVM/api/rest/"><strong>API Reference</strong></a>
 </p>
 
 <p align="center">
@@ -108,11 +108,15 @@ For untrusted workloads in production, set `security_mode: strict` with `contain
 
 See [SECURITY.md](SECURITY.md) for the threat model and hardening guidance, and [docs/deployment/security.md](docs/deployment/security.md) for full details.
 
-**Found a vulnerability?** Report it privately via the [Security tab](https://github.com/las7/TakoVM/security) → **Report a vulnerability**. Please do not open public issues for security findings.
+**Found a vulnerability?** Report it privately via the [Security tab](https://github.com/Tako-Research/TakoVM/security) → **Report a vulnerability**. Please do not open public issues for security findings.
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, testing, and PR conventions. Good entry points are issues labeled [`good first issue`](https://github.com/las7/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), and [Discussions](https://github.com/las7/TakoVM/discussions) is open for questions and ideas.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, testing, and PR conventions. Good entry points are issues labeled [`good first issue`](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), and [Discussions](https://github.com/Tako-Research/TakoVM/discussions) is open for questions and ideas.
+
+## Contact
+
+Questions, feedback, or partnership inquiries? Reach out to [seiji@intencion.io](mailto:seiji@intencion.io).
 
 ## License
 

@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for the report! **If this is a security vulnerability, do not file it here** — use
-        [private vulnerability reporting](https://github.com/las7/TakoVM/security/advisories/new) instead.
+        [private vulnerability reporting](https://github.com/Tako-Research/TakoVM/security/advisories/new) instead.
   - type: input
     id: version
     attributes:

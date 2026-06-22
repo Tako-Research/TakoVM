@@ -6,7 +6,7 @@ Tako VM exists to run untrusted, often AI-generated, Python. Execution safety is
 
 Report vulnerabilities privately through GitHub's coordinated disclosure flow:
 
-1. Go to the [Security tab](https://github.com/las7/TakoVM/security) of this repository.
+1. Go to the [Security tab](https://github.com/Tako-Research/TakoVM/security) of this repository.
 2. Click **Report a vulnerability** to open a private advisory.
 
 Please do not open public issues, pull requests, or discussion threads for suspected vulnerabilities until a fix has been released and we have agreed on a disclosure date.
@@ -62,7 +62,7 @@ Tako VM uses layered isolation. No single layer is treated as sufficient on its 
 
 **API front door.** The server enforces a maximum request body size and per-client-IP rate limiting by default. Run it behind TLS in production.
 
-A fuller description lives in [docs/deployment/security.md](https://github.com/las7/TakoVM/blob/main/docs/deployment/security.md).
+A fuller description lives in [docs/deployment/security.md](https://github.com/Tako-Research/TakoVM/blob/main/docs/deployment/security.md).
 
 ## Threat Model
 

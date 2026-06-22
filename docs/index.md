@@ -15,12 +15,12 @@ File system and Python execution for your agents — run untrusted code in gViso
 <div class="tako-badges" markdown>
 [![PyPI](https://img.shields.io/pypi/v/tako-vm)](https://pypi.org/project/tako-vm/)
 [![Python](https://img.shields.io/pypi/pyversions/tako-vm)](https://pypi.org/project/tako-vm/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/las7/TakoVM/blob/main/LICENSE)
-[![Tests](https://github.com/las7/TakoVM/actions/workflows/test.yml/badge.svg)](https://github.com/las7/TakoVM/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/Tako-Research/TakoVM/blob/main/LICENSE)
+[![Tests](https://github.com/Tako-Research/TakoVM/actions/workflows/test.yml/badge.svg)](https://github.com/Tako-Research/TakoVM/actions)
 </div>
 
 [Get started](getting-started/quickstart.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/las7/TakoVM){ .md-button }
+[View on GitHub](https://github.com/Tako-Research/TakoVM){ .md-button }
 
 </div>
 
