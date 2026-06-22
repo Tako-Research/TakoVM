@@ -80,3 +80,54 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always
+
+  # Create the GitHub Release so the Releases page stays in sync with PyPI/GHCR
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [docker, pypi]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Pull the section between "## [VERSION]" and the next "## [" heading.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+            flag && /^## \[/ { exit }
+            flag { print }
+          ' CHANGELOG.md > release_notes.md
+          # Trim leading/trailing blank lines.
+          sed -i -e '/./,$!d' release_notes.md
+          if [ -s release_notes.md ]; then
+            echo "found=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=0" >> "$GITHUB_OUTPUT"
+            echo "No CHANGELOG section for $VERSION; will auto-generate notes."
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; skipping."
+            exit 0
+          fi
+          if [ "${{ steps.notes.outputs.found }}" = "1" ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Tako VM $GITHUB_REF_NAME" \
+              --notes-file release_notes.md \
+              --verify-tag
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Tako VM $GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi
