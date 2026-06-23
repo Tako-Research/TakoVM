@@ -15,7 +15,7 @@
 
 # Base image pinned by digest (not just the mutable :3.11-slim tag) so a
 # repointed upstream tag can't silently change what we ship.
-FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+FROM python:3.14-slim@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061
 
 WORKDIR /app
 
