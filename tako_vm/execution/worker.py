@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from tako_vm.config import TakoVMConfig, get_config
-from tako_vm.constants import MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
+from tako_vm.constants import (
+    MAX_REQUIREMENTS,
+    UV_CACHE_TMP_DIR,
+    UV_CACHE_VOLUME,
+    UV_CACHE_VOLUME_DIR,
+    WORKSPACE_DIR,
+)
 from tako_vm.execution.docker import (
     EXECUTOR_ENTRYPOINT,
     base_isolation_args,
@@ -1421,9 +1427,9 @@ class CodeExecutor:
 
         # Mount uv cache volume for faster repeated installs
         if has_runtime_deps:
-            uv_cache_dir = "/tmp/uv-cache"
+            uv_cache_dir = UV_CACHE_TMP_DIR
             if self.config.enable_runtime_dependency_cache:
-                uv_cache_dir = "/root/.cache/uv"
+                uv_cache_dir = UV_CACHE_VOLUME_DIR
                 cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 

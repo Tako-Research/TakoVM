@@ -14,6 +14,17 @@ DEFAULT_IMAGE = "code-executor:latest"
 # Docker volume name for uv cache (speeds up repeated dependency installs)
 UV_CACHE_VOLUME = "tako-uv-cache"
 
+# In-container uv cache locations. The shared-volume mount point lives under the
+# sandbox user's home (uid 1000), deliberately NOT under /root: the dependency
+# install runs unprivileged via gosu (issue #102), and /root is mode 0700 so
+# uid 1000 cannot even traverse into a cache mounted there. uv's cache is
+# content-addressed and location-independent, so relocating an existing volume
+# from the old /root path to here reuses its contents unchanged.
+UV_CACHE_VOLUME_DIR = "/home/sandbox/.cache/uv"
+# Ephemeral per-container uv cache used when the shared volume is disabled.
+# Lives on the writable /tmp tmpfs, which the sandbox user can write.
+UV_CACHE_TMP_DIR = "/tmp/uv-cache"
+
 # Workspace directory for job files (can be set via TAKO_VM_WORKSPACE env var)
 # When running the server in a container with Docker socket mounted, this must
 # be a path that exists on the host and is mounted into the server container.

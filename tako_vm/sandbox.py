@@ -25,7 +25,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from tako_vm.config import get_config
-from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
+from tako_vm.constants import (
+    DEFAULT_IMAGE,
+    MAX_REQUIREMENTS,
+    UV_CACHE_TMP_DIR,
+    UV_CACHE_VOLUME,
+    UV_CACHE_VOLUME_DIR,
+    WORKSPACE_DIR,
+)
 from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
     base_isolation_args,
@@ -596,9 +603,9 @@ class Sandbox:
 
         # Mount uv cache for faster installs
         if has_requirements:
-            uv_cache_dir = "/tmp/uv-cache"
+            uv_cache_dir = UV_CACHE_TMP_DIR
             if self.config.enable_runtime_dependency_cache:
-                uv_cache_dir = "/root/.cache/uv"
+                uv_cache_dir = UV_CACHE_VOLUME_DIR
                 cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 

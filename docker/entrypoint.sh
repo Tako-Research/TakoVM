@@ -48,17 +48,36 @@ if [ -s "$REQS_FILE" ]; then
     # Using --target instead of --system to install to /tmp/site-packages
     TARGET_DIR="/tmp/site-packages"
     mkdir -p "$TARGET_DIR"
-    UV_INSTALL_CMD=(uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE")
 
+    # Run the install as the unprivileged sandbox user (uid 1000), NOT as
+    # container root. Installing a package can execute arbitrary code at build
+    # time (setup.py / PEP 517 hooks), and the requirements list is reachable
+    # from the API request, so installing as root would hand an attacker-chosen
+    # sdist in-container root. The install only needs to write its target and
+    # cache dirs, which the sandbox user can own. (issue #102)
+    #
+    # As root (we have not dropped privileges yet), make those writable targets
+    # owned by the sandbox user before handing the install to gosu. HOME is set
+    # explicitly so uv never tries to write under /root (uid 1000 cannot).
+    SANDBOX_HOME="/home/sandbox"
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+    chown sandbox:sandbox "$TARGET_DIR"
+    mkdir -p "$UV_CACHE_DIR"
+    chown -R sandbox:sandbox "$UV_CACHE_DIR" 2>/dev/null || true
+
+    INSTALL_ENV=("HOME=$SANDBOX_HOME" "UV_CACHE_DIR=$UV_CACHE_DIR")
     if [ -n "$TAKO_DEPENDENCY_PROXY_URL" ]; then
-        UV_INSTALL_CMD=(
-            env
+        INSTALL_ENV+=(
             "HTTP_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
             "HTTPS_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
             "ALL_PROXY=$TAKO_DEPENDENCY_PROXY_URL"
-            "${UV_INSTALL_CMD[@]}"
         )
     fi
+    UV_INSTALL_CMD=(
+        gosu sandbox
+        env "${INSTALL_ENV[@]}"
+        uv pip install --target "$TARGET_DIR" --link-mode=copy -r "$REQS_FILE"
+    )
 
     # Capture install result (don't exit on error yet so we can record timing).
     # uv output goes to stderr (1>&2): user stdout stays clean, and the server
