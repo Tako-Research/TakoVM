@@ -196,6 +196,110 @@ def _decode_json_field(value: Any) -> Any:
     return value
 
 
+# --- execution_records upsert: single source of truth for the column set ------
+#
+# The INSERT column list, the `%s` placeholder run, the value tuple, AND the
+# ON CONFLICT ... DO UPDATE SET clause are ALL generated from _EXECUTION_COLUMNS
+# below, so adding a column is one row here instead of four hand-synced edits in
+# one statement (the exact drift hazard the `runtime`/`correlation_id`
+# migrations hit) — and a placeholder miscount can no longer silently shift
+# every column. `_row_to_record` stays hand-written: it carries per-field decode
+# and corruption-fallback logic that resists tabulation.
+#
+# Each column carries its ON CONFLICT update policy as data, which documents WHY
+# each field updates the way it does instead of burying it in prose:
+_SET_EXCLUDED = "excluded"  # outcome fields: a later write knows more
+_SET_KEEP_EXISTING = "keep_existing"  # created_at: first write wins
+_SET_COALESCE_EXISTING = "coalesce_existing"  # submission identity: keep first non-null
+_SET_COALESCE_EXCLUDED = "coalesce_excluded"  # prefer a writer that knows the value
+_SET_KEY = "key"  # the ON CONFLICT key itself; no SET line
+
+
+def _set_clause_for(name: str, policy: str) -> str:
+    if policy == _SET_EXCLUDED:
+        return f"{name} = EXCLUDED.{name}"
+    if policy == _SET_KEEP_EXISTING:
+        return f"{name} = execution_records.{name}"
+    if policy == _SET_COALESCE_EXISTING:
+        return f"{name} = COALESCE(execution_records.{name}, EXCLUDED.{name})"
+    if policy == _SET_COALESCE_EXCLUDED:
+        return f"{name} = COALESCE(EXCLUDED.{name}, execution_records.{name})"
+    raise ValueError(f"unknown conflict policy {policy!r} for column {name!r}")
+
+
+# (column_name, conflict_policy, value_extractor(record, blobs)). Order is the
+# physical column order used by the INSERT and the value tuple.
+_EXECUTION_COLUMNS: list = [
+    ("execution_id", _SET_KEY, lambda r, b: r.execution_id),
+    ("status", _SET_EXCLUDED, lambda r, b: r.status),
+    ("job_type", _SET_EXCLUDED, lambda r, b: r.job_type),
+    ("job_ref", _SET_EXCLUDED, lambda r, b: r.job_ref),
+    ("created_at", _SET_KEEP_EXISTING, lambda r, b: r.created_at),
+    ("queued_at", _SET_COALESCE_EXISTING, lambda r, b: r.queued_at),
+    ("dequeued_at", _SET_COALESCE_EXISTING, lambda r, b: r.dequeued_at),
+    ("started_at", _SET_EXCLUDED, lambda r, b: r.started_at),
+    ("ended_at", _SET_EXCLUDED, lambda r, b: r.ended_at),
+    ("duration_ms", _SET_EXCLUDED, lambda r, b: r.duration_ms),
+    ("attempt", _SET_EXCLUDED, lambda r, b: r.attempt),
+    ("max_attempts", _SET_EXCLUDED, lambda r, b: r.max_attempts),
+    ("worker_id", _SET_COALESCE_EXCLUDED, lambda r, b: r.worker_id),
+    ("idempotency_key", _SET_COALESCE_EXISTING, lambda r, b: r.idempotency_key),
+    ("idempotency_fingerprint", _SET_COALESCE_EXISTING, lambda r, b: r.idempotency_fingerprint),
+    ("code_hash", _SET_COALESCE_EXISTING, lambda r, b: r.code_hash),
+    ("input_hash", _SET_COALESCE_EXISTING, lambda r, b: r.input_hash),
+    ("params_hash", _SET_COALESCE_EXISTING, lambda r, b: r.params_hash),
+    ("input_artifacts_hash", _SET_COALESCE_EXISTING, lambda r, b: r.input_artifacts_hash),
+    ("input_artifacts_json", _SET_EXCLUDED, lambda r, b: Jsonb(b["input_artifacts_json"])),
+    ("exit_code", _SET_EXCLUDED, lambda r, b: r.exit_code),
+    ("stdout", _SET_EXCLUDED, lambda r, b: r.stdout),
+    ("stderr", _SET_EXCLUDED, lambda r, b: r.stderr),
+    ("stdout_truncated", _SET_EXCLUDED, lambda r, b: r.stdout_truncated),
+    ("stderr_truncated", _SET_EXCLUDED, lambda r, b: r.stderr_truncated),
+    (
+        "result_json",
+        _SET_EXCLUDED,
+        lambda r, b: Jsonb(b["result_json"]) if b["result_json"] is not None else None,
+    ),
+    (
+        "max_rss_mb",
+        _SET_EXCLUDED,
+        lambda r, b: r.resource_usage.max_rss_mb if r.resource_usage else None,
+    ),
+    (
+        "cpu_time_ms",
+        _SET_EXCLUDED,
+        lambda r, b: r.resource_usage.cpu_time_ms if r.resource_usage else None,
+    ),
+    (
+        "wall_time_ms",
+        _SET_EXCLUDED,
+        lambda r, b: r.resource_usage.wall_time_ms if r.resource_usage else None,
+    ),
+    (
+        "timing_json",
+        _SET_EXCLUDED,
+        lambda r, b: Jsonb(b["timing_json"]) if b["timing_json"] is not None else None,
+    ),
+    ("artifacts_json", _SET_EXCLUDED, lambda r, b: Jsonb(b["artifacts_json"])),
+    (
+        "error_json",
+        _SET_EXCLUDED,
+        lambda r, b: Jsonb(b["error_json"]) if b["error_json"] is not None else None,
+    ),
+    ("client_ip", _SET_COALESCE_EXISTING, lambda r, b: r.client_ip),
+    ("correlation_id", _SET_COALESCE_EXISTING, lambda r, b: r.correlation_id),
+    ("parent_execution_id", _SET_COALESCE_EXISTING, lambda r, b: r.parent_execution_id),
+    ("relationship", _SET_COALESCE_EXISTING, lambda r, b: r.relationship),
+    ("runtime", _SET_COALESCE_EXCLUDED, lambda r, b: r.runtime),
+]
+
+_INSERT_COLUMN_SQL = ", ".join(name for name, _, _ in _EXECUTION_COLUMNS)
+_INSERT_PLACEHOLDER_SQL = ", ".join(["%s"] * len(_EXECUTION_COLUMNS))
+_UPDATE_SET_SQL = ",\n                    ".join(
+    _set_clause_for(name, policy) for name, policy, _ in _EXECUTION_COLUMNS if policy != _SET_KEY
+)
+
+
 class ExecutionStorage:
     """PostgreSQL storage for execution records."""
 
@@ -331,12 +435,16 @@ class ExecutionStorage:
 
     async def _save_record_once(self, record: ExecutionRecord) -> int:
         """Execute the upsert once; return affected rowcount (0 = guard skip)."""
-        resource_usage = record.resource_usage
-        artifacts_json = [a.model_dump() for a in record.artifacts]
-        input_artifacts_json = [a.model_dump() for a in record.input_artifacts]
-        error_json = record.error.model_dump() if record.error else None
-        result_json = record.result_json
-        timing_json = record.timing.model_dump() if record.timing else None
+        # Pre-serialized JSON payloads the column extractors wrap in Jsonb().
+        # Passed as `blobs` so the _EXECUTION_COLUMNS value lambdas stay pure
+        # (record + blobs in, value out) and the column set is single-source.
+        blobs = {
+            "artifacts_json": [a.model_dump() for a in record.artifacts],
+            "input_artifacts_json": [a.model_dump() for a in record.input_artifacts],
+            "error_json": record.error.model_dump() if record.error else None,
+            "result_json": record.result_json,
+            "timing_json": record.timing.model_dump() if record.timing else None,
+        }
 
         terminal_list = ", ".join(f"'{s}'" for s in TERMINAL_STATUSES)
 
@@ -368,114 +476,15 @@ class ExecutionStorage:
             cursor = await conn.execute(
                 f"""
                 INSERT INTO execution_records (
-                    execution_id, status, job_type, job_ref,
-                    created_at, queued_at, dequeued_at, started_at, ended_at, duration_ms,
-                    attempt, max_attempts, worker_id, idempotency_key, idempotency_fingerprint,
-                    code_hash, input_hash, params_hash, input_artifacts_hash,
-                    input_artifacts_json,
-                    exit_code, stdout, stderr, stdout_truncated, stderr_truncated, result_json,
-                    max_rss_mb, cpu_time_ms, wall_time_ms,
-                    timing_json,
-                    artifacts_json, error_json,
-                    client_ip, correlation_id, parent_execution_id, relationship, runtime
+                    {_INSERT_COLUMN_SQL}
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s
+                    {_INSERT_PLACEHOLDER_SQL}
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
-                    status = EXCLUDED.status,
-                    job_type = EXCLUDED.job_type,
-                    job_ref = EXCLUDED.job_ref,
-                    created_at = execution_records.created_at,
-                    queued_at = COALESCE(execution_records.queued_at, EXCLUDED.queued_at),
-                    dequeued_at = COALESCE(execution_records.dequeued_at, EXCLUDED.dequeued_at),
-                    started_at = EXCLUDED.started_at,
-                    ended_at = EXCLUDED.ended_at,
-                    duration_ms = EXCLUDED.duration_ms,
-                    attempt = EXCLUDED.attempt,
-                    max_attempts = EXCLUDED.max_attempts,
-                    worker_id = COALESCE(EXCLUDED.worker_id, execution_records.worker_id),
-                    idempotency_key =
-                        COALESCE(execution_records.idempotency_key, EXCLUDED.idempotency_key),
-                    idempotency_fingerprint = COALESCE(
-                        execution_records.idempotency_fingerprint,
-                        EXCLUDED.idempotency_fingerprint
-                    ),
-                    code_hash = COALESCE(execution_records.code_hash, EXCLUDED.code_hash),
-                    input_hash = COALESCE(execution_records.input_hash, EXCLUDED.input_hash),
-                    params_hash = COALESCE(execution_records.params_hash, EXCLUDED.params_hash),
-                    input_artifacts_hash = COALESCE(
-                        execution_records.input_artifacts_hash,
-                        EXCLUDED.input_artifacts_hash
-                    ),
-                    input_artifacts_json = EXCLUDED.input_artifacts_json,
-                    exit_code = EXCLUDED.exit_code,
-                    stdout = EXCLUDED.stdout,
-                    stderr = EXCLUDED.stderr,
-                    stdout_truncated = EXCLUDED.stdout_truncated,
-                    stderr_truncated = EXCLUDED.stderr_truncated,
-                    result_json = EXCLUDED.result_json,
-                    max_rss_mb = EXCLUDED.max_rss_mb,
-                    cpu_time_ms = EXCLUDED.cpu_time_ms,
-                    wall_time_ms = EXCLUDED.wall_time_ms,
-                    timing_json = EXCLUDED.timing_json,
-                    artifacts_json = EXCLUDED.artifacts_json,
-                    error_json = EXCLUDED.error_json,
-                    client_ip = COALESCE(execution_records.client_ip, EXCLUDED.client_ip),
-                    correlation_id = COALESCE(
-                        execution_records.correlation_id,
-                        EXCLUDED.correlation_id
-                    ),
-                    parent_execution_id = COALESCE(
-                        execution_records.parent_execution_id,
-                        EXCLUDED.parent_execution_id
-                    ),
-                    relationship =
-                        COALESCE(execution_records.relationship, EXCLUDED.relationship),
-                    runtime = COALESCE(EXCLUDED.runtime, execution_records.runtime)
+                    {_UPDATE_SET_SQL}
                 WHERE execution_records.status NOT IN ({terminal_list})
                 """,
-                (
-                    record.execution_id,
-                    record.status,
-                    record.job_type,
-                    record.job_ref,
-                    record.created_at,
-                    record.queued_at,
-                    record.dequeued_at,
-                    record.started_at,
-                    record.ended_at,
-                    record.duration_ms,
-                    record.attempt,
-                    record.max_attempts,
-                    record.worker_id,
-                    record.idempotency_key,
-                    record.idempotency_fingerprint,
-                    record.code_hash,
-                    record.input_hash,
-                    record.params_hash,
-                    record.input_artifacts_hash,
-                    Jsonb(input_artifacts_json),
-                    record.exit_code,
-                    record.stdout,
-                    record.stderr,
-                    record.stdout_truncated,
-                    record.stderr_truncated,
-                    Jsonb(result_json) if result_json is not None else None,
-                    resource_usage.max_rss_mb if resource_usage else None,
-                    resource_usage.cpu_time_ms if resource_usage else None,
-                    resource_usage.wall_time_ms if resource_usage else None,
-                    Jsonb(timing_json) if timing_json is not None else None,
-                    Jsonb(artifacts_json),
-                    Jsonb(error_json) if error_json is not None else None,
-                    record.client_ip,
-                    record.correlation_id,
-                    record.parent_execution_id,
-                    record.relationship,
-                    record.runtime,
-                ),
+                tuple(extract(record, blobs) for _, _, extract in _EXECUTION_COLUMNS),
             )
             return cursor.rowcount
 
