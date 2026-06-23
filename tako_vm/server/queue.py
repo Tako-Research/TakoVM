@@ -32,6 +32,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Terminal ExecutionRecord statuses: a record in one of these is a final result.
+# Anything else ("queued", "running") means the job is still in flight.
+_TERMINAL_STATUSES = frozenset({"succeeded", "failed", "timeout", "oom", "cancelled"})
+
 
 @dataclass
 class QueuedJob:
@@ -187,7 +191,6 @@ class WorkerPool:
             RuntimeError: If queue is full
         """
         job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
 
         # Create future in async context where event loop is running
         loop = asyncio.get_running_loop()
@@ -201,25 +204,7 @@ class WorkerPool:
 
         # Create preliminary "queued" record for idempotency tracking
         # This ensures concurrent requests with same idempotency_key see the record
-        job_type_name = job_data.get("job_type") or "default"
-        queued_record = ExecutionRecord(
-            execution_id=job_id,
-            status="queued",
-            job_type=job_type_name,
-            job_ref=f"{job_type_name}@latest",
-            created_at=now,
-            queued_at=now,
-            code_hash=sha256_content(job_data.get("code", "")),
-            input_hash=sha256_json(job_data.get("input_data", {})),
-            client_ip=client_ip,
-            correlation_id=job_data.get("correlation_id"),
-            idempotency_key=job_data.get("idempotency_key"),
-            idempotency_fingerprint=job_data.get("idempotency_fingerprint"),
-            parent_execution_id=job_data.get("parent_execution_id"),
-            relationship=job_data.get("relationship"),
-        )
-        if self._queue.full():
-            raise RuntimeError("Job queue is full, try again later")
+        queued_record = self._build_record(job, "queued")
 
         await self.storage.save_record(queued_record)
 
@@ -269,9 +254,12 @@ class WorkerPool:
             job = self._active_jobs.get(job_id) or self._running_jobs.get(job_id)
 
         if not job:
-            # Check if already completed in storage
+            # Check if already completed in storage. Only a terminal record is a
+            # final answer: a non-terminal "queued"/"running" row (e.g. the job
+            # is in-flight on another path) must not be returned as the result,
+            # so treat it as still-pending / not found here.
             record = await self.storage.get_record(job_id)
-            if record:
+            if record and record.status in _TERMINAL_STATUSES:
                 return record
             raise KeyError(f"Job {job_id} not found")
 
@@ -359,20 +347,41 @@ class WorkerPool:
         Returns:
             True if job was found and cancelled
         """
+        pending_job: Optional[QueuedJob] = None
         running_job: Optional[QueuedJob] = None
         async with self._jobs_lock:
             # Check pending jobs
             job = self._active_jobs.get(job_id)
             if job and job.future and not job.future.done():
                 job.cancelled = True
-                logger.info(f"Job {job_id} cancelled (was pending)")
-                return True
+                pending_job = job
+                # Remove from active tracking now: the future is resolved below,
+                # so a later get_job_status must not re-report it as pending. The
+                # job still sits in the asyncio.Queue and the worker skip path
+                # (which is a no-op upsert once the future is already done) reaps
+                # it when dequeued.
+                self._active_jobs.pop(job_id, None)
 
             # Check running jobs - send a kill to the tracked container.
-            job = self._running_jobs.get(job_id)
-            if job:
-                job.cancelled = True
-                running_job = job
+            else:
+                job = self._running_jobs.get(job_id)
+                if job:
+                    job.cancelled = True
+                    running_job = job
+
+        if pending_job is not None:
+            # Persist the cancelled record and resolve the waiter synchronously
+            # (mirror the worker skip path) so cancellation is observable now
+            # instead of only after a worker eventually dequeues the job.
+            record = self._build_cancelled_record(pending_job)
+            await self.storage.save_record(record)
+            if pending_job.future and not pending_job.future.done():
+                try:
+                    pending_job.future.set_result(record)
+                except asyncio.InvalidStateError:
+                    logger.debug(f"Future already done for cancelled job {job_id}")
+            logger.info(f"Job {job_id} cancelled (was pending)")
+            return True
 
         if not running_job:
             return False
@@ -392,27 +401,53 @@ class WorkerPool:
 
         return True
 
-    def _build_cancelled_record(
-        self, job: QueuedJob, message: str = "Execution was cancelled by user"
+    @staticmethod
+    def _build_record(
+        job: QueuedJob,
+        status: str,
+        *,
+        error: Optional[ExecutionError] = None,
+        queued_at: Optional[datetime] = None,
     ) -> ExecutionRecord:
-        """Create a final cancelled record for a job."""
+        """Build an ExecutionRecord for a job in a given terminal/queued state.
+
+        Single construction site for every record the worker pool persists, so
+        the idempotency, lineage, and content-hash fields are propagated
+        consistently. (A prior hand-rolled record in the outer-except path
+        dropped the idempotency and lineage fields; routing through here fixes
+        that.)
+
+        Args:
+            job: Job the record describes
+            status: ExecutionRecord status (e.g. "queued", "cancelled", "failed")
+            error: Optional ExecutionError to attach
+            queued_at: Override for queued_at (defaults to job.created_at)
+        """
         job_type_name = job.job_data.get("job_type") or "default"
         return ExecutionRecord(
             execution_id=job.job_id,
-            status="cancelled",
+            status=status,
             job_type=job_type_name,
             job_ref=f"{job_type_name}@latest",
             created_at=job.created_at,
-            queued_at=job.created_at,
+            queued_at=queued_at if queued_at is not None else job.created_at,
             code_hash=sha256_content(job.job_data.get("code", "")),
             input_hash=sha256_json(job.job_data.get("input_data", {})),
             client_ip=job.client_ip,
             correlation_id=job.job_data.get("correlation_id"),
-            error=ExecutionError(type="cancelled", message=message),
+            error=error,
             idempotency_key=job.job_data.get("idempotency_key"),
             idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
             parent_execution_id=job.job_data.get("parent_execution_id"),
             relationship=job.job_data.get("relationship"),
+        )
+
+    def _build_cancelled_record(
+        self, job: QueuedJob, message: str = "Execution was cancelled by user"
+    ) -> ExecutionRecord:
+        """Create a final cancelled record for a job."""
+        return self._build_record(
+            job, "cancelled", error=ExecutionError(type="cancelled", message=message)
         )
 
     def _estimate_queue_position_unlocked(self, job_id: str) -> int:
@@ -541,25 +576,11 @@ class WorkerPool:
 
                     error_type = "internal_error"
                     error_msg = sanitize_error(str(e))
-                    job_type_name = job.job_data.get("job_type") or "default"
 
-                    record = ExecutionRecord(
-                        execution_id=job.job_id,
-                        status="failed",
-                        job_type=job_type_name,
-                        job_ref=f"{job_type_name}@latest",
-                        created_at=job.created_at,
-                        queued_at=job.created_at,
-                        code_hash=sha256_content(job.job_data.get("code", "")),
-                        input_hash=sha256_json(job.job_data.get("input_data", {})),
-                        client_ip=job.client_ip,
-                        correlation_id=job.job_data.get("correlation_id"),
+                    record = self._build_record(
+                        job,
+                        "failed",
                         error=ExecutionError(type=error_type, message=error_msg),
-                        # Propagate idempotency and lineage fields
-                        idempotency_key=job.job_data.get("idempotency_key"),
-                        idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
-                        parent_execution_id=job.job_data.get("parent_execution_id"),
-                        relationship=job.job_data.get("relationship"),
                     )
                     await self.storage.save_record(record)
 
@@ -595,17 +616,12 @@ class WorkerPool:
                     try:
                         from tako_vm.security import sanitize_error
 
-                        error_record = ExecutionRecord(
-                            execution_id=job.job_id,
-                            status="failed",
-                            job_type=job.job_data.get("job_type") or "default",
-                            job_ref=f"{job.job_data.get('job_type') or 'default'}@latest",
-                            created_at=job.created_at,
-                            queued_at=job.created_at,
-                            code_hash=sha256_content(job.job_data.get("code", "")),
-                            input_hash=sha256_json(job.job_data.get("input_data", {})),
-                            client_ip=job.client_ip,
-                            correlation_id=job.job_data.get("correlation_id"),
+                        # Route through _build_record so this path also persists
+                        # the idempotency and lineage fields it previously
+                        # dropped (data-loss bug).
+                        error_record = self._build_record(
+                            job,
+                            "failed",
                             error=ExecutionError(
                                 type="internal_error", message=sanitize_error(str(e))
                             ),
@@ -738,18 +754,9 @@ class WorkerPool:
             "timeout backstop fires; the worker slot is freed now"
         )
 
-        job_type_name = job.job_data.get("job_type") or "default"
-        return ExecutionRecord(
-            execution_id=job.job_id,
-            status="timeout",
-            job_type=job_type_name,
-            job_ref=f"{job_type_name}@latest",
-            created_at=job.created_at,
-            queued_at=job.created_at,
-            code_hash=sha256_content(job.job_data.get("code", "")),
-            input_hash=sha256_json(job.job_data.get("input_data", {})),
-            client_ip=job.client_ip,
-            correlation_id=job.job_data.get("correlation_id"),
+        return self._build_record(
+            job,
+            "timeout",
             error=ExecutionError(
                 type="execution_timeout",
                 message=(
@@ -757,10 +764,6 @@ class WorkerPool:
                     "(startup + execution + orchestration buffer); container was killed"
                 ),
             ),
-            idempotency_key=job.job_data.get("idempotency_key"),
-            idempotency_fingerprint=job.job_data.get("idempotency_fingerprint"),
-            parent_execution_id=job.job_data.get("parent_execution_id"),
-            relationship=job.job_data.get("relationship"),
         )
 
     def _run_job_sync(self, job: QueuedJob) -> ExecutionRecord:

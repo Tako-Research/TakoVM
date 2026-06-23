@@ -125,26 +125,40 @@ class IdempotencyLockManager:
 
     def __init__(self):
         self._locks: Dict[str, asyncio.Lock] = {}
+        # Number of coroutines currently holding or waiting on each key's lock.
+        # The lock is only evicted when this drops to zero, so a waiter that
+        # already grabbed a reference can never be left contending against a
+        # fresh lock created for the same key (which would break mutual
+        # exclusion).
+        self._waiters: Dict[str, int] = {}
         self._global_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def acquire(self, key: str):
         """Acquire lock for a specific idempotency key."""
-        # Get or create lock for this key
+        # Get or create lock for this key and register as a waiter.
         async with self._global_lock:
-            if key not in self._locks:
-                self._locks[key] = asyncio.Lock()
-            lock = self._locks[key]
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            self._waiters[key] = self._waiters.get(key, 0) + 1
 
-        # Acquire the per-key lock
-        async with lock:
-            yield
-
-        # Cleanup unused locks (optional, prevents memory leak for many unique keys)
-        async with self._global_lock:
-            if key in self._locks and not self._locks[key].locked():
-                # Only delete if no other request is waiting
-                del self._locks[key]
+        try:
+            # Acquire the per-key lock
+            async with lock:
+                yield
+        finally:
+            # Deregister; evict the lock only when no other coroutine still
+            # references it, preventing the unbounded growth of _locks while
+            # keeping concurrent waiters on the same lock object.
+            async with self._global_lock:
+                remaining = self._waiters.get(key, 0) - 1
+                if remaining <= 0:
+                    self._waiters.pop(key, None)
+                    self._locks.pop(key, None)
+                else:
+                    self._waiters[key] = remaining
 
 
 # Application state (initialized in lifespan)

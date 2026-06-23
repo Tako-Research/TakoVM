@@ -149,6 +149,12 @@ class JobType:
         same pydantic constraints as the YAML config path. Raises
         pydantic.ValidationError on out-of-bounds or malformed values.
         """
+        # GPU config has a canonical nested form (the ``gpu`` object) which is
+        # the ONLY shape to_dict ever emits, so round-tripped registry files
+        # always use it. Flat top-level keys (gpu_enabled/gpu_vendor/gpu_count/
+        # gpu_device_ids) are accepted for backward compatibility with
+        # hand-written entries and take PRECEDENCE over the nested values when
+        # both are present (flat first, nested as the fallback default).
         gpu = data.get("gpu") or {}
 
         candidate = cls(

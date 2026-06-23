@@ -531,10 +531,21 @@ class TakoVMConfig(BaseModel):
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
-        """Resolve all paths and create directories."""
-        # Data directory
+        """Resolve all paths and create the data directory.
+
+        Pure path resolution lives in ``_resolve_path_strings``; the data
+        directory creation is the one explicit, idempotent side effect and is
+        kept in ``_ensure_data_dir`` so callers (and the ``data_dir`` property)
+        can be reasoned about clearly. Behavior is unchanged: this still
+        resolves every path and mkdir's the data dir.
+        """
+        self._resolve_path_strings()
+        self._ensure_data_dir()
+        return self
+
+    def _resolve_path_strings(self) -> None:
+        """Resolve configured path strings to Path objects (no filesystem writes)."""
         self._resolved_data_dir = Path(self.data_dir_str)
-        self._resolved_data_dir.mkdir(parents=True, exist_ok=True)
 
         # Seccomp profile
         if self.seccomp_profile_path_str:
@@ -544,14 +555,23 @@ class TakoVMConfig(BaseModel):
                 str(_resource_files("tako_vm").joinpath("seccomp_profile.json"))
             )
 
-        return self
+    def _ensure_data_dir(self) -> None:
+        """Create the resolved data directory if missing (idempotent mkdir)."""
+        if self._resolved_data_dir is None:
+            self._resolve_path_strings()
+        self._resolved_data_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
 
     # Backward-compatible properties that return Path objects
     @property
     def data_dir(self) -> Path:
-        """Get data directory as Path (backward compatible)."""
+        """Get data directory as Path (backward compatible).
+
+        Reading this property ensures the data directory exists, preserving the
+        historical mkdir-on-access behavior that existing callers rely on.
+        """
         if self._resolved_data_dir is None:
-            self.resolve_paths()
+            self._resolve_path_strings()
+        self._ensure_data_dir()
         return self._resolved_data_dir  # type: ignore
 
     @property
@@ -750,7 +770,13 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         # which can leak secrets (e.g. database_url passwords) into logs/CLI output.
         raise ConfigurationError(f"Invalid configuration: {_sanitize_validation_error(e)}") from e
     except Exception as e:
-        raise ConfigurationError(f"Invalid configuration: {e}") from e
+        # Do not interpolate the raw exception text: like ValidationError it can
+        # echo arbitrary config payloads (e.g. database_url passwords) into logs
+        # and CLI output. Log the type for diagnosis and surface only the type.
+        logger.error("Configuration load failed with %s", type(e).__name__, exc_info=True)
+        raise ConfigurationError(
+            f"Invalid configuration: {type(e).__name__} (see logs for details)"
+        ) from e
 
     for warning in config.security_warnings():
         logger.warning(warning)

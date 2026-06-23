@@ -275,13 +275,21 @@ def run_setup(args):
 
     # Verify with a quick test
     print("Verifying...")
-    result = subprocess.run(
-        ["docker", "run", "--rm", "--entrypoint", "python", DEFAULT_IMAGE, "-c", "print('ok')"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "python", DEFAULT_IMAGE, "-c", "print('ok')"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # A hung verification means the image is unusable; exit non-zero so
+        # `tako-vm setup && ...` doesn't proceed on a broken image and report
+        # success.
+        print("Error: Image pulled but verification failed.", file=sys.stderr)
+        print("  Verification timed out after 30s.", file=sys.stderr)
+        sys.exit(1)
     if result.returncode == 0 and "ok" in result.stdout:
         print("  Executor image works")
     else:

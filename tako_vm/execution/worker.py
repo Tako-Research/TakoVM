@@ -848,11 +848,15 @@ class CodeExecutor:
             timing = parse_phase_file(output_dir, meta_dir)
             record.timing = timing
 
-            # Determine which phase timed out (if applicable)
-            internal_timeout = result.get("exit_code") == 124 and determine_timeout_phase(
-                timing, True
-            )
-            timeout_phase = determine_timeout_phase(timing, timed_out) or internal_timeout
+            # Exit 124 is the in-container timeout (entrypoint's timeout(1)
+            # remaps a timed-out phase to 124). It is a timeout regardless of
+            # whether a phase file exists to attribute it: a missing phase file
+            # must not demote a real timeout to a generic failure, so this is a
+            # plain boolean independent of determine_timeout_phase.
+            internal_timeout = result.get("exit_code") == 124
+            # phase attribution is best-effort and may be None when no timing
+            # data was written.
+            timeout_phase = determine_timeout_phase(timing, timed_out or internal_timeout)
 
             # Determine final status with phase-aware timeout handling
             if timed_out or internal_timeout:

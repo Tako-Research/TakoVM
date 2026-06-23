@@ -242,7 +242,16 @@ class ExecutionError(BaseModel):
     """Which phase the error occurred in (startup or execution)."""
 
 
-# Canonical job status values
+# Canonical job status values.
+#
+# JobStatus and ErrorType deliberately use DISTINCT vocabularies. The
+# phase-specific ErrorType values (startup_timeout, execution_timeout) and
+# 'interrupted' are NEVER assigned to a record's status: worker.py collapses
+# both timeout phases to status='timeout' and records the phase only on
+# error.type, and reconcile_stale_records sets status='failed' with
+# error.type='interrupted'. So this list does not need to be a superset of
+# ErrorType; every value worker.py writes to ExecutionRecord.status is present
+# here, which is what keeps stored records loadable.
 JobStatus = Literal[
     "queued",  # Submitted, waiting in queue
     "running",  # Currently executing

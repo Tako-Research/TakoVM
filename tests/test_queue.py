@@ -25,8 +25,10 @@ def make_record(job_id: str, status: str = "succeeded", **kwargs) -> ExecutionRe
 
 @pytest.mark.asyncio
 async def test_cancel_pending_job_leaves_future_resolvable():
-    """Pending-job cancellation should not poison the waiter future."""
-    pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
+    """Pending-job cancellation resolves the waiter future synchronously."""
+    storage = MagicMock()
+    storage.save_record = AsyncMock()
+    pool = WorkerPool(executor=MagicMock(), storage=storage)
     loop = asyncio.get_running_loop()
     job = QueuedJob(
         job_id="job-123",
@@ -44,6 +46,11 @@ async def test_cancel_pending_job_leaves_future_resolvable():
     assert job.cancelled is True
     assert job.future is not None
     assert job.future.cancelled() is False
+    # Cancellation is now observable immediately: the cancelled record is
+    # persisted and the future is resolved without waiting for a worker.
+    storage.save_record.assert_awaited_once()
+    assert job.future.done()
+    assert job.future.result().status == "cancelled"
 
 
 @pytest.mark.asyncio
@@ -630,10 +637,21 @@ async def test_submit_queue_full_race_releases_idempotency_key():
 
 
 @pytest.mark.asyncio
-async def test_submit_queue_full_precheck_rejects_without_db_write():
-    """The cheap full() pre-check rejects before any record is persisted."""
+async def test_submit_queue_full_rejects_and_cleans_up_record():
+    """A full queue is rejected solely by the put_nowait/QueueFull handler.
+
+    The redundant full() pre-check was removed (it left a TOCTOU window where a
+    queued record was persisted before the insert was attempted). The single
+    handler still cleans up: it rewrites the preliminary record as failed and
+    releases the idempotency key.
+    """
     storage = MagicMock()
-    storage.save_record = AsyncMock()
+    saves = []
+
+    async def capture_save(record):
+        saves.append((record.status, record.idempotency_key))
+
+    storage.save_record = AsyncMock(side_effect=capture_save)
     pool = WorkerPool(executor=MagicMock(), storage=storage, max_queue_size=1)
     loop = asyncio.get_running_loop()
     pool._queue.put_nowait(
@@ -651,7 +669,11 @@ async def test_submit_queue_full_precheck_rejects_without_db_write():
             client_ip=None,
         )
 
-    storage.save_record.assert_not_awaited()
+    # Preliminary queued record, then the failed rewrite that frees the key.
+    assert saves == [
+        ("queued", "idem-456"),
+        ("failed", None),
+    ]
 
 
 @pytest.mark.asyncio
