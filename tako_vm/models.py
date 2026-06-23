@@ -287,6 +287,16 @@ class ExecutionRecord(BaseModel):
     worker_id: Optional[str] = Field(default=None, max_length=64)
     """ID of worker that executed this job."""
 
+    # Effective isolation runtime the container actually ran under. 'runsc' is
+    # the gVisor sandbox (the product's security boundary); 'runc' is the
+    # weaker, host-kernel-sharing fallback (only reachable in permissive mode
+    # when gVisor is unavailable). Persisted and surfaced in the API so a caller
+    # can prove, after the fact, whether a given job had the gVisor boundary and
+    # refuse to trust results from a runc run. None for legacy rows written
+    # before this field existed.
+    runtime: Optional[str] = Field(default=None, max_length=16)
+    """Effective container runtime: 'runsc' (gVisor) or 'runc' (weaker fallback)."""
+
     # Idempotency
     idempotency_key: Optional[str] = Field(default=None, max_length=128)
     """Client-provided key to prevent duplicate executions."""

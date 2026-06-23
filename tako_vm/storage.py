@@ -175,6 +175,15 @@ MIGRATIONS: list[tuple[str, str]] = [
         ]
         """,
     ),
+    (
+        # Effective isolation runtime ('runsc'/'runc') the job ran under, so the
+        # gVisor-vs-runc decision is auditable per job (issue #99). Nullable:
+        # legacy rows predate the column.
+        "0004_runtime",
+        """
+        ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS runtime TEXT
+        """,
+    ),
 ]
 
 
@@ -368,12 +377,12 @@ class ExecutionStorage:
                     max_rss_mb, cpu_time_ms, wall_time_ms,
                     timing_json,
                     artifacts_json, error_json,
-                    client_ip, correlation_id, parent_execution_id, relationship
+                    client_ip, correlation_id, parent_execution_id, relationship, runtime
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
                     status = EXCLUDED.status,
@@ -424,7 +433,8 @@ class ExecutionStorage:
                         EXCLUDED.parent_execution_id
                     ),
                     relationship =
-                        COALESCE(execution_records.relationship, EXCLUDED.relationship)
+                        COALESCE(execution_records.relationship, EXCLUDED.relationship),
+                    runtime = COALESCE(EXCLUDED.runtime, execution_records.runtime)
                 WHERE execution_records.status NOT IN ({terminal_list})
                 """,
                 (
@@ -464,6 +474,7 @@ class ExecutionStorage:
                     record.correlation_id,
                     record.parent_execution_id,
                     record.relationship,
+                    record.runtime,
                 ),
             )
             return cursor.rowcount
@@ -708,6 +719,7 @@ class ExecutionStorage:
             correlation_id=row.get("correlation_id"),
             parent_execution_id=row.get("parent_execution_id"),
             relationship=row.get("relationship"),
+            runtime=row.get("runtime"),
         )
 
     async def save_version(self, version: JobVersion) -> None:
