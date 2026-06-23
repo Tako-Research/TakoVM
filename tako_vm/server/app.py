@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from tako_vm import __version__
 from tako_vm.config import TakoVMConfig, get_config
-from tako_vm.execution.health import get_circuit_breaker, startup_cleanup
+from tako_vm.execution.health import DockerCleanup, get_circuit_breaker, startup_cleanup
 from tako_vm.execution.worker import (
     CodeExecutor,
     check_gvisor_available,
@@ -195,6 +195,18 @@ async def _periodic_cleanup(
             old_runs = prune_old_run_dirs(data_dir, record_ttl_days)
             if old_runs > 0:
                 logger.info(f"Cleanup: pruned {old_runs} expired run artifact dir(s)")
+            # Reap leaked executor containers. Previously the reaper ran only at
+            # startup, so a `docker rm -f` that failed at teardown on a
+            # long-lived server left the container (and, for a network-enabled
+            # job, its live egress) alive until the next process restart. The
+            # age guard is reused from workspace_max_age_seconds: a *running*
+            # labeled container older than that provably cannot belong to a live
+            # job of this server (max lifetime is startup_timeout + timeout +
+            # grace), so reaping it never kills in-flight work. Exited orphans
+            # are removed unconditionally. (issue #96)
+            orphaned = DockerCleanup.cleanup_orphaned_containers(workspace_max_age_seconds)
+            if orphaned > 0:
+                logger.info(f"Cleanup: reaped {orphaned} orphaned container(s)")
         except asyncio.CancelledError:
             logger.info("Periodic cleanup task cancelled")
             break

@@ -151,6 +151,65 @@ class TestCleanupOrphanedContainers:
         assert _removed_ids(calls) == []
 
 
+class TestPeriodicCleanupReapsOrphans:
+    """The hourly cleanup loop must reap leaked containers, not only startup.
+
+    Regression guard for issue #96: the reaper used to run only at startup, so a
+    teardown `docker rm -f` failure on a long-lived server left the container
+    (and any network-enabled job's live egress) alive until the next restart.
+    """
+
+    @pytest.mark.asyncio
+    async def test_loop_calls_reaper_with_workspace_age_guard(self, monkeypatch):
+        import importlib
+
+        # The submodule `tako_vm.server.app` is shadowed by the package's `app`
+        # FastAPI attribute, so import the real module object explicitly.
+        app_module = importlib.import_module("tako_vm.server.app")
+
+        recorded = {}
+
+        def fake_reaper(max_age_seconds):
+            recorded["age"] = max_age_seconds
+            return 2
+
+        # The reaper must be force-removing *running* containers only past the
+        # same age a live job could possibly run, so it can never kill in-flight
+        # work. Assert the loop passes that guard through.
+        monkeypatch.setattr(DockerCleanup, "cleanup_orphaned_containers", staticmethod(fake_reaper))
+        monkeypatch.setattr(app_module, "prune_stale_workspaces", lambda *a, **k: 0)
+        monkeypatch.setattr(app_module, "prune_old_run_dirs", lambda *a, **k: 0)
+
+        # Run exactly one iteration: first sleep proceeds, second cancels the loop.
+        sleeps = {"n": 0}
+
+        async def fake_sleep(_seconds):
+            sleeps["n"] += 1
+            if sleeps["n"] >= 2:
+                raise __import__("asyncio").CancelledError()
+
+        monkeypatch.setattr(app_module.asyncio, "sleep", fake_sleep)
+
+        class FakeStorage:
+            async def cleanup_old_records(self, _ttl):
+                return 0
+
+            async def cleanup_old_dlq_entries(self, _ttl):
+                return 0
+
+        from pathlib import Path
+
+        await app_module._periodic_cleanup(
+            FakeStorage(),
+            record_ttl_days=7,
+            data_dir=Path("/tmp"),
+            workspace_max_age_seconds=99999,
+            dlq_ttl_days=7,
+        )
+
+        assert recorded["age"] == 99999
+
+
 class TestParseCreatedAt:
     """Tests for DockerCleanup._parse_created_at."""
 
