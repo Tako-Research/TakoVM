@@ -139,6 +139,7 @@ class TestExecutionRecordCRUD:
             client_ip="192.168.1.1",
             parent_execution_id="parent-123",
             relationship="rerun",
+            runtime="runsc",
         )
 
         storage.save_record(record)
@@ -146,6 +147,7 @@ class TestExecutionRecordCRUD:
 
         assert retrieved is not None
         assert retrieved.job_ref == "custom-job@sha256:abc123"
+        assert retrieved.runtime == "runsc"
         assert retrieved.duration_ms == 3000
         assert retrieved.worker_id == "worker-1"
         assert retrieved.resource_usage is not None

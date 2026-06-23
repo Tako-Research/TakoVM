@@ -379,6 +379,13 @@ class ExecuteResponse(BaseModel):
         default=None,
         description="Execution ID correlating this run with /executions records and logs",
     )
+    runtime: Optional[str] = Field(
+        default=None,
+        description=(
+            "Effective isolation runtime: 'runsc' (gVisor) or 'runc' (weaker "
+            "fallback). Lets a caller confirm the gVisor boundary was in effect."
+        ),
+    )
 
 
 # Status type aliases for API type safety
@@ -461,6 +468,11 @@ class ExecutionRecordResponse(BaseModel):
     timing: Optional[ExecutionTimingResponse] = None
     """Detailed timing breakdown by execution phase."""
 
+    runtime: Optional[str] = None
+    """Effective isolation runtime the job ran under: 'runsc' (gVisor) or 'runc'
+    (weaker fallback). None for legacy records predating this field. Lets a
+    caller confirm a job had the gVisor boundary before trusting its output."""
+
     @classmethod
     def from_record(cls, record: ExecutionRecord) -> "ExecutionRecordResponse":
         timing_response = None
@@ -488,6 +500,7 @@ class ExecutionRecordResponse(BaseModel):
             output=record.result_json,
             error=record.error.model_dump() if record.error else None,
             timing=timing_response,
+            runtime=record.runtime,
         )
 
 
@@ -911,6 +924,7 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
             error=record.error.message if record.error else None,
             job_type=record.job_type,
             execution_id=record.execution_id,
+            runtime=record.runtime,
         )
 
     except Exception as e:

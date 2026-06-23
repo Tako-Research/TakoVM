@@ -420,10 +420,11 @@ def resolve_runtime(config: TakoVMConfig) -> str:
 
     Single source of truth shared by every execution path — the server
     ``CodeExecutor`` and the library ``Sandbox`` — so they apply gVisor
-    identically and can't drift. In strict mode (the default) gVisor must be
-    available or this fails closed; in permissive mode a missing gVisor falls
-    back to runc with a loud warning. An explicit ``container_runtime='runc'``
-    is honored only outside strict mode.
+    identically and can't drift. In strict mode gVisor must be available or this
+    fails closed; in permissive mode (the current default, see
+    ``TakoVMConfig.security_mode``) a missing gVisor falls back to runc with a
+    loud warning. An explicit ``container_runtime='runc'`` is honored only
+    outside strict mode.
 
     Raises:
         RuntimeUnavailableError: strict mode and gVisor unavailable, or runc
@@ -667,6 +668,11 @@ class CodeExecutor:
             code_hash=sha256_content(code),
             input_hash=sha256_json(input_data),
             client_ip=client_ip,
+            # Record the effective isolation runtime this job runs under, so the
+            # gVisor-vs-runc decision is auditable per job (issue #99). This is
+            # the same value passed to base_isolation_args() for the container,
+            # so the record can never disagree with what actually ran.
+            runtime=self._runtime,
             # Propagate idempotency and lineage fields from job data
             idempotency_key=job.get("idempotency_key"),
             idempotency_fingerprint=job.get("idempotency_fingerprint"),

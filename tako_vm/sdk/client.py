@@ -110,6 +110,10 @@ class ExecutionResult:
     exit_code: Optional[int] = None
     correlation_id: Optional[str] = None
     job_id: Optional[str] = None
+    # Effective isolation runtime the job ran under: 'runsc' (gVisor) or 'runc'
+    # (weaker fallback). Lets a caller confirm the gVisor boundary was in effect
+    # before trusting the output. None if the server predates this field.
+    runtime: Optional[str] = None
     # Set when the run succeeded but the output dict could not be coerced into
     # the expected dataclass (output stays a raw dict). Lets callers detect the
     # mismatch programmatically instead of scraping logs.
@@ -692,6 +696,7 @@ class TakoVM:
             exit_code=data.get("exit_code"),
             correlation_id=result_cid,
             job_id=data.get("execution_id") or data.get("job_id"),
+            runtime=data.get("runtime"),
         )
 
     @staticmethod
