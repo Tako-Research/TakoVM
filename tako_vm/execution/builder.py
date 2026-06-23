@@ -210,34 +210,43 @@ WORKDIR /app
             dockerfile_path = build_path / "Dockerfile"
             dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
 
-            # Copy custom_libs
-            custom_libs_dest = build_path / "custom_libs"
-            custom_libs_dest.mkdir()
-            if self.custom_libs_path.exists():
-                for item in self.custom_libs_path.iterdir():
-                    if item.is_file():
-                        shutil.copy2(item, custom_libs_dest)
+            # Prepare the build context (copy custom_libs / shared_code). Wrap
+            # the filesystem work so an OSError here surfaces as a BuildError,
+            # letting build_all record a single failure for this job type
+            # instead of aborting the whole batch.
+            try:
+                # Copy custom_libs
+                custom_libs_dest = build_path / "custom_libs"
+                custom_libs_dest.mkdir()
+                if self.custom_libs_path.exists():
+                    for item in self.custom_libs_path.iterdir():
+                        if item.is_file():
+                            shutil.copy2(item, custom_libs_dest)
 
-            # Copy shared code with path validation
-            shared_code_dest = build_path / "shared_code"
-            shared_code_dest.mkdir()
-            # Get current working directory as the allowed base for shared_code
-            allowed_base = Path.cwd().resolve()
-            for code_path in job_type.shared_code:
-                src = Path(code_path).resolve()
-                # Security: Ensure shared_code paths don't escape the allowed directory
-                try:
-                    src.relative_to(allowed_base)
-                except ValueError:
-                    logger.warning(
-                        "Skipping shared_code path that escapes allowed directory: %s", code_path
-                    )
-                    continue
-                if src.exists():
-                    if src.is_file():
-                        shutil.copy2(src, shared_code_dest)
-                    else:
-                        shutil.copytree(src, shared_code_dest / src.name)
+                # Copy shared code with path validation
+                shared_code_dest = build_path / "shared_code"
+                shared_code_dest.mkdir()
+                # Get current working directory as the allowed base for shared_code
+                allowed_base = Path.cwd().resolve()
+                for code_path in job_type.shared_code:
+                    src = Path(code_path).resolve()
+                    # Security: Ensure shared_code paths don't escape the allowed directory
+                    try:
+                        src.relative_to(allowed_base)
+                    except ValueError:
+                        logger.warning(
+                            "Skipping shared_code path that escapes allowed directory: %s",
+                            code_path,
+                        )
+                        continue
+                    if src.exists():
+                        if src.is_file():
+                            shutil.copy2(src, shared_code_dest)
+                        else:
+                            shutil.copytree(src, shared_code_dest / src.name)
+            except OSError as e:
+                logger.error("Failed to prepare build context for %s: %s", job_type.name, e)
+                raise BuildError(f"Failed to prepare build context for {job_type.name}: {e}") from e
 
             # Build the image
             cmd = ["docker", "build", "-t", job_type.image_name]
@@ -246,7 +255,9 @@ WORKDIR /app
             cmd.append(str(build_path))
 
             try:
-                subprocess.run(cmd, capture_output=not quiet, text=True, check=True)
+                # Generous timeout: image builds can install many deps, but an
+                # unbounded subprocess.run could hang the caller forever.
+                subprocess.run(cmd, capture_output=not quiet, text=True, check=True, timeout=1800)
                 logger.info("Successfully built image: %s", job_type.image_name)
                 # The tag now points at new content: drop any cached inspect
                 # results so the worker re-verifies the rebuilt image.
@@ -266,6 +277,11 @@ WORKDIR /app
                         job_type.name,
                     )
                 return True
+            except subprocess.TimeoutExpired as e:
+                logger.error("Build timed out for %s after %ss", job_type.name, e.timeout)
+                raise BuildError(
+                    f"Failed to build {job_type.name}: docker build timed out after {e.timeout}s"
+                ) from e
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr if e.stderr else str(e)
                 logger.error("Failed to build image: %s", error_msg)

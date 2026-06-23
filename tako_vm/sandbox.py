@@ -46,6 +46,7 @@ from tako_vm.execution.docker import (
     remove_container,
     ulimit_args,
 )
+from tako_vm.security import validate_docker_run_args
 
 logger = logging.getLogger(__name__)
 
@@ -655,6 +656,13 @@ class Sandbox:
 
         # Image
         cmd.append(self.config.image)
+
+        # Defense-in-depth: validate the assembled argv before it is executed,
+        # mirroring the server worker (issue: library mode previously skipped
+        # this control). Raises so run() reports a failed SandboxResult instead
+        # of executing an argv that failed the safety check.
+        if not validate_docker_run_args(cmd):
+            raise ValueError("Unsafe Docker command rejected: arguments failed safety validation")
 
         return cmd, container_name
 

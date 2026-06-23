@@ -464,7 +464,9 @@ class ExecutionStorage:
             "timing_json": record.timing.model_dump() if record.timing else None,
         }
 
-        terminal_list = ", ".join(f"'{s}'" for s in TERMINAL_STATUSES)
+        # Bound placeholders for the terminal-status guard, so the status
+        # literals are passed as parameters (no string interpolation into SQL).
+        terminal_placeholders = ", ".join(["%s"] * len(TERMINAL_STATUSES))
 
         # Upsert column policy:
         # - Submission-identity fields (created_at, queued_at, code_hash,
@@ -500,9 +502,12 @@ class ExecutionStorage:
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
                     {_UPDATE_SET_SQL}
-                WHERE execution_records.status NOT IN ({terminal_list})
+                WHERE execution_records.status NOT IN ({terminal_placeholders})
                 """,
-                tuple(extract(record, blobs) for _, _, extract in _EXECUTION_COLUMNS),
+                (
+                    *(extract(record, blobs) for _, _, extract in _EXECUTION_COLUMNS),
+                    *TERMINAL_STATUSES,
+                ),
             )
             return cursor.rowcount
 
@@ -576,6 +581,11 @@ class ExecutionStorage:
         so no other live server process can legitimately own in-flight records
         when this runs at startup.
 
+        The generic 'interrupted' error is only applied where error_json is
+        still NULL (COALESCE keeps any existing value), so a crashing worker
+        that already persisted the real error before exit is not overwritten by
+        this coarser reconciliation message.
+
         Returns:
             Number of records transitioned to 'failed'.
         """
@@ -592,7 +602,7 @@ class ExecutionStorage:
                 UPDATE execution_records
                 SET status = 'failed',
                     ended_at = %s,
-                    error_json = %s
+                    error_json = COALESCE(error_json, %s)
                 WHERE status IN ('queued', 'running')
                 """,
                 (now, Jsonb(error_json)),
