@@ -73,8 +73,8 @@ class ContainerBuilder:
         this contract, because docker would otherwise execute the image's
         default CMD instead of the user's code.
 
-        Note: ``python_version`` no longer selects the default base image —
-        the executor base image pins the Python version. To use a different
+        Note: ``python_version`` no longer selects the default base image.
+        The executor base image pins the Python version. To use a different
         Python, point ``base_image`` at a custom executor-derived image.
 
         Args:
@@ -268,7 +268,7 @@ WORKDIR /app
                 if image_has_executor_entrypoint(job_type.image_name) is not True:
                     logger.warning(
                         "Built image %s does NOT carry the executor entrypoint contract "
-                        "(ENTRYPOINT %s) — the worker will refuse to run it. base_image "
+                        "(ENTRYPOINT %s); the worker will refuse to run it. base_image "
                         "'%s' for job type '%s' must derive from the executor image "
                         "(docker/Dockerfile.executor).",
                         job_type.image_name,

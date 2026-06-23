@@ -4,7 +4,7 @@ description: "Step-by-step Tako VM tutorial: build a CSV data-processing pipelin
 
 # Tutorial: Build a Data Processing Pipeline
 
-This tutorial walks through building a complete application with Tako VM — from setup to processing results.
+This tutorial walks through building a complete application with Tako VM, from setup to processing results.
 
 ## What We'll Build
 
@@ -216,7 +216,7 @@ print("Results:", results)
 
 ## Next Steps
 
-- [REST API Reference](../api/rest.md) — all endpoints and options
-- [Environments](environments.md) — pre-configured job types
-- [Error Handling](error-handling.md) — robust error handling patterns
-- [Async Jobs](async-jobs.md) — advanced async patterns
+- [REST API Reference](../api/rest.md): all endpoints and options
+- [Environments](environments.md): pre-configured job types
+- [Error Handling](error-handling.md): robust error handling patterns
+- [Async Jobs](async-jobs.md): advanced async patterns

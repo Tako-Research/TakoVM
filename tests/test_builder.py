@@ -4,7 +4,7 @@ Tests for ContainerBuilder.
 Covers the opt-in ``skip_existing`` behavior of ``build_all`` (skip job types
 whose image is already present) and the generated Dockerfile's executor
 entrypoint contract: built images must derive from the executor base image
-(inheriting ``ENTRYPOINT /entrypoint.sh``) and must not override USER/CMD —
+(inheriting ``ENTRYPOINT /entrypoint.sh``) and must not override USER/CMD;
 otherwise the worker refuses to run them (see CodeExecutor._resolve_image).
 """
 

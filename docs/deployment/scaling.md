@@ -1,5 +1,5 @@
 ---
-description: "Scale Tako VM with single-node vertical scaling — tuning workers and queue size today, plus planned horizontal scaling features."
+description: "Scale Tako VM with single-node vertical scaling: tuning workers and queue size today, plus planned horizontal scaling features."
 ---
 
 # Tako VM Scaling Guide

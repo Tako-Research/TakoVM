@@ -1,5 +1,5 @@
 ---
-description: "Tako VM development and troubleshooting — the runtime dependency flow, debugging endpoints, and fixes for common issues."
+description: "Tako VM development and troubleshooting: the runtime dependency flow, debugging endpoints, and fixes for common issues."
 ---
 
 # Development Guide

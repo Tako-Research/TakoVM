@@ -23,7 +23,7 @@ from tako_vm.storage import (
 )
 
 # Frozen expectation: (column_name, conflict_policy) in physical order. If you
-# add a column, add it here too — that is the point (one place, reviewed).
+# add a column, add it here too: that is the point (one place, reviewed).
 EXPECTED = [
     ("execution_id", _SET_KEY),
     ("status", _SET_EXCLUDED),

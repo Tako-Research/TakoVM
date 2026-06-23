@@ -54,7 +54,7 @@ def test_middleware_unexpected_error_returns_sanitized_500(monkeypatch, caplog):
 
 
 def test_gvisor_probe_does_not_cache_transient_failure(monkeypatch):
-    """A transient probe failure must NOT sticky-cache gVisor as unavailable —
+    """A transient probe failure must NOT sticky-cache gVisor as unavailable:
     otherwise one flaky `docker info` degrades every later job to runc."""
     import subprocess
 

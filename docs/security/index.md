@@ -1,5 +1,5 @@
 ---
-description: "Tako VM security documentation — vulnerability reporting, threat model, hardening guidance, and advisories."
+description: "Tako VM security documentation: vulnerability reporting, threat model, hardening guidance, and advisories."
 ---
 
 # Security
@@ -7,15 +7,15 @@ description: "Tako VM security documentation — vulnerability reporting, threat
 Tako VM runs untrusted, often AI-generated, code. This section documents the isolation model, what it does and does not protect against, and how to harden a deployment.
 
 !!! tip "Found a vulnerability?"
-    Report it privately via [GitHub security advisories](https://github.com/Tako-Research/TakoVM/security/advisories/new) — never in a public issue. See the [security policy](policy.md) for response timelines.
+    Report it privately via [GitHub security advisories](https://github.com/Tako-Research/TakoVM/security/advisories/new), never in a public issue. See the [security policy](policy.md) for response timelines.
 
 ## In this section
 
-- **[Security Policy](policy.md)** — how to report vulnerabilities, response timelines, supported versions
-- **[Threat Model](honest-assessment.md)** — practical security analysis: what's protected, what isn't, and for which workloads
-- **[Hardening Guide](../deployment/security.md)** — production configuration: `security_mode: strict`, gVisor, seccomp, network policy
-- **[Analysis: /proc exposure](proc-exposure-vulnerability.md)** — technical analysis of `/proc` filesystem access from sandboxed code
-- **[Mitigations](mitigations.md)** — implementation options (AppArmor, gVisor, env var migration)
+- **[Security Policy](policy.md)**: how to report vulnerabilities, response timelines, supported versions
+- **[Threat Model](honest-assessment.md)**: practical security analysis: what's protected, what isn't, and for which workloads
+- **[Hardening Guide](../deployment/security.md)**: production configuration: `security_mode: strict`, gVisor, seccomp, network policy
+- **[Analysis: /proc exposure](proc-exposure-vulnerability.md)**: technical analysis of `/proc` filesystem access from sandboxed code
+- **[Mitigations](mitigations.md)**: implementation options (AppArmor, gVisor, env var migration)
 
 ## Security Status
 
@@ -60,7 +60,7 @@ Code needs access to its configuration to function. If code requires an API key 
 ### 🔵 Optional Enhancements (For Specific Threat Models)
 
 **For untrusted/AI-generated code:**
-- The built-in gVisor runtime (`container_runtime: runsc` + `security_mode: strict`) — see the [hardening guide](../deployment/security.md)
+- The built-in gVisor runtime (`container_runtime: runsc` + `security_mode: strict`); see the [hardening guide](../deployment/security.md)
 - External secret management (AWS Secrets Manager, HashiCorp Vault)
 - AppArmor/SELinux to restrict `/proc` access (Linux only)
 - Artifact scanning for leaked credentials
@@ -159,7 +159,7 @@ For paranoid deployments, use gVisor (user-space kernel) or Kata (VM isolation).
 - Seccomp filtering, enabled by default
 - Container hardening: non-root execution, read-only filesystem, dropped capabilities
 - Network isolation (`--network=none` by default), resource and input limits
-- API-key authentication and rate limiting (auth off by default — [enable it in production](../deployment/security.md#api-security))
+- API-key authentication and rate limiting (auth off by default, [enable it in production](../deployment/security.md#api-security))
 
 **Roadmap** (tracked in [GitHub issues](https://github.com/Tako-Research/TakoVM/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity)):
 

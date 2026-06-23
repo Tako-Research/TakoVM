@@ -1,5 +1,5 @@
 ---
-description: "Docker-in-Docker (DinD) with Tako VM — how containers are spawned today and what would be required to support nested Docker execution."
+description: "Docker-in-Docker (DinD) with Tako VM: how containers are spawned today and what would be required to support nested Docker execution."
 ---
 
 # Docker-in-Docker (DinD) Support

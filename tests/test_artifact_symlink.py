@@ -5,7 +5,7 @@ Untrusted code in the sandbox can drop a symlink in /output pointing at a
 host-readable file (the config with api_keys, /proc/self/environ, another run's
 data). The host-side worker collects artifacts and reads result.json/.tako_phase
 *outside* any sandbox, so following such a symlink would exfiltrate host files.
-These are pure host-side file tests — no Docker required.
+These are pure host-side file tests: no Docker required.
 """
 
 from pathlib import Path

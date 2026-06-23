@@ -1,5 +1,5 @@
 ---
-description: "Tako VM operations runbook — diagnostic endpoints and procedures to detect and recover from common production failures."
+description: "Tako VM operations runbook: diagnostic endpoints and procedures to detect and recover from common production failures."
 ---
 
 # Operations Runbook
@@ -74,7 +74,7 @@ curl -s http://localhost:8000/dlq/stats | python3 -m json.tool
 **Recovery:**
 1. Review DLQ entries for common failure patterns
 2. Fix the root cause (usually Docker issues or resource exhaustion)
-3. DLQ entries are informational — they indicate jobs that failed due to infrastructure errors (not user code errors)
+3. DLQ entries are informational: they indicate jobs that failed due to infrastructure errors (not user code errors)
 
 ### Database Connection Failures
 

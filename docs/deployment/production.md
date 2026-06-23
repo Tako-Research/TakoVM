@@ -1,5 +1,5 @@
 ---
-description: "Production deployment guide for Tako VM — hardened configuration, persistence, and operational settings for running at scale."
+description: "Production deployment guide for Tako VM: hardened configuration, persistence, and operational settings for running at scale."
 ---
 
 # Production Deployment
@@ -41,7 +41,7 @@ curl -X POST http://localhost:8000/job-types/data-processing/build
 docker images | grep tako-vm
 ```
 
-!!! note "CLI support for building images is planned — see [GitHub #30](https://github.com/Tako-Research/TakoVM/issues/30)."
+!!! note "CLI support for building images is planned. See [GitHub #30](https://github.com/Tako-Research/TakoVM/issues/30)."
 
 ## Running with Systemd
 

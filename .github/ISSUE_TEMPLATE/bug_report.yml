@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report! **If this is a security vulnerability, do not file it here** — use
+        Thanks for the report! **If this is a security vulnerability, do not file it here**. Use
         [private vulnerability reporting](https://github.com/Tako-Research/TakoVM/security/advisories/new) instead.
   - type: input
     id: version
@@ -75,7 +75,7 @@ body:
     attributes:
       label: Server logs
       description: >
-        Tako VM logs every failure verbosely — the server log around the time of the error
+        Tako VM logs every failure verbosely, so the server log around the time of the error
         is usually the fastest path to a diagnosis. Paste the relevant lines (redact anything sensitive).
       render: text
     validations:

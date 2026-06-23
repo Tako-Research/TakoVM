@@ -1,5 +1,5 @@
 ---
-description: "Get started with Tako VM in minutes — install, pull the executor image, start the server, and run your first sandboxed Python job."
+description: "Get started with Tako VM in minutes: install, pull the executor image, start the server, and run your first sandboxed Python job."
 ---
 
 # Quick Start
@@ -24,7 +24,7 @@ tako-vm server --port 9000
     Tako VM defaults to `permissive` mode, which falls back to runc if gVisor is not installed. For production, set `security_mode: strict` to require gVisor. See [Security](../deployment/security.md#gvisor-runtime) for installation instructions.
 
 !!! warning "Security: Secrets"
-    Do not pass secrets (API keys, tokens, passwords) as job type environment variables — user code can read them via `/proc/self/environ`. For **trusted code**, `input_data` is acceptable for sensitive inputs (scoped to a single job). For **untrusted or AI-generated code**, keep secrets out of the job entirely: anything in `input_data` or the environment is readable by the code — use an external secret manager and have trusted infrastructure, not the sandboxed code, hold credentials. See [Security Mitigations](../security/mitigations.md).
+    Do not pass secrets (API keys, tokens, passwords) as job type environment variables: user code can read them via `/proc/self/environ`. For **trusted code**, `input_data` is acceptable for sensitive inputs (scoped to a single job). For **untrusted or AI-generated code**, keep secrets out of the job entirely: anything in `input_data` or the environment is readable by the code. Use an external secret manager and have trusted infrastructure, not the sandboxed code, hold credentials. See [Security Mitigations](../security/mitigations.md).
 
 ## Execute Code
 

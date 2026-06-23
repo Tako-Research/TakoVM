@@ -1,5 +1,5 @@
 ---
-description: "Tako VM REST API reference — endpoints for synchronous and asynchronous Python code execution, job status, results, and artifact downloads."
+description: "Tako VM REST API reference: endpoints for synchronous and asynchronous Python code execution, job status, results, and artifact downloads."
 ---
 
 # REST API Reference
@@ -55,7 +55,7 @@ curl -X POST http://localhost:8000/execute \
 
 The Python SDK forwards custom headers on every request: `TakoVM(headers={"X-API-Key": "..."})` or `tako_vm.configure(..., headers={...})`.
 
-Built-in rate limiting is **enabled by default** (120 requests per 60s window, configurable via `api_rate_limit_*`). For internet-facing deployments, additionally terminate TLS at a reverse proxy — see [Securing the API](../deployment/security.md#api-security) in the hardening guide.
+Built-in rate limiting is **enabled by default** (120 requests per 60s window, configurable via `api_rate_limit_*`). For internet-facing deployments, additionally terminate TLS at a reverse proxy. See [Securing the API](../deployment/security.md#api-security) in the hardening guide.
 
 ## Headers
 

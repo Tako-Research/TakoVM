@@ -413,7 +413,7 @@ class Sandbox:
 
             start_time = time.time()
             # The container runs without --rm (see _build_docker_command), so
-            # this try/finally — entered only once `docker run` is attempted —
+            # this try/finally (entered only once `docker run` is attempted)
             # owns removal on every exit path: success, failure, OOM, host
             # timeout, and unexpected exceptions. remove_container does
             # `docker rm -f`, which also kills a still-running container (the
@@ -468,7 +468,7 @@ class Sandbox:
                     if proc.returncode == 124:
                         error = f"Execution timed out after {timeout}s"
                     elif proc.returncode == 137:
-                        # Exit 137 is SIGKILL — could be the OOM killer, but
+                        # Exit 137 is SIGKILL: could be the OOM killer, but
                         # also `docker kill` or user code calling
                         # sys.exit(137). classify_sigkill inspects the exited
                         # container's State.OOMKilled before the finally block
@@ -499,7 +499,7 @@ class Sandbox:
                 except subprocess.TimeoutExpired as exc:
                     duration_ms = int((time.time() - start_time) * 1000)
                     # Reaching the host backstop means the in-container timeout
-                    # (TAKO_EXECUTION_TIMEOUT) did NOT fire — daemon hung, heavy
+                    # (TAKO_EXECUTION_TIMEOUT) did NOT fire: daemon hung, heavy
                     # container overhead, or a stuck startup phase. Report the
                     # real budget consumed (subprocess_timeout), not the inner
                     # code timeout, and say which limit tripped.

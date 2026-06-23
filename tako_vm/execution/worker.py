@@ -96,7 +96,7 @@ def prune_stale_workspaces(max_age_seconds: int) -> int:
 
     Each execution creates a temp dir (``job-*`` / ``sandbox-*``) that is
     normally removed in a finally block, but a hard crash or an rmtree failure
-    leaks it — and there is no other reaper, so host disk grows unbounded. This
+    leaks it, and there is no other reaper, so host disk grows unbounded. This
     removes such dirs whose mtime is older than ``max_age_seconds`` (chosen to
     sit well past any run's max timeout). Fail-soft: per-dir errors are logged
     and skipped. Returns the number of dirs removed.
@@ -127,7 +127,7 @@ def prune_old_run_dirs(data_dir: Path, ttl_days: int) -> int:
     """Remove on-disk run artifact dirs (``data_dir/runs/<id>``) past the TTL.
 
     The DB record cleanup deletes rows but not the on-disk code/input/output
-    artifacts, so they survive the configured retention indefinitely — disk
+    artifacts, so they survive the configured retention indefinitely: disk
     growth plus a retention/compliance gap (the stored source code and inputs
     outlive their record). This removes ``runs/<id>`` dirs whose mtime is older
     than ``ttl_days``. Fail-soft per dir. Returns the number of dirs removed.
@@ -157,7 +157,7 @@ def _clear_output_dir(output_dir: Path) -> None:
     file, or artifacts behind; without clearing, those leftovers would be
     reported as the next attempt's results. The directory itself is preserved
     (it is bind-mounted by path and carries the 0o777 mode the container user
-    needs) — only its entries are removed. Symlinks are unlinked, never
+    needs); only its entries are removed. Symlinks are unlinked, never
     followed: untrusted code may have planted a symlink at any name here.
 
     Fail-soft: per-entry errors are logged and skipped.
@@ -199,11 +199,11 @@ def _make_meta_dir(meta_dir: Path) -> Optional[Path]:
       entrypoint) can write, the sandbox user (uid 1000) cannot. Secure.
     - Server running as a non-root host user: container root cannot write
       either; the entrypoint detects this and falls back to the legacy
-      ``/output`` location (and ``parse_phase_file`` falls back with it) —
+      ``/output`` location (and ``parse_phase_file`` falls back with it),
       no worse than the previous behavior.
     - Server running as host uid 1000 exactly: the dir would be owned by the
       sandbox user inside the container, which as owner could chmod and write
-      it — the "trusted" location would be forgeable. Returns None so the
+      it: the "trusted" location would be forgeable. Returns None so the
       mount is skipped entirely and the legacy behavior applies.
 
     Returns:
@@ -243,7 +243,7 @@ def check_gvisor_available() -> bool:
         )
         if result.returncode != 0:
             # `docker info` failed (daemon not up yet, transient hiccup). Don't
-            # cache this as "gVisor unavailable" — a one-time probe failure
+            # cache this as "gVisor unavailable": a one-time probe failure
             # would otherwise sticky-degrade every later job to runc in
             # permissive mode. Leave the cache unset so we re-probe next call.
             logger.warning(
@@ -302,8 +302,8 @@ def parse_phase_file(
     sandboxed user code (uid 1000) cannot write to. When the meta copy exists
     it is authoritative and a (possibly forged) ``/output/.tako_phase`` is
     ignored. The ``output_dir`` fallback only applies when no meta copy was
-    written — a stale executor image that predates ``/tako-meta``, or a host
-    setup where container root could not write the mount — and that fallback
+    written (a stale executor image that predates ``/tako-meta``, or a host
+    setup where container root could not write the mount), and that fallback
     copy lives in the 0777 output dir, so it remains untrusted legacy data.
 
     Args:
@@ -398,8 +398,8 @@ def determine_timeout_phase(timing: Optional[ExecutionTiming], timed_out: bool) 
 def resolve_runtime(config: TakoVMConfig) -> str:
     """Resolve the container runtime ('runsc' or 'runc') from config.
 
-    Single source of truth shared by every execution path — the server
-    ``CodeExecutor`` and the library ``Sandbox`` — so they apply gVisor
+    Single source of truth shared by every execution path (the server
+    ``CodeExecutor`` and the library ``Sandbox``) so they apply gVisor
     identically and can't drift. In strict mode gVisor must be available or this
     fails closed; in permissive mode (the current default, see
     ``TakoVMConfig.security_mode``) a missing gVisor falls back to runc with a
@@ -554,7 +554,7 @@ class CodeExecutor:
             output_dir.mkdir()
             output_dir.chmod(0o777)  # Writable by container user (uid 1000)
             # Control metadata (.tako_phase) mount: writable by container
-            # root only, NOT by the sandbox user — see _make_meta_dir.
+            # root only, NOT by the sandbox user. See _make_meta_dir.
             # None when a trusted dir cannot be provided (mount is skipped).
             meta_dir = _make_meta_dir(workspace / "meta")
 
@@ -692,7 +692,7 @@ class CodeExecutor:
             output_dir.mkdir()
             output_dir.chmod(0o777)  # Writable by container user (uid 1000)
             # Control metadata (.tako_phase) mount: writable by container
-            # root only, NOT by the sandbox user — see _make_meta_dir.
+            # root only, NOT by the sandbox user. See _make_meta_dir.
             # None when a trusted dir cannot be provided (mount is skipped).
             meta_dir = _make_meta_dir(workspace / "meta")
 
@@ -740,7 +740,7 @@ class CodeExecutor:
                     # and can fail during the very daemon hiccup that
                     # triggered the retry), and its partial output
                     # (result.json, .tako_phase, artifacts) may still be in
-                    # output_dir/meta_dir — remove all of these so the retry
+                    # output_dir/meta_dir, so remove all of these so the retry
                     # cannot collide on a container name or report stale
                     # results from the failed attempt.
                     remove_container(generate_container_name("tako", job_id, attempt=attempt - 1))
@@ -914,7 +914,7 @@ class CodeExecutor:
                     if result.get("oom_killed") is None:
                         # inspect was inconclusive (daemon unreachable, container
                         # already gone). We default to OOM so a flaky inspect
-                        # never loses a true OOM — but the classification is a
+                        # never loses a true OOM, but the classification is a
                         # guess, so say so loudly rather than reporting a
                         # confident "oom".
                         logger.warning(
@@ -935,7 +935,7 @@ class CodeExecutor:
                 phase = timing.phase_at_exit if timing else None
                 if result.get("infra_failure"):
                     # Docker-level failure (daemon down, circuit breaker open):
-                    # don't run classify_error on daemon stderr — it would
+                    # don't run classify_error on daemon stderr: it would
                     # misattribute the failure to the user's code.
                     record.error = ExecutionError(
                         type="service_unavailable",
@@ -948,7 +948,7 @@ class CodeExecutor:
                     # The job was refused before any container ran (e.g. a raw
                     # base_image without the executor entrypoint contract, or
                     # an invalid image reference). Don't run classify_error on
-                    # the explanation text — this is a configuration problem,
+                    # the explanation text: this is a configuration problem,
                     # not the user's code failing.
                     record.error = ExecutionError(
                         type="config_error",
@@ -966,7 +966,7 @@ class CodeExecutor:
             return record
 
         except Exception as e:
-            # Unexpected error — keep the full traceback server-side; the
+            # Unexpected error: keep the full traceback server-side; the
             # sanitized message is all the API consumer sees.
             logger.exception("Unexpected error executing job %s: %s", job_id, e)
             record.status = "failed"
@@ -1131,25 +1131,25 @@ class CodeExecutor:
         Resolution order (each selection is logged for auditability):
 
         1. **Pre-built job-type image** (``tako-vm-<name>:latest``, produced by
-           ``tako-vm build``) — preferred when it exists locally AND carries
+           ``tako-vm build``): preferred when it exists locally AND carries
            the executor entrypoint contract (``ENTRYPOINT ["/entrypoint.sh"]``,
            the cheap reliable marker of an executor-derived image). Its
            ``job_type.requirements`` are baked in at build time, so the caller
            skips runtime installation of those.
-        2. **``job_type.base_image``** — allowed ONLY when the image itself
+        2. **``job_type.base_image``**: allowed ONLY when the image itself
            carries the executor entrypoint contract (and is therefore present
            locally, since the contract is verified via ``docker image
            inspect``). A raw image (e.g. ``python:3.11-slim``) is refused with
            a config error: without ``/entrypoint.sh`` the
            TAKO_STARTUP_TIMEOUT/TAKO_EXECUTION_TIMEOUT env vars are ignored
            (no in-container timeout at all), no phase/timing file is written,
-           and — worst — ``docker run`` appends only the image, so the image's
+           and, worst, ``docker run`` appends only the image, so the image's
            default CMD runs instead of ``/code/main.py``. For ``python:slim``
            the REPL exits 0 on EOF, so the job would be recorded as
            "succeeded" with empty output for code that NEVER ran.
            ``ContainerBuilder`` exists precisely to wrap a base image with the
            executor contract, so the error directs users to ``tako-vm build``.
-        3. **Default executor image** (``self.docker_image``) — the unchanged
+        3. **Default executor image** (``self.docker_image``): the unchanged
            legacy path; requirements are installed at container startup by the
            entrypoint.
 
@@ -1195,7 +1195,7 @@ class CodeExecutor:
                 )
             if image_has_executor_entrypoint(job_type.base_image) is not True:
                 logger.error(
-                    "Job type '%s': refusing to run base_image %s — it does not carry "
+                    "Job type '%s': refusing to run base_image %s, it does not carry "
                     "the executor entrypoint contract (ENTRYPOINT %s) or is not present "
                     "locally. Build an executor-derived image with 'tako-vm build %s'.",
                     job_type.name,
@@ -1271,7 +1271,7 @@ class CodeExecutor:
 
         The container is started WITHOUT ``--rm`` so that on exit code 137 the
         exited container can be inspected for ``State.OOMKilled`` (the only
-        authoritative OOM signal — ``--rm`` would race the inspect). Every
+        authoritative OOM signal; ``--rm`` would race the inspect). Every
         exit path from this method removes the container via a best-effort
         ``docker rm -f`` in a ``finally`` block; the labeled orphan cleanup at
         startup remains as a backstop only.
@@ -1317,7 +1317,7 @@ class CodeExecutor:
         # Resolve which image to run: a pre-built job-type image, an
         # executor-derived base image, or the default executor image. Raw
         # base images without the executor entrypoint contract are refused
-        # here — running them would execute the image's default CMD instead
+        # here; running them would execute the image's default CMD instead
         # of /code/main.py (see _resolve_image).
         image_name, image_source, image_error = self._resolve_image(job_type)
         if image_error is not None:
@@ -1326,7 +1326,7 @@ class CodeExecutor:
         # Validate runtime requirements before deciding network and tmpfs policy.
         # A pre-built image already has job_type.requirements baked in at build
         # time, so only per-job extra requirements still need runtime
-        # installation — otherwise the entrypoint would reinstall the full set
+        # installation; otherwise the entrypoint would reinstall the full set
         # on every run, defeating the point of `tako-vm build`.
         if image_source == "built":
             all_requirements = []
@@ -1505,7 +1505,7 @@ class CodeExecutor:
             # non-zero exit from user code) means Docker itself is healthy.
             circuit_breaker.record_success()
 
-            # Exit 137 is SIGKILL — could be the OOM killer, but also `docker
+            # Exit 137 is SIGKILL: could be the OOM killer, but also `docker
             # kill` (cancel path), a pids-limit kill, or user sys.exit(137).
             # classify_sigkill inspects the exited container's State.OOMKilled
             # before the finally block removes it. Note: in-container timeout
@@ -1528,7 +1528,7 @@ class CodeExecutor:
             # Kill the orphaned container (subprocess died but container keeps running)
             if not kill_container(container_name):
                 # An untrusted container that outlived its host timeout and
-                # could not be killed is a real containment concern — surface it.
+                # could not be killed is a real containment concern: surface it.
                 logger.warning(
                     "Failed to kill container %s after host timeout for job %s; "
                     "it may still be running",
@@ -1569,7 +1569,7 @@ class CodeExecutor:
             )
             # Best-effort kill; the container may never have started (error
             # before `docker run`), so a False return here is often benign and
-            # not worth a warning — the finally block removes it regardless.
+            # not worth a warning; the finally block removes it regardless.
             kill_container(container_name)
             error_msg = str(e).lower()
             if "docker" in error_msg or "daemon" in error_msg or "connection" in error_msg:

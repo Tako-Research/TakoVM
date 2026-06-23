@@ -4,7 +4,7 @@ Runtime (gVisor) enforcement tests for the library Sandbox path.
 The ``Sandbox`` / ``sandbox.run`` convenience entry point must apply the same
 container runtime policy as the server execution path: pass ``--runtime=runsc``
 when gVisor is selected, and fail closed in strict mode when gVisor is absent.
-These are pure command-construction tests — no Docker required.
+These are pure command-construction tests: no Docker required.
 """
 
 from pathlib import Path
