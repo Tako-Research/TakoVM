@@ -36,7 +36,9 @@ from tako_vm.constants import (
 from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
     base_isolation_args,
+    decode_subprocess_stream,
     generate_container_name,
+    image_exists,
     inspect_oom_killed,
     remove_container,
     ulimit_args,
@@ -51,19 +53,6 @@ _SAFE_PROXY_URL_CHARS = frozenset(
 
 DEFAULT_STARTUP_TIMEOUT = 120
 """Default startup (dependency install) timeout in seconds, matching server defaults."""
-
-
-def _decode_stream(value: Any) -> str:
-    """Decode partial subprocess output that may be None, bytes, or str.
-
-    subprocess.TimeoutExpired carries raw bytes even when subprocess.run
-    was invoked with text=True.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
 
 
 @dataclass
@@ -246,14 +235,11 @@ class Sandbox:
         if self._image_checked:
             return
 
-        # Check if image exists
-        result = subprocess.run(
-            ["docker", "image", "inspect", self.config.image],
-            capture_output=True,
-            check=False,
-        )
-
-        if result.returncode == 0:
+        # Existence check goes through the shared, timeout-bounded, cached
+        # docker.image_exists so all three call sites (worker, builder, sandbox)
+        # probe the daemon identically instead of re-rolling `docker image
+        # inspect` with their own timeout/error handling.
+        if image_exists(self.config.image):
             self._image_checked = True
             return
 
@@ -508,8 +494,8 @@ class Sandbox:
                         subprocess_timeout,
                     )
                     return SandboxResult(
-                        stdout=_decode_stream(exc.stdout),
-                        stderr=_decode_stream(exc.stderr),
+                        stdout=decode_subprocess_stream(exc.stdout),
+                        stderr=decode_subprocess_stream(exc.stderr),
                         exit_code=-1,
                         success=False,
                         error=(

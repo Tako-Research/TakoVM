@@ -45,6 +45,22 @@ def reset_image_caches() -> None:
     _executor_entrypoint_cache.clear()
 
 
+def decode_subprocess_stream(value) -> str:
+    """Coerce captured subprocess output (``str`` | ``bytes`` | ``None``) to ``str``.
+
+    ``subprocess.TimeoutExpired.stdout``/``.stderr`` hold the raw ``bytes``
+    captured before the kill even when ``subprocess.run`` was invoked with
+    ``text=True`` (CPython populates them from the byte buffers), so any caller
+    reading partial output on timeout must handle all three types. Shared by the
+    worker and the library Sandbox so the decoding can't drift between them.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def image_exists(image_name: str) -> bool:
     """Check whether a Docker image exists locally (cached).
 
