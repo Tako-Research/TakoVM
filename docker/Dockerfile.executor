@@ -1,11 +1,14 @@
-FROM python:3.11-slim
+# Base image pinned by digest (not just the mutable :3.11-slim tag) so a
+# repointed upstream tag can't silently change what we ship. The tag is kept
+# alongside the digest for readability and so dependabot can bump both.
+FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 # Install gosu for proper privilege dropping
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for fast dependency installation
-COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /usr/local/bin/uv
+# Install uv for fast dependency installation (digest-pinned, see above)
+COPY --from=ghcr.io/astral-sh/uv:0.5.14@sha256:f0786ad49e2e684c18d38697facb229f538a6f5e374c56f54125aabe7d14b3f7 /uv /usr/local/bin/uv
 
 # Install custom libraries
 # Place your .whl files in tako_vm/custom_libs/ directory before building

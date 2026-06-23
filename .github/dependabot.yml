@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Keep the digest-pinned base images current. Without this, the sha256 pins
+  # in the Dockerfiles and docker-compose.yaml (added for supply-chain
+  # integrity) would silently go stale and miss upstream security patches.
+  - package-ecosystem: docker
+    directories:
+      - /docker
+      - /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Keep the Python dependencies (pyproject) patched.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Keep the CI action versions current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

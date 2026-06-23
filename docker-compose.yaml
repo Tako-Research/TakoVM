@@ -11,7 +11,9 @@
 
 services:
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
+    # Digest-pinned so a repointed upstream tag can't change the proxy that
+    # gates the server's Docker access (dependabot keeps the digest current).
+    image: tecnativa/docker-socket-proxy:latest@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
     container_name: tako-vm-docker-socket-proxy
     environment:
       # Docker CLI health/startup checks
@@ -69,7 +71,8 @@ services:
       retries: 3
 
   postgres:
-    image: postgres:16-alpine
+    # Digest-pinned (dependabot keeps the digest current).
+    image: postgres:16-alpine@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     container_name: tako-vm-postgres
     environment:
       - POSTGRES_USER=postgres

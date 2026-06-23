@@ -143,8 +143,9 @@ class ContainerBuilder:
 FROM {base_image}
 
 # Install uv for fast dependency installation (already present on the
-# executor base; kept so custom executor-derived bases get it too)
-COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /usr/local/bin/uv
+# executor base; kept so custom executor-derived bases get it too).
+# Digest-pinned to match docker/Dockerfile.executor; bump both together.
+COPY --from=ghcr.io/astral-sh/uv:0.5.14@sha256:f0786ad49e2e684c18d38697facb229f538a6f5e374c56f54125aabe7d14b3f7 /uv /usr/local/bin/uv
 
 # Install custom libraries if present
 COPY ./custom_libs /tmp/custom_libs
