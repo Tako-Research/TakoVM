@@ -436,31 +436,6 @@ class WorkerPool:
             "max_queue_size": self.max_queue_size,
         }
 
-    @property
-    def stats(self) -> dict:
-        """Get current pool statistics (sync version for backward compatibility).
-
-        DEPRECATED: This property doesn't use lock protection for running count,
-        which can cause race conditions. Use get_stats() for async code paths.
-
-        Returns:
-            Dict with pending, running, max_workers, max_queue_size
-        """
-        import warnings
-
-        warnings.warn(
-            "WorkerPool.stats property is deprecated due to race condition. "
-            "Use 'await worker_pool.get_stats()' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return {
-            "pending": self._queue.qsize(),
-            "running": len(self._running_jobs),
-            "max_workers": self.max_workers,
-            "max_queue_size": self.max_queue_size,
-        }
-
     async def _worker_loop(self, worker_id: int) -> None:
         """
         Worker coroutine that processes jobs.
@@ -612,12 +587,6 @@ class WorkerPool:
                         except asyncio.InvalidStateError:
                             logger.debug(f"Future already done for failed job {job.job_id}")
 
-                finally:
-                    # Cleanup with lock protection
-                    async with self._jobs_lock:
-                        self._active_jobs.pop(job.job_id, None)
-                        self._running_jobs.pop(job.job_id, None)
-
             except Exception as e:
                 logger.error(f"Worker {worker_id} unexpected error: {e}", exc_info=True)
                 # Ensure job future is resolved even on unexpected errors
@@ -653,11 +622,11 @@ class WorkerPool:
                             pass
                 await asyncio.sleep(1)  # Prevent tight loop on errors
             finally:
-                # Backstop cleanup: the inner try's finally handles the normal
-                # path, but an exception raised after a job is placed in
-                # _running_jobs (line ~502) but before the inner try is entered
-                # would otherwise strand it as 'running' forever. pop() is
-                # idempotent, so double-cleanup is harmless.
+                # Single cleanup site for every per-iteration exit path: even an
+                # exception raised after a job is placed in _running_jobs but
+                # before/while the inner try runs must not strand it as 'running'
+                # forever. pop() is idempotent, so this is safe regardless of how
+                # the iteration ended.
                 if job is not None:
                     async with self._jobs_lock:
                         self._active_jobs.pop(job.job_id, None)

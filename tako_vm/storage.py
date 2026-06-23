@@ -187,15 +187,6 @@ MIGRATIONS: list[tuple[str, str]] = [
 ]
 
 
-def _decode_json_field(value: Any) -> Any:
-    """Normalize JSONB values returned by psycopg."""
-    if value is None:
-        return None
-    if isinstance(value, (dict, list)):
-        return value
-    return value
-
-
 # --- execution_records upsert: single source of truth for the column set ------
 #
 # The INSERT column list, the `%s` placeholder run, the value tuple, AND the
@@ -634,7 +625,7 @@ class ExecutionStorage:
             )
 
         input_artifacts = []
-        input_artifacts_data = _decode_json_field(row.get("input_artifacts_json"))
+        input_artifacts_data = row.get("input_artifacts_json")
         if input_artifacts_data:
             try:
                 input_artifacts = [InputArtifact(**a) for a in input_artifacts_data]
@@ -647,7 +638,7 @@ class ExecutionStorage:
                 )
 
         artifacts = []
-        artifacts_data = _decode_json_field(row.get("artifacts_json"))
+        artifacts_data = row.get("artifacts_json")
         if artifacts_data:
             try:
                 artifacts = [Artifact(**a) for a in artifacts_data]
@@ -660,7 +651,7 @@ class ExecutionStorage:
                 )
 
         error = None
-        error_data = _decode_json_field(row.get("error_json"))
+        error_data = row.get("error_json")
         if error_data:
             try:
                 error = ExecutionError(**error_data)
@@ -679,10 +670,10 @@ class ExecutionStorage:
                     message="stored error payload could not be decoded",
                 )
 
-        result_json = _decode_json_field(row.get("result_json"))
+        result_json = row.get("result_json")
 
         timing = None
-        timing_data = _decode_json_field(row.get("timing_json"))
+        timing_data = row.get("timing_json")
         if timing_data:
             try:
                 timing = ExecutionTiming(**timing_data)
@@ -999,7 +990,7 @@ class ExecutionStorage:
 
     def _row_to_dlq_entry(self, row: RowMapping) -> DeadLetterEntry:
         """Convert database row to DeadLetterEntry."""
-        job_data = _decode_json_field(row.get("job_data_json")) or {}
+        job_data = row.get("job_data_json") or {}
         return DeadLetterEntry(
             id=row["id"],
             job_id=row["job_id"],

@@ -502,6 +502,24 @@ class DeadLetterEntry(BaseModel):
     contain raw fields; new entries never do.
     """
 
+    error_type: ErrorType
+    """Type of error that caused failure."""
+
+    error_message: Optional[str] = Field(default=None, max_length=4096)
+    """Error message."""
+
+    retry_count: int = Field(default=0, ge=0, le=100)
+    """Number of retry attempts made."""
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """When the entry was added to DLQ."""
+
+    client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
+    """Original client IP."""
+
+    correlation_id: Optional[str] = Field(default=None, max_length=64)
+    """Correlation ID for tracing."""
+
     @classmethod
     def build_job_summary(cls, job_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build a redacted forensic summary from a raw job payload.
@@ -535,21 +553,3 @@ class DeadLetterEntry(BaseModel):
             if value is not None:
                 summary[key] = value
         return summary
-
-    error_type: ErrorType
-    """Type of error that caused failure."""
-
-    error_message: Optional[str] = Field(default=None, max_length=4096)
-    """Error message."""
-
-    retry_count: int = Field(default=0, ge=0, le=100)
-    """Number of retry attempts made."""
-
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    """When the entry was added to DLQ."""
-
-    client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
-    """Original client IP."""
-
-    correlation_id: Optional[str] = Field(default=None, max_length=64)
-    """Correlation ID for tracing."""
