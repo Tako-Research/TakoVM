@@ -303,6 +303,32 @@ def inspect_oom_killed(container_name: str) -> Optional[bool]:
         return None
 
 
+def ulimit_args(limits) -> list[str]:
+    """Return the ``--ulimit`` flags shared by every execution path.
+
+    ``RLIMIT_FSIZE``/``RLIMIT_NOFILE``/``RLIMIT_NPROC`` are kernel rlimits that
+    gVisor does not impose on its own; they only take effect when passed via
+    ``--ulimit`` at container creation. Both builders (``CodeExecutor`` and the
+    library ``Sandbox``) assemble their own ``docker run`` command, so this is
+    factored out to keep them from drifting — the drift this guards against is
+    exactly issue #97, where the ``Sandbox`` path shipped with no ``--ulimit``
+    at all and left ``RLIMIT_FSIZE`` unbounded against the writable ``/output``
+    bind-mount (a host-disk-exhaustion DoS the gVisor boundary does not cover).
+
+    Args:
+        limits: A ``ContainerLimits`` (or any object exposing ``nofile_soft``,
+            ``nofile_hard``, ``nproc_soft``, ``nproc_hard``, ``fsize``).
+
+    Returns:
+        The three ``--ulimit`` flags, ready to append to a ``docker run`` command.
+    """
+    return [
+        f"--ulimit=nofile={limits.nofile_soft}:{limits.nofile_hard}",
+        f"--ulimit=nproc={limits.nproc_soft}:{limits.nproc_hard}",
+        f"--ulimit=fsize={limits.fsize}",
+    ]
+
+
 def base_isolation_args(
     container_name: str,
     *,

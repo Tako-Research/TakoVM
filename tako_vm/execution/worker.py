@@ -28,6 +28,7 @@ from tako_vm.execution.docker import (
     is_native_linux,
     kill_container,
     remove_container,
+    ulimit_args,
 )
 from tako_vm.execution.health import get_circuit_breaker
 from tako_vm.execution.retry import RetryConfig, RetryContext, is_transient_error
@@ -1448,10 +1449,9 @@ class CodeExecutor:
                 f"--memory-swap={job_type.memory_limit}",
                 f"--cpus={job_type.cpu_limit}",
                 f"--pids-limit={limits.pids_limit}",
-                # Configurable ulimits
-                f"--ulimit=nofile={limits.nofile_soft}:{limits.nofile_hard}",
-                f"--ulimit=nproc={limits.nproc_soft}:{limits.nproc_hard}",
-                f"--ulimit=fsize={limits.fsize}",
+                # Configurable ulimits (shared with the library Sandbox path via
+                # ulimit_args so the two builders can't drift; see issue #97)
+                *ulimit_args(limits),
                 # Mounts
                 f"--mount=type=bind,source={code_dir.absolute()},target=/code,readonly",
                 f"--mount=type=bind,source={input_dir.absolute()},target=/input,readonly",

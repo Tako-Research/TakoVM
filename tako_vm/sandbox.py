@@ -32,6 +32,7 @@ from tako_vm.execution.docker import (
     generate_container_name,
     inspect_oom_killed,
     remove_container,
+    ulimit_args,
 )
 from tako_vm.security import validate_pip_requirement
 
@@ -601,13 +602,20 @@ class Sandbox:
                 cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
-        # Resource limits
+        # Resource limits. The pids-limit and the --ulimit set (nofile/nproc/
+        # fsize) come from the shared container_limits config so the library
+        # path enforces the same kernel rlimits the worker does. Without the
+        # --ulimit=fsize cap, untrusted code could write an arbitrarily large
+        # file to the writable /output bind-mount (host-disk-exhaustion DoS);
+        # gVisor does not impose RLIMIT_FSIZE on its own (issue #97).
+        limits = get_config().container_limits
         cmd.extend(
             [
                 f"--memory={self.config.memory_limit}",
                 f"--memory-swap={self.config.memory_limit}",
                 f"--cpus={self.config.cpu_limit}",
-                "--pids-limit=100",
+                f"--pids-limit={limits.pids_limit}",
+                *ulimit_args(limits),
             ]
         )
 
