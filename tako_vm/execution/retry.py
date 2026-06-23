@@ -1,15 +1,14 @@
 """
 Retry logic with exponential backoff for transient failures.
 
-Provides decorators and utilities for retrying operations that may fail temporarily.
+Provides utilities for retrying operations that may fail temporarily.
 """
 
-import functools
 import logging
 import random
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional, Set, Tuple, Type
+from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -105,82 +104,6 @@ def calculate_delay(attempt: int, config: RetryConfig) -> float:
     return max(0, delay)
 
 
-def retry(
-    config: Optional[RetryConfig] = None,
-    retryable_exceptions: Optional[Tuple[Type[Exception], ...]] = None,
-    on_retry: Optional[Callable[[Exception, int], None]] = None,
-):
-    """
-    Decorator for retrying a function with exponential backoff.
-
-    Args:
-        config: Retry configuration (uses defaults if not provided)
-        retryable_exceptions: Tuple of exception types to retry on
-        on_retry: Callback called before each retry with (exception, attempt)
-
-    Returns:
-        Decorated function
-
-    Example:
-        @retry(RetryConfig(max_attempts=3))
-        def fetch_data():
-            return api.get("/data")
-    """
-    if config is None:
-        config = RetryConfig()
-
-    if retryable_exceptions is None:
-        retryable_exceptions = (Exception,)
-
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-
-            for attempt in range(config.max_attempts):
-                try:
-                    return func(*args, **kwargs)
-
-                except retryable_exceptions as e:
-                    last_exception = e
-
-                    # Check if this is the last attempt
-                    if attempt == config.max_attempts - 1:
-                        logger.warning(
-                            f"Retry exhausted for {func.__name__} after "
-                            f"{config.max_attempts} attempts: {e}"
-                        )
-                        raise
-
-                    # Check if error is transient
-                    if not is_transient_error(e):
-                        logger.debug(f"Non-transient error in {func.__name__}, not retrying: {e}")
-                        raise
-
-                    # Calculate delay
-                    delay = calculate_delay(attempt, config)
-
-                    logger.info(
-                        f"Retry {attempt + 1}/{config.max_attempts} for "
-                        f"{func.__name__} after {delay:.2f}s: {e}"
-                    )
-
-                    # Call retry callback if provided
-                    if on_retry:
-                        on_retry(e, attempt + 1)
-
-                    # Wait before retry
-                    time.sleep(delay)
-
-            # Should not reach here, but just in case
-            if last_exception:
-                raise last_exception
-
-        return wrapper
-
-    return decorator
-
-
 class RetryContext:
     """
     Context manager for retry logic.
@@ -224,19 +147,13 @@ class RetryContext:
         self.last_error = error
         self.attempt += 1
 
+        # Side effect: when another (transient) attempt remains, this blocks via
+        # time.sleep for the backoff delay before returning. Callers run this in
+        # synchronous code or a thread pool (see the class docstring), never on
+        # an async event loop.
         if self.should_retry() and is_transient_error(error):
             delay = calculate_delay(self.attempt - 1, self.config)
             logger.info(
                 f"Retry {self.attempt}/{self.config.max_attempts} after {delay:.2f}s: {error}"
             )
             time.sleep(delay)
-
-    def record_success(self) -> None:
-        """Record a successful operation."""
-        self.attempt = 0
-        self.last_error = None
-
-    @property
-    def is_exhausted(self) -> bool:
-        """Check if all retry attempts have been used."""
-        return self.attempt >= self.config.max_attempts

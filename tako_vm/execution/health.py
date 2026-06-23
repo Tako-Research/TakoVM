@@ -72,7 +72,13 @@ class DockerCircuitBreaker:
 
     @property
     def is_available(self) -> bool:
-        """Check if requests should be allowed through."""
+        """Check if requests should be allowed through.
+
+        Side effect: this getter is intentionally not pure. When the circuit is
+        OPEN and the recovery timeout has elapsed, reading it transitions the
+        breaker to HALF_OPEN (and resets the success count) so the next call is
+        allowed through as a recovery probe.
+        """
         with self._lock:
             if self._state == CircuitState.CLOSED:
                 return True
@@ -306,12 +312,16 @@ class DockerCleanup:
             return 0
 
     @classmethod
-    def cleanup_dangling_images(cls) -> int:
+    def cleanup_dangling_images(cls) -> bool:
         """
-        Remove dangling Docker images.
+        Remove dangling Docker images via ``docker image prune -f``.
+
+        Returns a bool rather than a count: ``docker image prune`` only reports
+        the total reclaimed space, not the number of images removed, so an
+        honest count is not available. The reclaimed-space summary is logged.
 
         Returns:
-            Number of images removed
+            True if the prune command ran successfully, False otherwise.
         """
         try:
             result = subprocess.run(
@@ -323,17 +333,18 @@ class DockerCleanup:
             )
 
             if result.returncode == 0:
-                # Parse output to count removed images
+                # Docker doesn't give a count, just the reclaimed space summary.
                 output = result.stdout
                 if "Total reclaimed space" in output:
                     logger.info(f"Image cleanup: {output.strip()}")
-                return 0  # Docker doesn't give count, just space
+                return True
 
-            return 0
+            logger.warning(f"Image cleanup returned non-zero: {result.stderr}")
+            return False
 
         except Exception as e:
             logger.warning(f"Image cleanup failed: {e}")
-            return 0
+            return False
 
 
 # Global circuit breaker instance

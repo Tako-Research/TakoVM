@@ -22,7 +22,7 @@ from tako_vm.constants import (
     UV_CACHE_TMP_DIR,
     UV_CACHE_VOLUME,
     UV_CACHE_VOLUME_DIR,
-    WORKSPACE_DIR,
+    get_workspace_dir,
 )
 from tako_vm.execution.docker import (
     EXECUTOR_ENTRYPOINT,
@@ -98,7 +98,7 @@ def _resolve_run_path(data_dir: Path, execution_id: str, *parts: str) -> Path:
 
 
 def prune_stale_workspaces(max_age_seconds: int) -> int:
-    """Remove stale per-run workspace dirs stranded under WORKSPACE_DIR.
+    """Remove stale per-run workspace dirs stranded under the workspace dir.
 
     Each execution creates a temp dir (``job-*`` / ``sandbox-*``) that is
     normally removed in a finally block, but a hard crash or an rmtree failure
@@ -107,7 +107,7 @@ def prune_stale_workspaces(max_age_seconds: int) -> int:
     sit well past any run's max timeout). Fail-soft: per-dir errors are logged
     and skipped. Returns the number of dirs removed.
     """
-    workspace_root = Path(WORKSPACE_DIR)
+    workspace_root = Path(get_workspace_dir())
     if not workspace_root.is_dir():
         return 0
     cutoff = time.time() - max_age_seconds
@@ -547,7 +547,7 @@ class CodeExecutor:
         startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace
-        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
+        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=get_workspace_dir()))
 
         try:
             # Prepare directories
@@ -685,7 +685,7 @@ class CodeExecutor:
         startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace
-        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=WORKSPACE_DIR))
+        workspace = Path(tempfile.mkdtemp(prefix="job-", dir=get_workspace_dir()))
 
         try:
             # Prepare directories
@@ -792,8 +792,11 @@ class CodeExecutor:
                     break  # Success or non-transient error
 
                 except subprocess.TimeoutExpired:
-                    # Safety net only: _run_container catches TimeoutExpired
-                    # itself and returns a dict with timed_out=True instead.
+                    # Defensive safety net, effectively unreachable: _run_container
+                    # catches TimeoutExpired itself and returns a dict with
+                    # timed_out=True instead, so this branch only fires if that
+                    # contract is ever broken. Kept so a future regression
+                    # surfaces as a timeout rather than an unhandled exception.
                     timed_out = True
                     result = {
                         "success": False,

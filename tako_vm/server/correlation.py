@@ -133,23 +133,3 @@ def configure_logging_with_correlation():
         handler.addFilter(CorrelationIdFilter())
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
-
-
-# Convenience functions for logging with correlation ID
-
-
-def log_with_correlation(logger: logging.Logger, level: int, message: str, *args, **kwargs) -> None:
-    """
-    Log a message with correlation ID context.
-
-    Args:
-        logger: Logger instance
-        level: Log level (e.g., logging.INFO)
-        message: Log message
-        *args: Format arguments
-        **kwargs: Additional logging kwargs
-    """
-    correlation_id = get_correlation_id()
-    if correlation_id:
-        message = f"[{correlation_id}] {message}"
-    logger.log(level, message, *args, **kwargs)

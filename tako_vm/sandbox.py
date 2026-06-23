@@ -31,7 +31,7 @@ from tako_vm.constants import (
     UV_CACHE_TMP_DIR,
     UV_CACHE_VOLUME,
     UV_CACHE_VOLUME_DIR,
-    WORKSPACE_DIR,
+    get_workspace_dir,
 )
 from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
@@ -364,7 +364,7 @@ class Sandbox:
         input_data = input_data or {}
 
         # Create temporary workspace
-        workspace = Path(tempfile.mkdtemp(prefix="sandbox-", dir=WORKSPACE_DIR))
+        workspace = Path(tempfile.mkdtemp(prefix="sandbox-", dir=get_workspace_dir()))
 
         try:
             # Prepare directories

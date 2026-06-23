@@ -10,7 +10,6 @@ No Docker required.
 import os
 import time
 
-import tako_vm.execution.worker as worker
 from tako_vm.execution.worker import prune_old_run_dirs, prune_stale_workspaces
 
 
@@ -21,7 +20,7 @@ def _age(path, seconds_old: int) -> None:
 
 class TestPruneStaleWorkspaces:
     def test_removes_only_old_run_dirs(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(worker, "WORKSPACE_DIR", str(tmp_path))
+        monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path))
         old_job = tmp_path / "job-old"
         old_job.mkdir()
         (old_job / "f").write_text("x")
@@ -44,12 +43,12 @@ class TestPruneStaleWorkspaces:
         assert unrelated.exists()  # wrong prefix, untouched
 
     def test_missing_workspace_dir_is_noop(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(worker, "WORKSPACE_DIR", str(tmp_path / "nope"))
+        monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path / "nope"))
         assert prune_stale_workspaces(max_age_seconds=1) == 0
 
     def test_symlinked_entry_is_skipped(self, tmp_path, monkeypatch):
         # A workspace-named symlink must never be followed/removed by the sweep.
-        monkeypatch.setattr(worker, "WORKSPACE_DIR", str(tmp_path))
+        monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path))
         target = tmp_path / "target_dir"
         target.mkdir()
         (target / "keep").write_text("x")

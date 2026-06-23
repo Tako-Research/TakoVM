@@ -40,7 +40,12 @@ except ImportError:
     pass
 
 from tako_vm.config import TakoVMConfig, get_config
-from tako_vm.constants import DEFAULT_IMAGE, MAX_REQUIREMENTS, UV_CACHE_VOLUME, WORKSPACE_DIR
+from tako_vm.constants import (
+    DEFAULT_IMAGE,
+    MAX_REQUIREMENTS,
+    UV_CACHE_VOLUME,
+    get_workspace_dir,
+)
 from tako_vm.job_types import JobType, JobTypeRegistry
 from tako_vm.models import Artifact, ExecutionRecord, JobVersion, ResourceUsage
 from tako_vm.sandbox import Sandbox, SandboxResult
@@ -122,7 +127,7 @@ __all__ = [
     # Constants
     "DEFAULT_IMAGE",
     "UV_CACHE_VOLUME",
-    "WORKSPACE_DIR",
+    "get_workspace_dir",
     "MAX_REQUIREMENTS",
     # Exceptions
     "TakoVMError",
