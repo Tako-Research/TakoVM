@@ -28,6 +28,7 @@ from tako_vm.execution.docker import (
     image_has_executor_entrypoint,
     reset_image_caches,
 )
+from tako_vm.execution.docker import image_exists as docker_image_exists
 from tako_vm.job_types import JobType, JobTypeRegistry
 from tako_vm.security import (
     validate_docker_image,
@@ -316,13 +317,10 @@ WORKDIR /app
         Returns:
             True if image exists
         """
-        try:
-            subprocess.run(
-                ["docker", "image", "inspect", job_type.image_name], capture_output=True, check=True
-            )
-            return True
-        except subprocess.CalledProcessError:
-            return False
+        # Delegate to the shared, timeout-bounded, cached existence check so the
+        # builder, worker, and sandbox all probe the daemon identically (the
+        # bare subprocess version here had no timeout and could hang).
+        return docker_image_exists(job_type.image_name)
 
     def remove_image(self, job_type: JobType) -> bool:
         """

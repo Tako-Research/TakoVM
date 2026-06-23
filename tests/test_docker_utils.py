@@ -13,6 +13,7 @@ from tako_vm.execution.docker import (
     CONTAINER_LABEL,
     EXECUTION_ID_LABEL,
     base_isolation_args,
+    decode_subprocess_stream,
     generate_container_name,
     image_exists,
     image_has_executor_entrypoint,
@@ -22,6 +23,27 @@ from tako_vm.execution.docker import (
     remove_container,
     reset_image_caches,
 )
+
+
+class TestDecodeSubprocessStream:
+    """Single source for coercing partial subprocess output (str | bytes |
+    None), shared by the worker and the library Sandbox so the timeout-output
+    decoding can't drift between them (previously duplicated as _coerce_output
+    and _decode_stream)."""
+
+    def test_none_becomes_empty_string(self):
+        assert decode_subprocess_stream(None) == ""
+
+    def test_str_passes_through(self):
+        assert decode_subprocess_stream("hello") == "hello"
+
+    def test_bytes_are_utf8_decoded(self):
+        assert decode_subprocess_stream(b"hello") == "hello"
+
+    def test_invalid_utf8_is_replaced_not_raised(self):
+        # TimeoutExpired byte buffers can be cut mid-codepoint; decoding must
+        # never raise (errors="replace").
+        assert decode_subprocess_stream(b"\xff\xfe") == "��"
 
 
 @pytest.fixture(autouse=True)

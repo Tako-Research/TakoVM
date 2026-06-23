@@ -27,6 +27,7 @@ from tako_vm.constants import (
 from tako_vm.execution.docker import (
     EXECUTOR_ENTRYPOINT,
     base_isolation_args,
+    decode_subprocess_stream,
     generate_container_name,
     image_exists,
     image_has_executor_entrypoint,
@@ -75,21 +76,6 @@ _DOCKER_INFRA_STDERR_PATTERNS = (
     "error during connect",
     "docker daemon is not running",
 )
-
-
-def _coerce_output(value: Any) -> str:
-    """Coerce captured subprocess output to ``str``.
-
-    ``subprocess.TimeoutExpired.stdout``/``.stderr`` hold the raw ``bytes``
-    captured before the kill even when ``subprocess.run`` was invoked with
-    ``text=True`` (CPython populates them from the byte buffers), so this
-    must handle ``str``, ``bytes``, and ``None``.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
 
 
 def _require_safe_execution_id(execution_id: str) -> str:
@@ -1595,8 +1581,8 @@ class CodeExecutor:
                 "error": f"Execution timeout exceeded ({timeout}s)",
                 # Preserve partial output captured up to the kill so the user
                 # can see how far their code got before the host-level kill.
-                "stdout": _coerce_output(e.stdout),
-                "stderr": _coerce_output(e.stderr),
+                "stdout": decode_subprocess_stream(e.stdout),
+                "stderr": decode_subprocess_stream(e.stderr),
                 "exit_code": -1,
                 "timeout": timeout,
                 # Marker for the caller: this run hit the host-level timeout,
