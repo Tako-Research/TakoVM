@@ -245,11 +245,24 @@ def kill_container(container_name: str) -> bool:
         if result.returncode == 0:
             logger.debug("Killed container %s", container_name)
             return True
-        logger.debug("Container %s was not running", container_name)
+        # Distinguish the benign "no such container" (already gone / never
+        # started) from a genuine kill failure (a still-running untrusted
+        # container we could not stop), which is a real containment concern.
+        stderr = decode_subprocess_stream(result.stderr).strip()
+        if "no such container" in stderr.lower():
+            logger.debug("Container %s was not running", container_name)
+        else:
+            logger.warning(
+                "Failed to kill container %s (exit %s): %s",
+                container_name,
+                result.returncode,
+                stderr,
+            )
         return False
     except Exception as e:
-        # Ignore errors - container may not exist or already be stopped
-        logger.debug("Failed to kill container %s: %s", container_name, e)
+        # A docker CLI error (daemon unreachable, timeout) leaves the container
+        # state unknown; surface it rather than silently swallowing.
+        logger.warning("Failed to kill container %s: %s", container_name, e)
         return False
 
 
@@ -282,11 +295,24 @@ def remove_container(container_name: str) -> bool:
         if result.returncode == 0:
             logger.debug("Removed container %s", container_name)
             return True
-        logger.debug("Container %s did not exist", container_name)
+        # ``docker rm -f`` is a no-op success for a missing container on modern
+        # daemons; a non-zero exit therefore signals a genuine removal failure
+        # (a leaked container), unless it is the benign "no such container".
+        stderr = decode_subprocess_stream(result.stderr).strip()
+        if "no such container" in stderr.lower():
+            logger.debug("Container %s did not exist", container_name)
+        else:
+            logger.warning(
+                "Failed to remove container %s (exit %s): %s; it may leak",
+                container_name,
+                result.returncode,
+                stderr,
+            )
         return False
     except Exception as e:
-        # Ignore errors - container may not exist or daemon may be unreachable
-        logger.debug("Failed to remove container %s: %s", container_name, e)
+        # A docker CLI error (daemon unreachable, timeout) means the container
+        # may still exist and leak; surface it rather than swallowing.
+        logger.warning("Failed to remove container %s: %s", container_name, e)
         return False
 
 
