@@ -351,7 +351,8 @@ WORKDIR /app
         try:
             subprocess.run(["docker", "rmi", job_type.image_name], capture_output=True, check=True)
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            logger.warning("Failed to remove image %s: %s", job_type.image_name, e.stderr or e)
             return False
 
 
