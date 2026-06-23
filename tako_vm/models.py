@@ -7,11 +7,42 @@ used throughout the system. Designed for SVG/artifact-based workflows.
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+# Full sha256 hexdigest: exactly 64 lowercase hex characters. Compiled once and
+# reused by every hash-field and sha256-field validator below.
+_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _validate_optional_sha256_hex(v: Optional[str]) -> Optional[str]:
+    """Validate a hash field is empty/None or a 64-char lowercase hex string.
+
+    Shared by ExecutionRecord and JobVersion hash-field validators so the rule
+    (and its error message) live in one place.
+    """
+    if v is None or v == "":
+        return v
+    if not _SHA256_RE.match(v):
+        raise ValueError("Hash must be empty or 64-character lowercase hex string")
+    return v
+
+
+def _validate_safe_filename(v: str) -> str:
+    """Validate a filename is safe (no path traversal).
+
+    Shared by InputArtifact and Artifact so the path-traversal rule lives in one
+    place.
+    """
+    if "/" in v or "\\" in v:
+        raise ValueError("Filename cannot contain path separators")
+    if v in ("..", "."):
+        raise ValueError("Invalid filename")
+    return v
 
 
 def sha256_json(obj: object) -> str:
@@ -102,7 +133,7 @@ class InputArtifact(BaseModel):
     size_bytes: int = Field(..., ge=0, le=1073741824)  # Max 1GB
     """File size in bytes."""
 
-    sha256: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    sha256: str = Field(..., min_length=64, max_length=64, pattern=_SHA256_RE.pattern)
     """SHA256 hash of file contents (hex-encoded)."""
 
     content_type: Optional[str] = Field(default=None, max_length=255)
@@ -115,11 +146,7 @@ class InputArtifact(BaseModel):
     @classmethod
     def validate_filename(cls, v: str) -> str:
         """Validate filename is safe (no path traversal)."""
-        if "/" in v or "\\" in v:
-            raise ValueError("Filename cannot contain path separators")
-        if v in ("..", "."):
-            raise ValueError("Invalid filename")
-        return v
+        return _validate_safe_filename(v)
 
 
 class Artifact(BaseModel):
@@ -133,7 +160,7 @@ class Artifact(BaseModel):
     size_bytes: int = Field(..., ge=0, le=1073741824)  # Max 1GB
     """File size in bytes."""
 
-    sha256: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    sha256: str = Field(..., min_length=64, max_length=64, pattern=_SHA256_RE.pattern)
     """SHA256 hash of file contents (hex-encoded)."""
 
     content_type: Optional[str] = Field(default=None, max_length=255)
@@ -146,11 +173,7 @@ class Artifact(BaseModel):
     @classmethod
     def validate_filename(cls, v: str) -> str:
         """Validate filename is safe (no path traversal)."""
-        if "/" in v or "\\" in v:
-            raise ValueError("Filename cannot contain path separators")
-        if v in ("..", "."):
-            raise ValueError("Invalid filename")
-        return v
+        return _validate_safe_filename(v)
 
 
 # Canonical error type values (from security.classify_error)
@@ -219,7 +242,16 @@ class ExecutionError(BaseModel):
     """Which phase the error occurred in (startup or execution)."""
 
 
-# Canonical job status values
+# Canonical job status values.
+#
+# JobStatus and ErrorType deliberately use DISTINCT vocabularies. The
+# phase-specific ErrorType values (startup_timeout, execution_timeout) and
+# 'interrupted' are NEVER assigned to a record's status: worker.py collapses
+# both timeout phases to status='timeout' and records the phase only on
+# error.type, and reconcile_stale_records sets status='failed' with
+# error.type='interrupted'. So this list does not need to be a superset of
+# ErrorType; every value worker.py writes to ExecutionRecord.status is present
+# here, which is what keeps stored records loadable.
 JobStatus = Literal[
     "queued",  # Submitted, waiting in queue
     "running",  # Currently executing
@@ -328,13 +360,7 @@ class ExecutionRecord(BaseModel):
     @classmethod
     def validate_hash_field(cls, v: Optional[str]) -> Optional[str]:
         """Validate hash fields are either empty/None or valid SHA256 hex strings."""
-        import re
-
-        if v is None or v == "":
-            return v
-        if len(v) != 64 or not re.match(r"^[a-f0-9]{64}$", v):
-            raise ValueError("Hash must be empty or 64-character lowercase hex string")
-        return v
+        return _validate_optional_sha256_hex(v)
 
     # Input artifacts (for file-based inputs like SVG)
     input_artifacts: List[InputArtifact] = Field(default_factory=list)
@@ -430,7 +456,7 @@ class JobVersion(BaseModel):
     version_tag: Optional[str] = Field(default=None, max_length=64)
     """Semantic version tag, e.g., 'v1.0.0'."""
 
-    digest: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    digest: str = Field(..., min_length=64, max_length=64, pattern=_SHA256_RE.pattern)
     """SHA256 digest of job type configuration (full hex string)."""
 
     # Build metadata
@@ -454,13 +480,7 @@ class JobVersion(BaseModel):
     @classmethod
     def validate_hash_field(cls, v: str) -> str:
         """Validate hash fields are either empty or valid SHA256 hex strings."""
-        import re
-
-        if v == "":
-            return v
-        if len(v) != 64 or not re.match(r"^[a-f0-9]{64}$", v):
-            raise ValueError("Hash must be empty or 64-character lowercase hex string")
-        return v
+        return _validate_optional_sha256_hex(v) or ""
 
     @property
     def full_ref(self) -> str:
@@ -502,6 +522,24 @@ class DeadLetterEntry(BaseModel):
     contain raw fields; new entries never do.
     """
 
+    error_type: ErrorType
+    """Type of error that caused failure."""
+
+    error_message: Optional[str] = Field(default=None, max_length=4096)
+    """Error message."""
+
+    retry_count: int = Field(default=0, ge=0, le=100)
+    """Number of retry attempts made."""
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """When the entry was added to DLQ."""
+
+    client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
+    """Original client IP."""
+
+    correlation_id: Optional[str] = Field(default=None, max_length=64)
+    """Correlation ID for tracing."""
+
     @classmethod
     def build_job_summary(cls, job_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build a redacted forensic summary from a raw job payload.
@@ -535,21 +573,3 @@ class DeadLetterEntry(BaseModel):
             if value is not None:
                 summary[key] = value
         return summary
-
-    error_type: ErrorType
-    """Type of error that caused failure."""
-
-    error_message: Optional[str] = Field(default=None, max_length=4096)
-    """Error message."""
-
-    retry_count: int = Field(default=0, ge=0, le=100)
-    """Number of retry attempts made."""
-
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    """When the entry was added to DLQ."""
-
-    client_ip: Optional[str] = Field(default=None, max_length=45)  # IPv6 max length
-    """Original client IP."""
-
-    correlation_id: Optional[str] = Field(default=None, max_length=64)
-    """Correlation ID for tracing."""

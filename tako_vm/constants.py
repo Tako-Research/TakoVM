@@ -25,10 +25,18 @@ UV_CACHE_VOLUME_DIR = "/home/sandbox/.cache/uv"
 # Lives on the writable /tmp tmpfs, which the sandbox user can write.
 UV_CACHE_TMP_DIR = "/tmp/uv-cache"
 
+
 # Workspace directory for job files (can be set via TAKO_VM_WORKSPACE env var)
 # When running the server in a container with Docker socket mounted, this must
 # be a path that exists on the host and is mounted into the server container.
-WORKSPACE_DIR = os.environ.get("TAKO_VM_WORKSPACE", tempfile.gettempdir())
+#
+# Read live (not captured at import time) so a TAKO_VM_WORKSPACE set after the
+# module is imported, or changed between runs, takes effect, and so tests can
+# point it at a temp dir without monkeypatching a module-level constant.
+def get_workspace_dir() -> str:
+    """Return the configured workspace directory, reading TAKO_VM_WORKSPACE live."""
+    return os.environ.get("TAKO_VM_WORKSPACE", tempfile.gettempdir())
+
 
 # Maximum number of runtime requirements to prevent env var overflow and slow startups
 MAX_REQUIREMENTS = 50

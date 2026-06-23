@@ -82,25 +82,30 @@ def sanitize_error(error: str) -> str:
     return result
 
 
-def cap_output(output: str, max_bytes: int = DEFAULT_MAX_STDOUT_BYTES) -> str:
+def cap_output(output: str, max_bytes: int = DEFAULT_MAX_STDOUT_BYTES) -> Tuple[str, bool]:
     """
     Cap output to maximum byte size.
 
     Truncates at UTF-8 character boundary and adds truncation notice.
+
+    Single source of truth for the truncation decision: callers must use the
+    returned boolean rather than recomputing the encoded-size comparison, so
+    the in-band notice and the out-of-band flag can never disagree.
 
     Args:
         output: Raw output string
         max_bytes: Maximum size in bytes
 
     Returns:
-        Capped output with truncation notice if truncated
+        Tuple of (capped output with truncation notice if truncated, truncated
+        flag).
     """
     if not output:
-        return ""
+        return "", False
 
     encoded = output.encode("utf-8", errors="replace")
     if len(encoded) <= max_bytes:
-        return output
+        return output, False
 
     # Leave room for truncation message
     truncation_msg = f"\n\n[TRUNCATED: output exceeded {max_bytes} bytes]"
@@ -108,7 +113,7 @@ def cap_output(output: str, max_bytes: int = DEFAULT_MAX_STDOUT_BYTES) -> str:
     available_bytes = max_bytes - truncation_bytes
 
     if available_bytes <= 0:
-        return truncation_msg
+        return truncation_msg, True
 
     # Truncate at byte boundary, then decode
     truncated_bytes = encoded[:available_bytes]
@@ -123,7 +128,7 @@ def cap_output(output: str, max_bytes: int = DEFAULT_MAX_STDOUT_BYTES) -> str:
     else:
         truncated = ""
 
-    return truncated + truncation_msg
+    return truncated + truncation_msg, True
 
 
 def validate_artifact_size(

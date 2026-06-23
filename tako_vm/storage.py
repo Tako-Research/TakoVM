@@ -187,15 +187,6 @@ MIGRATIONS: list[tuple[str, str]] = [
 ]
 
 
-def _decode_json_field(value: Any) -> Any:
-    """Normalize JSONB values returned by psycopg."""
-    if value is None:
-        return None
-    if isinstance(value, (dict, list)):
-        return value
-    return value
-
-
 # --- execution_records upsert: single source of truth for the column set ------
 #
 # The INSERT column list, the `%s` placeholder run, the value tuple, AND the
@@ -297,6 +288,33 @@ _INSERT_COLUMN_SQL = ", ".join(name for name, _, _ in _EXECUTION_COLUMNS)
 _INSERT_PLACEHOLDER_SQL = ", ".join(["%s"] * len(_EXECUTION_COLUMNS))
 _UPDATE_SET_SQL = ",\n                    ".join(
     _set_clause_for(name, policy) for name, policy, _ in _EXECUTION_COLUMNS if policy != _SET_KEY
+)
+
+
+# --- job_versions upsert: single source of truth for the column set -----------
+#
+# Same pattern as _EXECUTION_COLUMNS above: the INSERT column list, placeholder
+# run, value tuple, and ON CONFLICT ... SET clause are all derived from this one
+# list, so adding/removing a column is a single edit instead of four hand-synced
+# ones. (digest, value_extractor(version)). digest is the ON CONFLICT key and
+# carries no SET line; every other column takes EXCLUDED (a re-save replaces the
+# stored metadata).
+_VERSION_KEY_COLUMN = "digest"
+_VERSION_COLUMNS: list = [
+    ("digest", lambda v: v.digest),
+    ("job_type_name", lambda v: v.job_type_name),
+    ("version_tag", lambda v: v.version_tag),
+    ("built_at", lambda v: v.built_at),
+    ("built_by", lambda v: v.built_by),
+    ("dockerfile_hash", lambda v: v.dockerfile_hash),
+    ("requirements_hash", lambda v: v.requirements_hash),
+    ("image_ref", lambda v: v.image_ref),
+]
+
+_VERSION_INSERT_COLUMN_SQL = ", ".join(name for name, _ in _VERSION_COLUMNS)
+_VERSION_INSERT_PLACEHOLDER_SQL = ", ".join(["%s"] * len(_VERSION_COLUMNS))
+_VERSION_UPDATE_SET_SQL = ",\n                    ".join(
+    f"{name} = EXCLUDED.{name}" for name, _ in _VERSION_COLUMNS if name != _VERSION_KEY_COLUMN
 )
 
 
@@ -446,7 +464,9 @@ class ExecutionStorage:
             "timing_json": record.timing.model_dump() if record.timing else None,
         }
 
-        terminal_list = ", ".join(f"'{s}'" for s in TERMINAL_STATUSES)
+        # Bound placeholders for the terminal-status guard, so the status
+        # literals are passed as parameters (no string interpolation into SQL).
+        terminal_placeholders = ", ".join(["%s"] * len(TERMINAL_STATUSES))
 
         # Upsert column policy:
         # - Submission-identity fields (created_at, queued_at, code_hash,
@@ -482,9 +502,12 @@ class ExecutionStorage:
                 )
                 ON CONFLICT (execution_id) DO UPDATE SET
                     {_UPDATE_SET_SQL}
-                WHERE execution_records.status NOT IN ({terminal_list})
+                WHERE execution_records.status NOT IN ({terminal_placeholders})
                 """,
-                tuple(extract(record, blobs) for _, _, extract in _EXECUTION_COLUMNS),
+                (
+                    *(extract(record, blobs) for _, _, extract in _EXECUTION_COLUMNS),
+                    *TERMINAL_STATUSES,
+                ),
             )
             return cursor.rowcount
 
@@ -558,6 +581,11 @@ class ExecutionStorage:
         so no other live server process can legitimately own in-flight records
         when this runs at startup.
 
+        The generic 'interrupted' error is only applied where error_json is
+        still NULL (COALESCE keeps any existing value), so a crashing worker
+        that already persisted the real error before exit is not overwritten by
+        this coarser reconciliation message.
+
         Returns:
             Number of records transitioned to 'failed'.
         """
@@ -574,7 +602,7 @@ class ExecutionStorage:
                 UPDATE execution_records
                 SET status = 'failed',
                     ended_at = %s,
-                    error_json = %s
+                    error_json = COALESCE(error_json, %s)
                 WHERE status IN ('queued', 'running')
                 """,
                 (now, Jsonb(error_json)),
@@ -634,7 +662,7 @@ class ExecutionStorage:
             )
 
         input_artifacts = []
-        input_artifacts_data = _decode_json_field(row.get("input_artifacts_json"))
+        input_artifacts_data = row.get("input_artifacts_json")
         if input_artifacts_data:
             try:
                 input_artifacts = [InputArtifact(**a) for a in input_artifacts_data]
@@ -647,7 +675,7 @@ class ExecutionStorage:
                 )
 
         artifacts = []
-        artifacts_data = _decode_json_field(row.get("artifacts_json"))
+        artifacts_data = row.get("artifacts_json")
         if artifacts_data:
             try:
                 artifacts = [Artifact(**a) for a in artifacts_data]
@@ -660,7 +688,7 @@ class ExecutionStorage:
                 )
 
         error = None
-        error_data = _decode_json_field(row.get("error_json"))
+        error_data = row.get("error_json")
         if error_data:
             try:
                 error = ExecutionError(**error_data)
@@ -679,10 +707,10 @@ class ExecutionStorage:
                     message="stored error payload could not be decoded",
                 )
 
-        result_json = _decode_json_field(row.get("result_json"))
+        result_json = row.get("result_json")
 
         timing = None
-        timing_data = _decode_json_field(row.get("timing_json"))
+        timing_data = row.get("timing_json")
         if timing_data:
             try:
                 timing = ExecutionTiming(**timing_data)
@@ -736,31 +764,16 @@ class ExecutionStorage:
         pool = self._get_pool()
         async with pool.connection() as conn:
             await conn.execute(
-                """
+                f"""
                 INSERT INTO job_versions (
-                    digest, job_type_name, version_tag,
-                    built_at, built_by, dockerfile_hash,
-                    requirements_hash, image_ref
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (digest) DO UPDATE SET
-                    job_type_name = EXCLUDED.job_type_name,
-                    version_tag = EXCLUDED.version_tag,
-                    built_at = EXCLUDED.built_at,
-                    built_by = EXCLUDED.built_by,
-                    dockerfile_hash = EXCLUDED.dockerfile_hash,
-                    requirements_hash = EXCLUDED.requirements_hash,
-                    image_ref = EXCLUDED.image_ref
+                    {_VERSION_INSERT_COLUMN_SQL}
+                ) VALUES (
+                    {_VERSION_INSERT_PLACEHOLDER_SQL}
+                )
+                ON CONFLICT ({_VERSION_KEY_COLUMN}) DO UPDATE SET
+                    {_VERSION_UPDATE_SET_SQL}
                 """,
-                (
-                    version.digest,
-                    version.job_type_name,
-                    version.version_tag,
-                    version.built_at,
-                    version.built_by,
-                    version.dockerfile_hash,
-                    version.requirements_hash,
-                    version.image_ref,
-                ),
+                tuple(extract(version) for _, extract in _VERSION_COLUMNS),
             )
 
     async def get_version_by_digest(self, job_type_name: str, digest: str) -> Optional[JobVersion]:
@@ -999,7 +1012,7 @@ class ExecutionStorage:
 
     def _row_to_dlq_entry(self, row: RowMapping) -> DeadLetterEntry:
         """Convert database row to DeadLetterEntry."""
-        job_data = _decode_json_field(row.get("job_data_json")) or {}
+        job_data = row.get("job_data_json") or {}
         return DeadLetterEntry(
             id=row["id"],
             job_id=row["job_id"],

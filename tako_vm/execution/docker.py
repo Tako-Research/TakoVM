@@ -10,9 +10,22 @@ import platform
 import subprocess
 import time
 import uuid
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
+
+from tako_vm.security import validate_pip_requirement
 
 logger = logging.getLogger(__name__)
+
+# stderr substrings that indicate the docker CLI could not reach the daemon.
+# These are infrastructure failures, never the fault of the user's code. Shared
+# by classify_docker_run_result so the worker and the library Sandbox detect
+# daemon/infra failures identically.
+_DOCKER_INFRA_STDERR_PATTERNS = (
+    "cannot connect to the docker daemon",
+    "error during connect",
+    "docker daemon is not running",
+)
 
 # Default executor base image. Built from docker/Dockerfile.executor; carries
 # uv, gosu, the sandbox user, and the /entrypoint.sh contract (see
@@ -232,11 +245,24 @@ def kill_container(container_name: str) -> bool:
         if result.returncode == 0:
             logger.debug("Killed container %s", container_name)
             return True
-        logger.debug("Container %s was not running", container_name)
+        # Distinguish the benign "no such container" (already gone / never
+        # started) from a genuine kill failure (a still-running untrusted
+        # container we could not stop), which is a real containment concern.
+        stderr = decode_subprocess_stream(result.stderr).strip()
+        if "no such container" in stderr.lower():
+            logger.debug("Container %s was not running", container_name)
+        else:
+            logger.warning(
+                "Failed to kill container %s (exit %s): %s",
+                container_name,
+                result.returncode,
+                stderr,
+            )
         return False
     except Exception as e:
-        # Ignore errors - container may not exist or already be stopped
-        logger.debug("Failed to kill container %s: %s", container_name, e)
+        # A docker CLI error (daemon unreachable, timeout) leaves the container
+        # state unknown; surface it rather than silently swallowing.
+        logger.warning("Failed to kill container %s: %s", container_name, e)
         return False
 
 
@@ -269,11 +295,24 @@ def remove_container(container_name: str) -> bool:
         if result.returncode == 0:
             logger.debug("Removed container %s", container_name)
             return True
-        logger.debug("Container %s did not exist", container_name)
+        # ``docker rm -f`` is a no-op success for a missing container on modern
+        # daemons; a non-zero exit therefore signals a genuine removal failure
+        # (a leaked container), unless it is the benign "no such container".
+        stderr = decode_subprocess_stream(result.stderr).strip()
+        if "no such container" in stderr.lower():
+            logger.debug("Container %s did not exist", container_name)
+        else:
+            logger.warning(
+                "Failed to remove container %s (exit %s): %s; it may leak",
+                container_name,
+                result.returncode,
+                stderr,
+            )
         return False
     except Exception as e:
-        # Ignore errors - container may not exist or daemon may be unreachable
-        logger.debug("Failed to remove container %s: %s", container_name, e)
+        # A docker CLI error (daemon unreachable, timeout) means the container
+        # may still exist and leak; surface it rather than swallowing.
+        logger.warning("Failed to remove container %s: %s", container_name, e)
         return False
 
 
@@ -423,3 +462,164 @@ def base_isolation_args(
         args.append(f"--runtime={runtime}")
 
     return args
+
+
+def prepare_requirements_file(
+    requirements: Optional[Sequence[str]],
+    input_dir: Path,
+    *,
+    allow_runtime_requirements: bool,
+    max_requirements: int,
+) -> List[str]:
+    """Validate runtime requirements and write the ``_requirements.txt`` file.
+
+    Single source of truth for the runtime-requirements policy shared by the
+    server ``CodeExecutor`` and the library ``Sandbox``, so the two paths cannot
+    drift on how they cap, validate, gate, and persist requirements.
+
+    Policy (fail closed):
+
+    - An empty/None list is a no-op and returns ``[]`` (no file written).
+    - If requirements are present but ``allow_runtime_requirements`` is False,
+      raise ``ValueError`` (runtime installs are disabled).
+    - More than ``max_requirements`` entries raises ``ValueError``.
+    - Any entry failing ``validate_pip_requirement`` raises ``ValueError``:
+      invalid requirements are REJECTED, never silently skipped, so a typo or an
+      injection attempt fails loudly instead of running with a different
+      dependency set than the caller asked for.
+    - The validated list is written to ``input_dir/_requirements.txt`` and
+      chmod 0o444 (read-only) for the entrypoint to install.
+
+    The policy is checked before validation so an all-invalid list cannot bypass
+    the ``allow_runtime_requirements`` gate.
+
+    Args:
+        requirements: Requested pip requirements (may be None/empty).
+        input_dir: Directory mounted read-only at /input where the entrypoint
+            looks for ``_requirements.txt``.
+        allow_runtime_requirements: Whether runtime installs are permitted.
+        max_requirements: Maximum number of requirements allowed.
+
+    Returns:
+        The validated requirements list (empty when none were requested).
+
+    Raises:
+        ValueError: policy violation (installs disabled, too many, or an invalid
+            requirement).
+    """
+    if not requirements:
+        return []
+
+    # Enforce the policy before validation so an all-invalid list cannot bypass
+    # the allow_runtime_requirements check.
+    if not allow_runtime_requirements:
+        raise ValueError(
+            "Runtime dependency installation is disabled. "
+            "Use pre-built images or set allow_runtime_requirements=True."
+        )
+    if len(requirements) > max_requirements:
+        raise ValueError(f"Too many requirements ({len(requirements)} > {max_requirements})")
+
+    validated_reqs: List[str] = []
+    for req in requirements:
+        if not validate_pip_requirement(req):
+            raise ValueError(f"Invalid pip requirement: {req!r}")
+        validated_reqs.append(req)
+
+    requirements_file = input_dir / "_requirements.txt"
+    requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
+    requirements_file.chmod(0o444)
+    return validated_reqs
+
+
+def classify_docker_run_result(returncode: int, stderr: str) -> Tuple[bool, Optional[str]]:
+    """Decide whether a finished ``docker run`` failed in docker itself (infra).
+
+    ``docker run`` reserves exit code 125 for failures of docker itself (daemon
+    unreachable, image pull failure, bad flags); container exit codes pass
+    through unchanged otherwise, and our entrypoint never exits 125 in normal
+    operation. A non-zero exit whose stderr matches a known daemon-connectivity
+    phrasing is likewise an infrastructure failure. Such failures must never be
+    attributed to the user's code (e.g. by ``classify_error`` on daemon stderr).
+
+    Shared by the worker (which counts these against its circuit breaker and
+    marks them retriable) and the library Sandbox (which has no circuit breaker
+    but still surfaces them as a distinct infra failure rather than a code bug).
+
+    Args:
+        returncode: Exit code from ``subprocess.run`` of ``docker run``.
+        stderr: Captured stderr of the run.
+
+    Returns:
+        Tuple of ``(is_infra_failure, detail)``. ``detail`` is a short,
+        single-line description suitable for an error message (the first stderr
+        line, or a synthesized fallback), and is None when not an infra failure.
+    """
+    stderr_lower = (stderr or "").lower()
+    is_infra_failure = returncode == 125 or (
+        returncode != 0
+        and any(pattern in stderr_lower for pattern in _DOCKER_INFRA_STDERR_PATTERNS)
+    )
+    if not is_infra_failure:
+        return False, None
+
+    stderr_lines = (stderr or "").strip().splitlines()
+    detail = stderr_lines[0] if stderr_lines else f"docker run exited with code {returncode}"
+    return True, detail
+
+
+def classify_sigkill(container_name: str) -> Optional[bool]:
+    """Classify an exit-code-137 (SIGKILL) container as OOM or not.
+
+    Exit 137 is SIGKILL, but not necessarily the OOM killer: ``docker kill``
+    (cancel path), a pids-limit kill, or user code calling ``sys.exit(137)`` all
+    look identical. Only the exited container's ``State.OOMKilled`` distinguishes
+    them, so this must be called BEFORE the container is removed (the run must
+    use ``auto_remove=False``). In-container timeout kills are already remapped
+    to 124 by the entrypoint, so a 137 seen by callers is a genuine SIGKILL.
+
+    Thin wrapper over ``inspect_oom_killed`` so both the worker and the library
+    Sandbox apply the identical OOM policy:
+
+    Returns:
+        True if the kernel/cgroup OOM killer killed the process, False if it was
+        a non-OOM SIGKILL, or None if the inspect was inconclusive (container
+        already gone, daemon unreachable, timeout). Callers should treat None as
+        "assume OOM" so a flaky inspect never loses a true OOM.
+    """
+    return inspect_oom_killed(container_name)
+
+
+def read_result_json(output_dir: Path, ident: str) -> Optional[dict]:
+    """Read and parse ``output_dir/result.json``, symlink-safe.
+
+    Untrusted code in the container can point ``result.json`` at a host file to
+    exfiltrate it; this never follows a symlink. A present-but-unreadable or
+    unparseable file is logged and treated as "no JSON output" rather than
+    silently presented as None (the caller cannot tell the difference), so the
+    failure is surfaced in the log.
+
+    Shared by the worker and the library Sandbox so both parse the result file
+    identically.
+
+    Args:
+        output_dir: The job's output directory (bind-mounted at /output).
+        ident: Identifier for log messages (job/execution ID or container name).
+
+    Returns:
+        The parsed JSON object, or None if absent, a symlink, or unreadable.
+    """
+    output_file = output_dir / "result.json"
+    if output_file.is_symlink():
+        logger.warning("result.json for %s is a symlink, ignoring", ident)
+        return None
+    if not output_file.exists():
+        return None
+    try:
+        return json.loads(output_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError) as e:
+        # Output existed but was unreadable/unparseable (truncated, non-UTF-8,
+        # device error). Surface it loudly instead of presenting None as "no
+        # output produced".
+        logger.warning("Failed to read/parse result.json for %s: %s", ident, e)
+        return None

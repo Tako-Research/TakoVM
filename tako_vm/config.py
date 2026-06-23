@@ -15,6 +15,8 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from tako_vm.constants import DEFAULT_IMAGE
+
 logger = logging.getLogger(__name__)
 
 # Default config file locations (searched in order)
@@ -44,6 +46,27 @@ def _sanitize_validation_error(e: ValidationError) -> str:
         loc = ".".join(str(part) for part in err.get("loc", ())) or "config"
         lines.append(f"field {loc}: {err.get('msg', 'invalid value')}")
     return "; ".join(lines) or "validation failed"
+
+
+def _parse_size_to_mb(v: str, *, allow_k_and_bytes: bool) -> int:
+    """Parse a size string ('512m', '1g', etc.) to whole megabytes.
+
+    Shared by tmpfs_size and memory_limit validation. ``v`` must already be
+    lowercased and stripped. When ``allow_k_and_bytes`` is True a 'k' suffix or
+    a bare integer (bytes) is accepted (tmpfs); otherwise only 'm'/'g' are
+    allowed (memory_limit) and anything else raises ValueError. Integer parse
+    failures propagate as ValueError so pydantic reports them.
+    """
+    if v.endswith("g"):
+        return int(v[:-1]) * 1024
+    if v.endswith("m"):
+        return int(v[:-1])
+    if allow_k_and_bytes:
+        if v.endswith("k"):
+            return int(v[:-1]) // 1024
+        # Assume bytes.
+        return int(v) // (1024 * 1024)
+    raise ValueError("memory_limit must end with 'm' or 'g'")
 
 
 def get_default_data_dir() -> Path:
@@ -89,16 +112,7 @@ class ContainerLimits(BaseModel):
         if not v:
             raise ValueError("tmpfs_size cannot be empty")
 
-        # Parse size
-        if v.endswith("g"):
-            size_mb = int(v[:-1]) * 1024
-        elif v.endswith("m"):
-            size_mb = int(v[:-1])
-        elif v.endswith("k"):
-            size_mb = int(v[:-1]) // 1024
-        else:
-            # Assume bytes
-            size_mb = int(v) // (1024 * 1024)
+        size_mb = _parse_size_to_mb(v, allow_k_and_bytes=True)
 
         # Validate bounds (10MB to 2GB)
         if size_mb < 10:
@@ -221,13 +235,7 @@ class JobTypeConfig(BaseModel):
         if not v:
             raise ValueError("memory_limit cannot be empty")
 
-        # Parse and validate
-        if v.endswith("g"):
-            size_mb = int(v[:-1]) * 1024
-        elif v.endswith("m"):
-            size_mb = int(v[:-1])
-        else:
-            raise ValueError("memory_limit must end with 'm' or 'g'")
+        size_mb = _parse_size_to_mb(v, allow_k_and_bytes=False)
 
         if size_mb < 64:
             raise ValueError("memory_limit must be at least 64m")
@@ -433,7 +441,7 @@ class TakoVMConfig(BaseModel):
     )
 
     # Docker
-    docker_image: str = Field(default="code-executor:latest")
+    docker_image: str = Field(default=DEFAULT_IMAGE)
     enable_seccomp: bool = Field(default=True)
     enable_cap_restrictions: bool = Field(
         default=True,
@@ -523,10 +531,21 @@ class TakoVMConfig(BaseModel):
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
-        """Resolve all paths and create directories."""
-        # Data directory
+        """Resolve all paths and create the data directory.
+
+        Pure path resolution lives in ``_resolve_path_strings``; the data
+        directory creation is the one explicit, idempotent side effect and is
+        kept in ``_ensure_data_dir`` so callers (and the ``data_dir`` property)
+        can be reasoned about clearly. Behavior is unchanged: this still
+        resolves every path and mkdir's the data dir.
+        """
+        self._resolve_path_strings()
+        self._ensure_data_dir()
+        return self
+
+    def _resolve_path_strings(self) -> None:
+        """Resolve configured path strings to Path objects (no filesystem writes)."""
         self._resolved_data_dir = Path(self.data_dir_str)
-        self._resolved_data_dir.mkdir(parents=True, exist_ok=True)
 
         # Seccomp profile
         if self.seccomp_profile_path_str:
@@ -536,14 +555,23 @@ class TakoVMConfig(BaseModel):
                 str(_resource_files("tako_vm").joinpath("seccomp_profile.json"))
             )
 
-        return self
+    def _ensure_data_dir(self) -> None:
+        """Create the resolved data directory if missing (idempotent mkdir)."""
+        if self._resolved_data_dir is None:
+            self._resolve_path_strings()
+        self._resolved_data_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
 
     # Backward-compatible properties that return Path objects
     @property
     def data_dir(self) -> Path:
-        """Get data directory as Path (backward compatible)."""
+        """Get data directory as Path (backward compatible).
+
+        Reading this property ensures the data directory exists, preserving the
+        historical mkdir-on-access behavior that existing callers rely on.
+        """
         if self._resolved_data_dir is None:
-            self.resolve_paths()
+            self._resolve_path_strings()
+        self._ensure_data_dir()
         return self._resolved_data_dir  # type: ignore
 
     @property
@@ -742,7 +770,13 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         # which can leak secrets (e.g. database_url passwords) into logs/CLI output.
         raise ConfigurationError(f"Invalid configuration: {_sanitize_validation_error(e)}") from e
     except Exception as e:
-        raise ConfigurationError(f"Invalid configuration: {e}") from e
+        # Do not interpolate the raw exception text: like ValidationError it can
+        # echo arbitrary config payloads (e.g. database_url passwords) into logs
+        # and CLI output. Log the type for diagnosis and surface only the type.
+        logger.error("Configuration load failed with %s", type(e).__name__, exc_info=True)
+        raise ConfigurationError(
+            f"Invalid configuration: {type(e).__name__} (see logs for details)"
+        ) from e
 
     for warning in config.security_warnings():
         logger.warning(warning)

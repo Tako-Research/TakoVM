@@ -125,26 +125,40 @@ class IdempotencyLockManager:
 
     def __init__(self):
         self._locks: Dict[str, asyncio.Lock] = {}
+        # Number of coroutines currently holding or waiting on each key's lock.
+        # The lock is only evicted when this drops to zero, so a waiter that
+        # already grabbed a reference can never be left contending against a
+        # fresh lock created for the same key (which would break mutual
+        # exclusion).
+        self._waiters: Dict[str, int] = {}
         self._global_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def acquire(self, key: str):
         """Acquire lock for a specific idempotency key."""
-        # Get or create lock for this key
+        # Get or create lock for this key and register as a waiter.
         async with self._global_lock:
-            if key not in self._locks:
-                self._locks[key] = asyncio.Lock()
-            lock = self._locks[key]
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            self._waiters[key] = self._waiters.get(key, 0) + 1
 
-        # Acquire the per-key lock
-        async with lock:
-            yield
-
-        # Cleanup unused locks (optional, prevents memory leak for many unique keys)
-        async with self._global_lock:
-            if key in self._locks and not self._locks[key].locked():
-                # Only delete if no other request is waiting
-                del self._locks[key]
+        try:
+            # Acquire the per-key lock
+            async with lock:
+                yield
+        finally:
+            # Deregister; evict the lock only when no other coroutine still
+            # references it, preventing the unbounded growth of _locks while
+            # keeping concurrent waiters on the same lock object.
+            async with self._global_lock:
+                remaining = self._waiters.get(key, 0) - 1
+                if remaining <= 0:
+                    self._waiters.pop(key, None)
+                    self._locks.pop(key, None)
+                else:
+                    self._waiters[key] = remaining
 
 
 # Application state (initialized in lifespan)
@@ -520,6 +534,22 @@ class JobTypeResponse(BaseModel):
     gpu_vendor: Optional[str] = None
     image_exists: bool
 
+    @classmethod
+    def from_job_type(cls, jt, builder) -> "JobTypeResponse":
+        """Build a response from a job type, resolving image availability."""
+        return cls(
+            name=jt.name,
+            requirements=jt.requirements,
+            python_version=jt.python_version,
+            memory_limit=jt.memory_limit,
+            cpu_limit=jt.cpu_limit,
+            timeout=jt.timeout,
+            session_enabled=jt.session_enabled,
+            gpu_enabled=jt.gpu_enabled,
+            gpu_vendor=jt.gpu_vendor,
+            image_exists=builder.image_exists(jt),
+        )
+
 
 class CircuitBreakerStatus(BaseModel):
     """Circuit breaker status for health monitoring."""
@@ -557,15 +587,9 @@ class HealthResponse(BaseModel):
     queue_stats: QueueStatsResponse
 
 
-class PoolStatsResponse(BaseModel):
-    """Response model for worker pool stats (deprecated, use QueueStatsResponse)."""
-
-    model_config = {"extra": "forbid"}
-
-    pending: int = Field(..., description="Number of jobs waiting in queue")
-    running: int = Field(..., description="Number of jobs currently executing")
-    max_workers: int = Field(..., description="Maximum concurrent workers")
-    max_queue_size: int = Field(..., description="Maximum queue capacity")
+# /pool/stats and /health.queue_stats return byte-identical shapes, so they
+# share a single model rather than maintaining two copies that can drift.
+PoolStatsResponse = QueueStatsResponse
 
 
 class PaginatedResponse(BaseModel):
@@ -1180,6 +1204,44 @@ def _get_replay_data(record: ExecutionRecord) -> tuple:
     return code, input_data, user_artifacts
 
 
+async def _submit_replay(
+    parent: ExecutionRecord,
+    *,
+    relationship: str,
+    code: str,
+    input_data: dict,
+    input_artifacts: list,
+    job_type: Optional[str],
+    timeout: Optional[int],
+    http_request: Request,
+) -> AsyncExecuteResponse:
+    """Build and submit a rerun/fork job that links back to ``parent``.
+
+    Shared by the rerun and fork endpoints, which differ only in which code
+    they replay and the relationship recorded on the new job.
+    """
+    job_data = {
+        "code": code,
+        "input_data": input_data,
+        "input_artifacts": input_artifacts,
+        "job_type": job_type or parent.job_type,
+        "parent_execution_id": parent.execution_id,
+        "relationship": relationship,
+        "correlation_id": get_correlation_id(),
+    }
+
+    if timeout:
+        job_data["timeout"] = timeout
+
+    new_job_id = await state.worker_pool.submit(
+        job_data=job_data, client_ip=http_request.client.host if http_request.client else None
+    )
+
+    logger.info(f"Job {new_job_id} created as {relationship} of {parent.execution_id}")
+
+    return AsyncExecuteResponse(job_id=new_job_id, status="queued")
+
+
 @app.post("/jobs/{job_id}/rerun", response_model=AsyncExecuteResponse)
 async def rerun_job(job_id: str, request: RerunRequest, http_request: Request):
     """
@@ -1213,27 +1275,16 @@ async def rerun_job(job_id: str, request: RerunRequest, http_request: Request):
         logger.error(f"Failed to get replay data for {job_id}: {e}")
         raise HTTPException(status_code=400, detail="Failed to retrieve replay data") from e
 
-    # Build job data with parent linkage
-    job_data = {
-        "code": code,
-        "input_data": input_data,
-        "input_artifacts": input_artifacts,
-        "job_type": request.job_type or parent.job_type,
-        "parent_execution_id": parent.execution_id,
-        "relationship": "rerun",
-        "correlation_id": get_correlation_id(),
-    }
-
-    if request.timeout:
-        job_data["timeout"] = request.timeout
-
-    new_job_id = await state.worker_pool.submit(
-        job_data=job_data, client_ip=http_request.client.host if http_request.client else None
+    return await _submit_replay(
+        parent,
+        relationship="rerun",
+        code=code,
+        input_data=input_data,
+        input_artifacts=input_artifacts,
+        job_type=request.job_type,
+        timeout=request.timeout,
+        http_request=http_request,
     )
-
-    logger.info(f"Job {new_job_id} created as rerun of {job_id}")
-
-    return AsyncExecuteResponse(job_id=new_job_id, status="queued")
 
 
 @app.post("/jobs/{job_id}/fork", response_model=AsyncExecuteResponse)
@@ -1265,27 +1316,16 @@ async def fork_job(job_id: str, request: ForkRequest, http_request: Request):
         logger.error(f"Failed to get replay data for {job_id}: {e}")
         raise HTTPException(status_code=400, detail="Failed to retrieve replay data") from e
 
-    # Build job data with new code and parent linkage
-    job_data = {
-        "code": request.code,
-        "input_data": input_data,
-        "input_artifacts": input_artifacts,
-        "job_type": request.job_type or parent.job_type,
-        "parent_execution_id": parent.execution_id,
-        "relationship": "fork",
-        "correlation_id": get_correlation_id(),
-    }
-
-    if request.timeout:
-        job_data["timeout"] = request.timeout
-
-    new_job_id = await state.worker_pool.submit(
-        job_data=job_data, client_ip=http_request.client.host if http_request.client else None
+    return await _submit_replay(
+        parent,
+        relationship="fork",
+        code=request.code,
+        input_data=input_data,
+        input_artifacts=input_artifacts,
+        job_type=request.job_type,
+        timeout=request.timeout,
+        http_request=http_request,
     )
-
-    logger.info(f"Job {new_job_id} created as fork of {job_id}")
-
-    return AsyncExecuteResponse(job_id=new_job_id, status="queued")
 
 
 @app.get("/jobs/{job_id}/artifacts/{artifact_name}")
@@ -1374,17 +1414,16 @@ async def list_executions(
     Returns paginated list of execution records with metadata for efficient client-side pagination.
     Use ?view=full to include artifacts, resource usage, content hashes, and lineage info.
     """
-    actual_limit = min(limit, 1000)
     records = await state.storage.list_records(
         status=status,
         job_type=job_type,
-        limit=actual_limit + 1,  # Fetch one extra to check has_more
+        limit=limit + 1,  # Fetch one extra to check has_more
         offset=offset,
     )
 
-    has_more = len(records) > actual_limit
+    has_more = len(records) > limit
     if has_more:
-        records = records[:actual_limit]
+        records = records[:limit]
 
     if view == "full":
         items = [ExecutionRecordFullResponse.from_record(r) for r in records]
@@ -1393,7 +1432,7 @@ async def list_executions(
 
     return PaginatedResponse(
         items=items,
-        limit=actual_limit,
+        limit=limit,
         offset=offset,
         has_more=has_more,
         count=len(records),
@@ -1439,23 +1478,7 @@ async def list_job_types():
 
     builder = ContainerBuilder()
 
-    result = []
-    for jt in state.registry.list():
-        result.append(
-            JobTypeResponse(
-                name=jt.name,
-                requirements=jt.requirements,
-                python_version=jt.python_version,
-                memory_limit=jt.memory_limit,
-                cpu_limit=jt.cpu_limit,
-                timeout=jt.timeout,
-                session_enabled=jt.session_enabled,
-                gpu_enabled=jt.gpu_enabled,
-                gpu_vendor=jt.gpu_vendor,
-                image_exists=builder.image_exists(jt),
-            )
-        )
-    return result
+    return [JobTypeResponse.from_job_type(jt, builder) for jt in state.registry.list()]
 
 
 @app.get("/job-types/{name}", response_model=JobTypeResponse)
@@ -1476,18 +1499,7 @@ async def get_job_type(name: str):
         raise HTTPException(status_code=404, detail=f"Job type '{name}' not found")
 
     builder = ContainerBuilder()
-    return JobTypeResponse(
-        name=jt.name,
-        requirements=jt.requirements,
-        python_version=jt.python_version,
-        memory_limit=jt.memory_limit,
-        cpu_limit=jt.cpu_limit,
-        timeout=jt.timeout,
-        session_enabled=jt.session_enabled,
-        gpu_enabled=jt.gpu_enabled,
-        gpu_vendor=jt.gpu_vendor,
-        image_exists=builder.image_exists(jt),
-    )
+    return JobTypeResponse.from_job_type(jt, builder)
 
 
 @app.post("/job-types/{name}/build", response_model=BuildResponse)
@@ -1569,20 +1581,19 @@ async def list_dlq_entries(
 
     Returns paginated list of failed jobs for debugging and reprocessing.
     """
-    actual_limit = min(limit, 1000)
     entries = await state.storage.list_dlq_entries(
         error_type=error_type,
-        limit=actual_limit + 1,  # Fetch one extra to check has_more
+        limit=limit + 1,  # Fetch one extra to check has_more
         offset=offset,
     )
 
-    has_more = len(entries) > actual_limit
+    has_more = len(entries) > limit
     if has_more:
-        entries = entries[:actual_limit]
+        entries = entries[:limit]
 
     return PaginatedResponse(
         items=[entry.model_dump() for entry in entries],
-        limit=actual_limit,
+        limit=limit,
         offset=offset,
         has_more=has_more,
         count=len(entries),

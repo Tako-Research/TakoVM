@@ -506,7 +506,7 @@ class TakoVM:
 
         try:
             return cast(OutputT, output_cls(**cast(Dict[str, Any], result.output)))
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError, KeyError) as e:
             raise ValidationError(
                 f"Failed to deserialize output to {output_cls.__name__}: {e}"
             ) from e
@@ -931,11 +931,18 @@ _execute()
             params["timeout"] = wait_timeout
         if view:
             params["view"] = view
+        # The server long-poll is capped at _MAX_RESULT_WAIT_SECONDS, so a wait
+        # never blocks longer than that regardless of the requested timeout. Clamp
+        # the requested wait to the same cap before adding the buffer margin, so
+        # the HTTP read timeout always outlives the server's poll plus a little
+        # slack (HTTP_TIMEOUT_BUFFER) for response transmission, without inflating
+        # the socket timeout past what the server can actually take.
+        wait_seconds = min(timeout, _MAX_RESULT_WAIT_SECONDS) if timeout else self.default_timeout
         return self._request(
             "GET",
             f"/jobs/{job_id}/result",
             params=params,
-            http_timeout=(timeout or self.default_timeout) + 10,
+            http_timeout=wait_seconds + HTTP_TIMEOUT_BUFFER,
         )
 
     def cancel(self, job_id: str) -> dict:

@@ -234,9 +234,8 @@ class ApiProtectionMiddleware:
 
                 if not message.get("more_body", False):
                     break
-            elif message_type == "http.disconnect":
-                break
             else:
+                # Any non-request message (e.g. http.disconnect) ends the body.
                 break
 
         return buffered_messages
