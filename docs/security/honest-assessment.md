@@ -1,5 +1,5 @@
 ---
-description: "Tako VM threat model — strong isolation for trusted code, and the real-world limits for untrusted AI-generated code."
+description: "Tako VM threat model: strong isolation for trusted code, and the real-world limits for untrusted AI-generated code."
 ---
 
 # Threat Model
@@ -34,7 +34,7 @@ description: "Tako VM threat model — strong isolation for trusted code, and th
 
 **Limitations:**
 - Kernel vulnerabilities could allow escape (rare, quickly patched)
-- Shared kernel with host under `runc` — enable the built-in gVisor support (`container_runtime: runsc` + `security_mode: strict`) for a userspace-kernel boundary, or Kata for full VM isolation
+- Shared kernel with host under `runc`: enable the built-in gVisor support (`container_runtime: runsc` + `security_mode: strict`) for a userspace-kernel boundary, or Kata for full VM isolation
 
 ### ✅ Resource Exhaustion (GOOD)
 ```yaml

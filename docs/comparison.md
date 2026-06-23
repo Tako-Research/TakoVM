@@ -1,10 +1,10 @@
 ---
-description: "Tako VM vs E2B vs Daytona — compare secure code execution platforms on deployment, isolation, job queues, pricing, and self-hosting."
+description: "Tako VM vs E2B vs Daytona: compare secure code execution platforms on deployment, isolation, job queues, pricing, and self-hosting."
 ---
 
 # Tako VM vs E2B vs Daytona
 
-Comparison of secure code execution platforms (last reviewed June 2026 — competitor details change quickly; verify against their current docs)
+Comparison of secure code execution platforms (last reviewed June 2026; competitor details change quickly; verify against their current docs)
 
 ## Quick Comparison
 

@@ -311,8 +311,8 @@ class TestExecution:
 
 class TestServerContractViolations:
     """A 2xx response with a schema-mismatched body must surface a structured,
-    correlated MalformedResponseError — never a naked KeyError or a vague
-    "Execution failed" — and must be logged loudly (verbose-on-failure)."""
+    correlated MalformedResponseError (never a naked KeyError or a vague
+    "Execution failed") and must be logged loudly (verbose-on-failure)."""
 
     def test_submit_code_missing_job_id_raises_malformed(self, caplog):
         session = _mock_session({"status": "queued", "oops": 1})  # no job_id

@@ -196,7 +196,7 @@ class TestRemoveContainer:
 
 
 class TestInspectOomKilled:
-    """Tests for inspect_oom_killed() — the authoritative OOM signal."""
+    """Tests for inspect_oom_killed(): the authoritative OOM signal."""
 
     @patch("subprocess.run")
     def test_inspect_calls_docker_with_oomkilled_format(self, mock_run):
@@ -252,7 +252,7 @@ class TestInspectOomKilled:
 
 
 class TestImageExists:
-    """Tests for image_exists() — cached local-image presence check."""
+    """Tests for image_exists(): cached local-image presence check."""
 
     @patch("subprocess.run")
     def test_calls_docker_image_inspect_with_timeout(self, mock_run):
@@ -328,7 +328,7 @@ class TestImageExists:
 
 
 class TestImageHasExecutorEntrypoint:
-    """Tests for image_has_executor_entrypoint() — the executor contract check."""
+    """Tests for image_has_executor_entrypoint(): the executor contract check."""
 
     @staticmethod
     def _inspect_result(stdout):

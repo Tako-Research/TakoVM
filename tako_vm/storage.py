@@ -193,7 +193,7 @@ MIGRATIONS: list[tuple[str, str]] = [
 # ON CONFLICT ... DO UPDATE SET clause are ALL generated from _EXECUTION_COLUMNS
 # below, so adding a column is one row here instead of four hand-synced edits in
 # one statement (the exact drift hazard the `runtime`/`correlation_id`
-# migrations hit) — and a placeholder miscount can no longer silently shift
+# migrations hit), and a placeholder miscount can no longer silently shift
 # every column. `_row_to_record` stays hand-written: it carries per-field decode
 # and corruption-fallback logic that resists tabulation.
 #
@@ -649,7 +649,7 @@ class ExecutionStorage:
     def _row_to_record(self, row: RowMapping) -> ExecutionRecord:
         """Convert database row to ExecutionRecord."""
         # All ResourceUsage fields are independently nullable, so rebuild the
-        # model if ANY metric column was stored — gating on wall_time_ms alone
+        # model if ANY metric column was stored; gating on wall_time_ms alone
         # would silently drop records saved with only max_rss_mb/cpu_time_ms.
         resource_usage = None
         if any(

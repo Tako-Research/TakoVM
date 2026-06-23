@@ -111,7 +111,7 @@ class ApiProtectionMiddleware:
         # This middleware wraps the app *outside* FastAPI's exception handlers,
         # so an unexpected error in the protection logic would otherwise escape
         # as an opaque 500 with no correlated log line. Catch it, log loudly,
-        # and emit a sanitized 500 — unless the response has already started
+        # and emit a sanitized 500, unless the response has already started
         # streaming, in which case we can only re-raise.
         response_started = False
 

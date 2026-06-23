@@ -293,7 +293,7 @@ def run_setup(args):
     if result.returncode == 0 and "ok" in result.stdout:
         print("  Executor image works")
     else:
-        # The image is unusable — exit non-zero so `tako-vm setup && ...`
+        # The image is unusable, so exit non-zero so `tako-vm setup && ...`
         # doesn't proceed on a broken image and report success.
         print("Error: Image pulled but verification failed.", file=sys.stderr)
         if result.stderr:
@@ -564,7 +564,7 @@ def check_status(args):
 
     try:
         response = requests.get(f"{args.url}/health", timeout=5)
-        # A non-2xx /health means the server is up but unhealthy — surface the
+        # A non-2xx /health means the server is up but unhealthy: surface the
         # status code and body instead of blindly parsing JSON (which could
         # raise, or worse, print a healthy-looking "unknown").
         if response.status_code >= 400:
@@ -581,7 +581,7 @@ def check_status(args):
         print(f"Error: Cannot connect to {args.url}", file=sys.stderr)
         sys.exit(1)
     except ValueError as e:
-        # Reachable but the body wasn't valid JSON — show what we got.
+        # Reachable but the body wasn't valid JSON. Show what we got.
         print(f"Error: invalid JSON from {args.url}/health: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
@@ -634,7 +634,7 @@ def validate_config(args):
                     print(f"    - {jt.name}")
         except (ImportError, ValueError, AttributeError) as e:
             # validate_config_file passed but the full loader (which also
-            # applies env overrides + resolve_paths) failed — that divergence
+            # applies env overrides + resolve_paths) failed; that divergence
             # matters, so don't hide it behind "Configuration is valid!".
             print(f"(could not render config summary: {e})", file=sys.stderr)
 

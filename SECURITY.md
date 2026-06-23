@@ -14,11 +14,11 @@ Please do not open public issues, pull requests, or discussion threads for suspe
 A useful report includes:
 
 - The version, commit SHA, or PyPI release you tested.
-- Your configuration relevant to the finding — in particular `container_runtime`, `security_mode`, `enable_seccomp`, and any job types with `network_enabled: true`.
+- Your configuration relevant to the finding, in particular `container_runtime`, `security_mode`, `enable_seccomp`, and any job types with `network_enabled: true`.
 - A minimal reproduction: the submitted code or request, and the observed versus expected behavior.
 - The impact you believe it has (container escape, host access, data exfiltration, denial of service, information disclosure).
 
-Reports that demonstrate a sandbox escape — host filesystem access, code execution outside the executor container, reaching the Docker daemon, or bypassing network isolation — are the most valuable and will be prioritized accordingly.
+Reports that demonstrate a sandbox escape (host filesystem access, code execution outside the executor container, reaching the Docker daemon, or bypassing network isolation) are the most valuable and will be prioritized accordingly.
 
 ### What to expect
 
@@ -52,11 +52,11 @@ Tako VM uses layered isolation. No single layer is treated as sufficient on its 
 
 **Syscall filtering (seccomp).** A default-deny seccomp profile (`SCMP_ACT_ERRNO`) allows only a whitelist of syscalls and blocks dangerous ones including `ptrace`, `mount`, `reboot`, `sethostname`, and `init_module`. Controlled by `enable_seccomp`.
 
-**Network isolation.** Containers run with `--network=none` by default, which blocks data exfiltration, command-and-control traffic, and access to internal services. Network access is opt-in per job type via `network_enabled: true`, and when enabled it permits access to any external host — egress filtering is your responsibility (host firewall or Kubernetes NetworkPolicy). Runtime dependency installation and the shared dependency cache are disabled by default to prevent untrusted jobs from fetching and executing package setup code.
+**Network isolation.** Containers run with `--network=none` by default, which blocks data exfiltration, command-and-control traffic, and access to internal services. Network access is opt-in per job type via `network_enabled: true`, and when enabled it permits access to any external host: egress filtering is your responsibility (host firewall or Kubernetes NetworkPolicy). Runtime dependency installation and the shared dependency cache are disabled by default to prevent untrusted jobs from fetching and executing package setup code.
 
 **Resource limits.** Memory, CPU, PID, file-descriptor, file-size, and `/tmp` size limits, plus enforced execution timeouts, bound the damage from runaway or deliberately abusive code (fork bombs, memory exhaustion, disk filling).
 
-**Input validation.** Submitted code and inputs are size-capped (100KB code, 1MB input, 300s max timeout by default). Container build inputs — base image, Python version, pip requirements, environment variables, and shared code paths — are validated to reject shell metacharacters, newlines, URL and path specifiers, and directory traversal. Output artifact filenames are checked to block path separators, parent-directory references, and hidden files.
+**Input validation.** Submitted code and inputs are size-capped (100KB code, 1MB input, 300s max timeout by default). Container build inputs (base image, Python version, pip requirements, environment variables, and shared code paths) are validated to reject shell metacharacters, newlines, URL and path specifiers, and directory traversal. Output artifact filenames are checked to block path separators, parent-directory references, and hidden files.
 
 **Output handling.** stdout, stderr, and artifacts are size-capped, and stack traces are rewritten to strip internal host paths before they are returned.
 
@@ -101,7 +101,7 @@ For stronger isolation than gVisor provides, run Tako VM on dedicated hosts or p
 
 Several defaults in the shipped example configuration favor ease of first-run over maximum hardening. If you are exposing Tako VM to untrusted code in production, do not run with the example defaults unchanged. At minimum:
 
-- Set `security_mode: strict`. The default is `permissive`, which silently falls back to standard `runc` if gVisor is unavailable — meaning untrusted code can end up running without the userspace-kernel boundary you expect. `strict` fails closed instead.
+- Set `security_mode: strict`. The default is `permissive`, which silently falls back to standard `runc` if gVisor is unavailable, meaning untrusted code can end up running without the userspace-kernel boundary you expect. `strict` fails closed instead.
 - Install and verify gVisor (`docker run --runtime=runsc --rm hello-world`) and keep `container_runtime: runsc`.
 - Keep `enable_seccomp: true`.
 - Terminate TLS in front of the API and keep rate limiting enabled.

@@ -1,5 +1,5 @@
 ---
-description: "Pre-install custom Python libraries into Tako VM executor images — internal packages, patched builds, and complex build-time dependencies."
+description: "Pre-install custom Python libraries into Tako VM executor images: internal packages, patched builds, and complex build-time dependencies."
 ---
 
 # Custom Libraries

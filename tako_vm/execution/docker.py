@@ -37,7 +37,7 @@ DEFAULT_EXECUTOR_IMAGE = "code-executor:latest"
 # entrypoint is what enforces the in-container startup/execution timeouts,
 # installs runtime requirements, writes the phase/timing file, and runs
 # /code/main.py itself (as the sandbox user via gosu). An image without it
-# would run its default CMD instead of the user's code — for python:slim the
+# would run its default CMD instead of the user's code. For python:slim the
 # REPL exits 0 on EOF, recording a bogus "succeeded" for code that never ran.
 EXECUTOR_ENTRYPOINT = "/entrypoint.sh"
 
@@ -79,7 +79,7 @@ def image_exists(image_name: str) -> bool:
 
     Positive results are cached for a short TTL so per-run lookups (e.g. "does
     this job type have a pre-built image?") don't cost a daemon round-trip on
-    every execution. Negative results are never cached — see
+    every execution. Negative results are never cached: see
     ``_IMAGE_CACHE_TTL_SECONDS``.
 
     Args:
@@ -113,7 +113,7 @@ def image_has_executor_entrypoint(image_name: str) -> Optional[bool]:
     """Check whether an image's ENTRYPOINT is exactly ``["/entrypoint.sh"]``.
 
     This is the cheap, reliable test for "was this image derived from the
-    executor base image" — i.e. does it honor the contract the worker depends
+    executor base image", i.e. does it honor the contract the worker depends
     on (in-container timeouts, dependency install, phase file, and running
     /code/main.py itself). Positive results are cached with a short TTL,
     mirroring ``image_exists``.
@@ -158,7 +158,7 @@ def image_has_executor_entrypoint(image_name: str) -> Optional[bool]:
 
 # Label applied to every executor container at `docker run` time. Cleanup
 # (DockerCleanup.cleanup_orphaned_containers) matches on this label, so it must
-# be applied by every launch path — base_isolation_args() does this centrally.
+# be applied by every launch path; base_isolation_args() does this centrally.
 CONTAINER_LABEL = "tako-vm-executor"
 
 # Label key carrying the execution/job ID, so an orphaned container can be
@@ -189,7 +189,7 @@ def generate_container_name(prefix: str, job_id: Optional[str] = None, attempt: 
 
     Retry attempts (attempt > 0) get a ``-r{attempt}`` suffix so a retry can
     never collide with a previous attempt's container that ``--rm`` has not
-    removed yet (exactly the daemon-hiccup scenario that triggers a retry —
+    removed yet (exactly the daemon-hiccup scenario that triggers a retry;
     a name collision would fail the retry with docker exit 125 "name already
     in use"). Attempt 0 keeps the plain deterministic ``{prefix}-{job_id}``
     name because external kill paths (queue.py cancel()/watchdog) compute
@@ -274,7 +274,7 @@ def remove_container(container_name: str) -> bool:
     one step. Used by the worker after every run (its containers are started
     without ``--rm`` so a 137 exit can be inspected for ``State.OOMKilled``)
     and before a retry attempt to clean up the previous attempt's container
-    so it cannot linger (removal can lag behind a daemon hiccup — the very
+    so it cannot linger (removal can lag behind a daemon hiccup, the very
     condition that triggers retries).
 
     Silently ignores errors (the container may already be gone).
@@ -365,7 +365,7 @@ def ulimit_args(limits) -> list[str]:
     gVisor does not impose on its own; they only take effect when passed via
     ``--ulimit`` at container creation. Both builders (``CodeExecutor`` and the
     library ``Sandbox``) assemble their own ``docker run`` command, so this is
-    factored out to keep them from drifting — the drift this guards against is
+    factored out to keep them from drifting; the drift this guards against is
     exactly issue #97, where the ``Sandbox`` path shipped with no ``--ulimit``
     at all and left ``RLIMIT_FSIZE`` unbounded against the writable ``/output``
     bind-mount (a host-disk-exhaustion DoS the gVisor boundary does not cover).
@@ -394,9 +394,9 @@ def base_isolation_args(
 ) -> list[str]:
     """Leading ``docker run`` args shared by every isolated-execution path.
 
-    Centralizes the always-on isolation posture — ``--rm``, ``--init``,
+    Centralizes the always-on isolation posture (``--rm``, ``--init``,
     ``--read-only``, the capability drop/add set, and the gVisor ``--runtime``
-    flag — so it is assembled in exactly one place. The execution paths that
+    flag) so it is assembled in exactly one place. The execution paths that
     each build their own command (``CodeExecutor`` and the library ``Sandbox``)
     start from this, which keeps the isolation flags from drifting between them
     (e.g. a hardening flag added to one builder and silently missed on

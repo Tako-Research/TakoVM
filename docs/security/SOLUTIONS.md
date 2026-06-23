@@ -1,5 +1,5 @@
 ---
-description: "Tako VM security solutions and limitations — what is already fixed (seccomp, path-traversal protection) and what cannot be fully mitigated."
+description: "Tako VM security solutions and limitations: what is already fixed (seccomp, path-traversal protection) and what cannot be fully mitigated."
 ---
 
 # Security Solutions & Limitations

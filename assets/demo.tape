@@ -1,4 +1,4 @@
-# Tako VM README demo — records real requests against a live local server
+# Tako VM README demo: records real requests against a live local server
 Output assets/demo.gif
 
 Set Shell "bash"

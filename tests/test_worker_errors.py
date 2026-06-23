@@ -21,7 +21,7 @@ Covers:
    record.stdout_truncated / stderr_truncated were never set.
 
 5. OOM detection: exit code 137 was unconditionally reported as "oom", but
-   137 is just SIGKILL — `docker kill` (cancel), pids-limit kills, and user
+   137 is just SIGKILL: `docker kill` (cancel), pids-limit kills, and user
    sys.exit(137) looked identical, and the authoritative State.OOMKilled flag
    was unreadable because `--rm` removed the container before inspection.
 
@@ -30,7 +30,7 @@ Covers:
    that feeds status determination. It now lives in the root-only /tako-meta
    mount when available.
 
-All tests mock subprocess.run — no Docker required.
+All tests mock subprocess.run: no Docker required.
 """
 
 import subprocess
@@ -835,7 +835,7 @@ class TestPhaseFileTrust:
 
 class TestImageResolution:
     """F7: images built by `tako-vm build` must actually be executed, and raw
-    base images without the executor entrypoint contract must be refused —
+    base images without the executor entrypoint contract must be refused:
     running them would execute the image's default CMD instead of
     /code/main.py and record a bogus success for code that never ran."""
 
@@ -886,7 +886,7 @@ class TestImageResolution:
         self, tmp_path, breaker, monkeypatch
     ):
         """Per-job extra requirements are not baked in and still install at
-        runtime — but the job type's own requirements must not be re-listed."""
+        runtime, but the job type's own requirements must not be re-listed."""
         jt = JobType(name="custom", requirements=["pandas"])
         monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
         monkeypatch.setattr(
@@ -996,7 +996,7 @@ class TestImageResolution:
 
     def test_raw_base_image_is_refused_not_bogus_success(self, tmp_path, breaker, monkeypatch):
         """A raw base image (no /entrypoint.sh) must fail fast with a config
-        error — previously python:slim's default CMD (the REPL) ran instead of
+        error. Previously python:slim's default CMD (the REPL) ran instead of
         the user's code, exited 0 on EOF, and the job was recorded
         'succeeded' with empty output for code that NEVER ran."""
         jt = JobType(name="custom", base_image="python:3.11-slim")

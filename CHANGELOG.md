@@ -29,7 +29,7 @@ end-to-end for durability, traceability, and security.
 
 ### Added
 
-- **Python SDK — full API parity** (#62): asynchronous submission
+- **Python SDK, full API parity** (#62): asynchronous submission
   (`submit`/`submit_code`), the complete job lifecycle (`get_status`,
   `get_result`, `cancel`, `rerun`, `fork`), artifact download, paginated
   execution history, and job-type metadata.

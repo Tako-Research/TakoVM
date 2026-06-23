@@ -1,5 +1,5 @@
 ---
-description: "Tako VM Python SDK reference — the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers."
+description: "Tako VM Python SDK reference: the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers."
 ---
 
 # Python SDK Reference
@@ -47,7 +47,7 @@ result = tako_vm.send(add, Input(10, 20))
 print(result.result)  # 30
 ```
 
-The module-level helpers use a default client configured via `tako_vm.configure()`, and mirror the full `TakoVM` surface — typed execution (`send`, `send_raw`), the async job lifecycle (`submit`, `submit_code`, `get_status`, `get_result`, `cancel`, `rerun`, `fork`, `download_artifact`), history (`list_executions`, `get_execution`), and metadata (`list_job_types`, `get_job_type`, `build_job_type`, `pool_stats`, `dlq_stats`, `health`). `configure()` accepts the same arguments as `TakoVM` (`headers`, `session`, `connect_timeout`, `correlation_id`). Instantiate `TakoVM` directly when you need multiple independently-configured clients in one process.
+The module-level helpers use a default client configured via `tako_vm.configure()`, and mirror the full `TakoVM` surface: typed execution (`send`, `send_raw`), the async job lifecycle (`submit`, `submit_code`, `get_status`, `get_result`, `cancel`, `rerun`, `fork`, `download_artifact`), history (`list_executions`, `get_execution`), and metadata (`list_job_types`, `get_job_type`, `build_job_type`, `pool_stats`, `dlq_stats`, `health`). `configure()` accepts the same arguments as `TakoVM` (`headers`, `session`, `connect_timeout`, `correlation_id`). Instantiate `TakoVM` directly when you need multiple independently-configured clients in one process.
 
 ```python
 import tako_vm
@@ -80,7 +80,7 @@ client = TakoVM(
 
 ### Authentication
 
-The SDK does **not** implement authentication — it forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a `session` for transport-level auth (mTLS).
+The SDK does **not** implement authentication. It forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a `session` for transport-level auth (mTLS).
 
 ```python
 # API key (matches the server's api_auth_header, default "X-API-Key")
@@ -101,11 +101,11 @@ client = TakoVM("https://tako.internal", session=sess)
 
 The client ships with a reliability layer; all of it is automatic:
 
-- **Transport retries (GETs only).** The default session retries idempotent GETs (status/result polling, job types, health) on 502/503/504 with backoff. POSTs are never retried at the transport layer — the sync `POST /execute` is not idempotent, so a blind retry could run code twice. Passing your own `session=` replaces this adapter.
+- **Transport retries (GETs only).** The default session retries idempotent GETs (status/result polling, job types, health) on 502/503/504 with backoff. POSTs are never retried at the transport layer: the sync `POST /execute` is not idempotent, so a blind retry could run code twice. Passing your own `session=` replaces this adapter.
 - **Retry-safe async submission.** `submit()`/`submit_code()` auto-generate a server-compatible `idempotency_key` when you don't pass one and retry transient failures (connection errors, 502/503/504) with the *same* key, so the server returns the existing job instead of re-executing.
 - **Correlation IDs.** Every request carries an `X-Correlation-ID` header (auto-generated, or fixed via `TakoVM(correlation_id=...)`). The id is exposed as `.correlation_id` on `ExecutionResult` and on SDK exceptions for end-to-end tracing.
-- **Structured errors.** HTTP failures raise `TransportError` (connection/timeout), `ServerError` (5xx, with `.retryable` set for 502/503/504), or `ClientError` (4xx) — all subclasses of `TakoVMError` carrying `.status_code`, `.detail` (parsed from the server's error body), and `.correlation_id`. The sync `send()`/`send_raw()` path keeps its legacy contract and reports these as a failed `ExecutionResult` instead of raising them.
-- **Client-side timeouts that outlive the server.** When `timeout` is omitted, the HTTP read timeout is resolved from the job type's default (`GET /job-types/{name}`, cached per client) plus the startup budget, with a generous fallback — so long-running jobs are never killed client-side while they would still complete server-side. If the job-type lookup fails, the client logs a warning and falls back to the maximum read timeout.
+- **Structured errors.** HTTP failures raise `TransportError` (connection/timeout), `ServerError` (5xx, with `.retryable` set for 502/503/504), or `ClientError` (4xx), all subclasses of `TakoVMError` carrying `.status_code`, `.detail` (parsed from the server's error body), and `.correlation_id`. The sync `send()`/`send_raw()` path keeps its legacy contract and reports these as a failed `ExecutionResult` instead of raising them.
+- **Client-side timeouts that outlive the server.** When `timeout` is omitted, the HTTP read timeout is resolved from the job type's default (`GET /job-types/{name}`, cached per client) plus the startup budget, with a generous fallback, so long-running jobs are never killed client-side while they would still complete server-side. If the job-type lookup fails, the client logs a warning and falls back to the maximum read timeout.
 - **Verbose on failure.** Every failure path logs at `WARNING`/`ERROR` on the `tako_vm.sdk.client` logger with the correlation id, status, and server detail. A non-JSON 2xx body and an output that doesn't fit the return dataclass are both logged and surfaced (a failed `ExecutionResult` and the raw dict, respectively) rather than swallowed silently. Enable it with `logging.getLogger("tako_vm.sdk.client").setLevel(logging.DEBUG)`.
 
 ---
@@ -182,7 +182,7 @@ client.dlq_stats()                   # dead-letter-queue stats
 `list_executions()` returns a paginated response (`{"items": [...], "limit", "offset", "has_more", "count"}`).
 
 !!! note "Sessions"
-    A long-lived **session** API is in development — neither the REST endpoints nor SDK support have shipped yet. This note will link to both once the API stabilizes.
+    A long-lived **session** API is in development; neither the REST endpoints nor SDK support have shipped yet. This note will link to both once the API stabilizes.
 
 ---
 

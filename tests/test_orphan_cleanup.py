@@ -11,7 +11,7 @@ contract:
    ``max_age_seconds`` guard for running containers, and removes exactly the
    matched container IDs.
 
-All tests mock subprocess.run — no Docker required.
+All tests mock subprocess.run: no Docker required.
 """
 
 from datetime import datetime, timedelta, timezone

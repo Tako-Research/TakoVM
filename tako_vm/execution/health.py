@@ -209,10 +209,10 @@ class DockerCleanup:
         sandbox alike). Matching is label-only by design: name-pattern filters
         do substring matching and could sweep up unrelated user containers.
         (Containers launched by versions that predate the label are not
-        matched — a one-time concern, accepted to keep matching unambiguous.)
+        matched, a one-time concern, accepted to keep matching unambiguous.)
 
         This runs at server startup, so any labeled container still *running*
-        was launched by a previous (now dead) server process — its supervising
+        was launched by a previous (now dead) server process; its supervising
         subprocess is gone and nothing will ever reap it. Exited/dead labeled
         containers are removed unconditionally; running ones are only removed
         once older than ``max_age_seconds``, as a safety guard against killing

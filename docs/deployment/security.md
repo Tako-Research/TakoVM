@@ -1,5 +1,5 @@
 ---
-description: "Tako VM security: defense-in-depth layers — input validation, container isolation, gVisor syscall sandboxing, and seccomp — for untrusted code."
+description: "Tako VM security: defense-in-depth layers (input validation, container isolation, gVisor syscall sandboxing, and seccomp) for untrusted code."
 ---
 
 # Hardening Guide
@@ -310,7 +310,7 @@ server {
 }
 ```
 
-With Caddy the equivalent is two lines (`reverse_proxy 127.0.0.1:8000` under a site block — TLS is automatic). For OIDC/SSO, put an auth-proxy (oauth2-proxy, Pomerium) in front instead of API keys.
+With Caddy the equivalent is two lines (`reverse_proxy 127.0.0.1:8000` under a site block; TLS is automatic). For OIDC/SSO, put an auth-proxy (oauth2-proxy, Pomerium) in front instead of API keys.
 
 ## Threat Model
 

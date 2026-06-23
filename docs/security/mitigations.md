@@ -1,5 +1,5 @@
 ---
-description: "Security mitigations for the Tako VM /proc filesystem exposure — current protections and options like AppArmor, gVisor, and env-var migration."
+description: "Security mitigations for the Tako VM /proc filesystem exposure: current protections and options like AppArmor, gVisor, and env-var migration."
 ---
 
 # Security Mitigations
@@ -29,9 +29,9 @@ enable_seccomp: true
 
 Every container runs with:
 
-- `--cap-drop=ALL` — all Linux capabilities removed
-- `--read-only` — read-only root filesystem
-- `--network=none` — no network access (by default)
+- `--cap-drop=ALL`: all Linux capabilities removed
+- `--read-only`: read-only root filesystem
+- `--network=none`: no network access (by default)
 - Non-root execution (uid 1000 via gosu)
 - Resource limits (memory, CPU, PIDs, file size)
 
@@ -55,7 +55,7 @@ job_types:
 
 **Use:**
 - For **trusted code**: pass secrets through `input_data` / `/input/data.json` (mounted read-only, scoped to one job)
-- For **untrusted or AI-generated code**: don't give the job secrets at all — code can read `/input/` exactly as easily as `/proc/self/environ`. Keep credentials in trusted infrastructure (your platform's secret manager: Vault, AWS Secrets Manager) and have it perform the privileged calls
+- For **untrusted or AI-generated code**: don't give the job secrets at all. Code can read `/input/` exactly as easily as `/proc/self/environ`. Keep credentials in trusted infrastructure (your platform's secret manager: Vault, AWS Secrets Manager) and have it perform the privileged calls
 - Use pre-built images with secrets baked in at build time (not at runtime)
 
 ### Enable gVisor for Production

@@ -1,5 +1,5 @@
 site_name: Tako VM
-site_description: Secure Python code execution and job queue infrastructure for AI agents — run untrusted code in gVisor-isolated Docker containers with workers, retries, and replay.
+site_description: Secure Python code execution and job queue infrastructure for AI agents: run untrusted code in gVisor-isolated Docker containers with workers, retries, and replay.
 site_url: https://tako-research.github.io/TakoVM/
 site_author: Tako VM
 
@@ -7,7 +7,7 @@ repo_url: https://github.com/Tako-Research/TakoVM
 repo_name: Tako-Research/TakoVM
 edit_uri: edit/main/docs/
 
-# Internal triage / design notes — not part of the public docs site.
+# Internal triage / design notes, not part of the public docs site.
 exclude_docs: |
   security/SOLUTIONS.md
   security/env-var-mitigation.md
@@ -154,4 +154,4 @@ extra:
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/tako-vm/
 
-copyright: Copyright &copy; 2026 Tako VM contributors — Apache-2.0
+copyright: Copyright &copy; 2026 Tako VM contributors, Apache-2.0
