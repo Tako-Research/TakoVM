@@ -176,9 +176,7 @@ class TestPeriodicCleanupReapsOrphans:
         # The reaper must be force-removing *running* containers only past the
         # same age a live job could possibly run, so it can never kill in-flight
         # work. Assert the loop passes that guard through.
-        monkeypatch.setattr(
-            DockerCleanup, "cleanup_orphaned_containers", staticmethod(fake_reaper)
-        )
+        monkeypatch.setattr(DockerCleanup, "cleanup_orphaned_containers", staticmethod(fake_reaper))
         monkeypatch.setattr(app_module, "prune_stale_workspaces", lambda *a, **k: 0)
         monkeypatch.setattr(app_module, "prune_old_run_dirs", lambda *a, **k: 0)
 
