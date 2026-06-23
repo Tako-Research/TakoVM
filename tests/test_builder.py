@@ -102,6 +102,50 @@ class TestGenerateDockerfileEntrypointContract:
             assert not stripped.startswith("CMD "), line
             assert not stripped.startswith("ENTRYPOINT "), line
 
+
+class TestEntrypointInstallsUnprivileged:
+    """The dependency install must drop to the sandbox user (issue #102).
+
+    Installing a package can run arbitrary build-time code, and the requirements
+    list is attacker-reachable, so the install must not run with the container
+    root privileges the rest of the entrypoint holds. This guards the entrypoint
+    contract statically; the executor image build + real package-install tests
+    exercise it dynamically in CI.
+    """
+
+    def _entrypoint_text(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent / "docker" / "entrypoint.sh").read_text()
+
+    def _install_cmd_block(self, text):
+        """Extract the UV_INSTALL_CMD=( ... ) array literal."""
+        start = text.index("UV_INSTALL_CMD=(")
+        end = text.index(")", start)
+        return text[start:end]
+
+    def test_install_command_runs_under_gosu(self):
+        block = self._install_cmd_block(self._entrypoint_text())
+        # The uv install itself must be wrapped in gosu sandbox (the execution
+        # phase already drops privileges; this is specifically the install).
+        assert "gosu sandbox" in block
+        assert "uv pip install" in block
+        assert block.index("gosu sandbox") < block.index("uv pip install")
+
+    def test_install_targets_are_chowned_to_sandbox(self):
+        text = self._entrypoint_text()
+        # The unprivileged install can only write dirs it owns, so root must hand
+        # ownership of the target and cache dirs over before dropping privileges.
+        assert 'chown sandbox:sandbox "$TARGET_DIR"' in text
+        assert 'chown -R sandbox:sandbox "$UV_CACHE_DIR"' in text
+
+    def test_install_sets_home_for_sandbox_user(self):
+        text = self._entrypoint_text()
+        # HOME must be set (in INSTALL_ENV, applied via `env`) so uv never falls
+        # back to writing under /root, which uid 1000 cannot traverse.
+        assert "HOME=$SANDBOX_HOME" in text
+        assert 'env "${INSTALL_ENV[@]}"' in self._install_cmd_block(text)
+
     def test_requirements_are_baked_at_build_time(self):
         dockerfile = ContainerBuilder().generate_dockerfile(
             JobType(name="jt", requirements=["pandas", "numpy>=1.26"])

@@ -6,7 +6,7 @@ import pytest
 
 import tako_vm.execution.worker as worker_module
 from tako_vm.config import TakoVMConfig
-from tako_vm.constants import UV_CACHE_VOLUME
+from tako_vm.constants import UV_CACHE_TMP_DIR, UV_CACHE_VOLUME, UV_CACHE_VOLUME_DIR
 from tako_vm.execution import CodeExecutor
 from tako_vm.job_types import JobType
 from tako_vm.security import (
@@ -419,8 +419,8 @@ class TestExecutorRejectsUnsafeIds:
             job_id="job-123",
         )
 
-        cache_mount = f"--mount=type=volume,source={UV_CACHE_VOLUME},target=/root/.cache/uv"
-        expected_cache_dir = "/root/.cache/uv" if cache_enabled else "/tmp/uv-cache"
+        cache_mount = f"--mount=type=volume,source={UV_CACHE_VOLUME},target={UV_CACHE_VOLUME_DIR}"
+        expected_cache_dir = UV_CACHE_VOLUME_DIR if cache_enabled else UV_CACHE_TMP_DIR
         assert result["success"] is True
         assert (cache_mount in captured["cmd"]) is expect_cache_mount
         assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in captured["cmd"]
