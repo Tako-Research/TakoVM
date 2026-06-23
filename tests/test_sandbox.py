@@ -540,7 +540,7 @@ class TestSandboxOOMDetection:
             lambda self, **kwargs: (["docker", "run", "fake"], "fake-container"),
         )
         monkeypatch.setattr("tako_vm.sandbox.subprocess.run", fake_run)
-        monkeypatch.setattr("tako_vm.sandbox.inspect_oom_killed", fake_inspect)
+        monkeypatch.setattr("tako_vm.sandbox.classify_sigkill", fake_inspect)
         monkeypatch.setattr("tako_vm.sandbox.remove_container", fake_remove)
         return sb
 

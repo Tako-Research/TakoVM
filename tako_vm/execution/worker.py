@@ -27,13 +27,16 @@ from tako_vm.constants import (
 from tako_vm.execution.docker import (
     EXECUTOR_ENTRYPOINT,
     base_isolation_args,
+    classify_docker_run_result,
+    classify_sigkill,
     decode_subprocess_stream,
     generate_container_name,
     image_exists,
     image_has_executor_entrypoint,
-    inspect_oom_killed,
     is_native_linux,
     kill_container,
+    prepare_requirements_file,
+    read_result_json,
     remove_container,
     ulimit_args,
 )
@@ -61,21 +64,12 @@ from tako_vm.security import (
     validate_env_key,
     validate_env_value,
     validate_execution_id,
-    validate_pip_requirement,
 )
 
 logger = logging.getLogger(__name__)
 
 # Cache for runtime availability check
 _gvisor_available: Optional[bool] = None
-
-# stderr patterns that indicate the docker CLI could not reach the daemon.
-# These are infrastructure failures, never the fault of the user's code.
-_DOCKER_INFRA_STDERR_PATTERNS = (
-    "cannot connect to the docker daemon",
-    "error during connect",
-    "docker daemon is not running",
-)
 
 
 def _require_safe_execution_id(execution_id: str) -> str:
@@ -824,20 +818,17 @@ class CodeExecutor:
             record.exit_code = result.get("exit_code")
 
             # Cap and sanitize outputs. cap_output truncates in-band (appends
-            # a notice), so also surface truncation on the record flags — the
-            # API must not report truncated output as complete. The flag
-            # mirrors cap_output's own truncation condition (UTF-8 encoded
-            # size vs the cap), which is robust against the notice text
-            # legitimately appearing in user output.
+            # a notice) and returns whether it truncated, so the record's
+            # truncation flags come from that single source of truth: the API
+            # must not report truncated output as complete, and the flag can
+            # never disagree with the in-band notice.
             raw_stdout = result.get("stdout", "")
             raw_stderr = result.get("stderr", "")
-            record.stdout = cap_output(raw_stdout, self.config.max_stdout_bytes)
-            record.stderr = cap_output(raw_stderr, self.config.max_stderr_bytes)
-            record.stdout_truncated = (
-                len(raw_stdout.encode("utf-8", errors="replace")) > self.config.max_stdout_bytes
+            record.stdout, record.stdout_truncated = cap_output(
+                raw_stdout, self.config.max_stdout_bytes
             )
-            record.stderr_truncated = (
-                len(raw_stderr.encode("utf-8", errors="replace")) > self.config.max_stderr_bytes
+            record.stderr, record.stderr_truncated = cap_output(
+                raw_stderr, self.config.max_stderr_bytes
             )
 
             # Resource usage
@@ -846,19 +837,10 @@ class CodeExecutor:
             # Collect artifacts from output directory
             record.artifacts = self._collect_artifacts(output_dir, job_id)
 
-            # Read main JSON result (if present)
-            output_file = output_dir / "result.json"
-            # Untrusted code could point result.json at a host file; never follow it.
-            if output_file.is_symlink():
-                logger.warning("result.json is a symlink, ignoring")
-            elif output_file.exists():
-                try:
-                    record.result_json = json.loads(output_file.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError, ValueError) as e:
-                    # Output existed but was unreadable/unparseable (truncated,
-                    # non-UTF-8, device error). Surface it loudly instead of
-                    # presenting result_json=None as "no output produced".
-                    logger.warning("Failed to read/parse result.json for job %s: %s", job_id, e)
+            # Read main JSON result (if present). Symlink-safe and surfaces an
+            # unreadable/unparseable file via the shared helper so the worker
+            # and the library Sandbox parse it identically.
+            record.result_json = read_result_json(output_dir, job_id)
 
             # Parse phase timing file (written by entrypoint.sh). The
             # root-only meta_dir copy is preferred; the /output copy is a
@@ -1349,48 +1331,28 @@ class CodeExecutor:
         if extra_requirements:
             all_requirements.extend(extra_requirements)
 
-        if len(all_requirements) > MAX_REQUIREMENTS:
-            logger.error(
-                "Job has %s requirements (max %s). Use pre-built images for large dependency sets.",
-                len(all_requirements),
-                MAX_REQUIREMENTS,
+        # Validate, cap, gate, and persist runtime requirements via the shared
+        # helper so this path and the library Sandbox apply identical policy.
+        # The helper REJECTS an invalid requirement (raises ValueError) rather
+        # than silently skipping it: a typo or injection attempt now fails the
+        # job loudly instead of running with a different dependency set than the
+        # caller asked for.
+        try:
+            validated_reqs = prepare_requirements_file(
+                all_requirements,
+                input_dir,
+                allow_runtime_requirements=self.config.allow_runtime_requirements,
+                max_requirements=MAX_REQUIREMENTS,
             )
+        except ValueError as e:
+            logger.warning("Refusing job %s: %s", job_id, e)
             return {
                 "success": False,
-                "error": f"Too many requirements ({len(all_requirements)} > {MAX_REQUIREMENTS})",
+                "error": str(e),
                 "stdout": "",
-                "stderr": "Use pre-built images for jobs with many dependencies",
+                "stderr": str(e),
                 "exit_code": -1,
             }
-
-        validated_reqs = []
-        for req in all_requirements:
-            if validate_pip_requirement(req):
-                validated_reqs.append(req)
-            else:
-                logger.warning("Skipping invalid pip requirement: %s", req)
-
-        requirements_file = input_dir / "_requirements.txt"
-        if validated_reqs:
-            if not self.config.allow_runtime_requirements:
-                logger.warning(
-                    "Refusing job %s: %d runtime requirement(s) requested but "
-                    "allow_runtime_requirements=false",
-                    job_id,
-                    len(validated_reqs),
-                )
-                return {
-                    "success": False,
-                    "error": "Runtime dependency installation is disabled",
-                    "stdout": "",
-                    "stderr": (
-                        "Runtime dependency installation is disabled. "
-                        "Use pre-built images or set allow_runtime_requirements=true."
-                    ),
-                    "exit_code": -1,
-                }
-            requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
-            requirements_file.chmod(0o444)
 
         # Check if runtime deps require network access
         has_runtime_deps = bool(validated_reqs)
@@ -1515,26 +1477,16 @@ class CodeExecutor:
                 cmd, timeout=container_timeout, capture_output=True, text=True, check=False
             )
 
-            # `docker run` reserves exit code 125 for failures of docker itself
-            # (daemon unreachable, image pull failure, bad flags); container
-            # exit codes pass through unchanged otherwise, and our entrypoint
-            # never exits 125 in normal operation. Treat 125 — or daemon
-            # connectivity errors on stderr of a failed run — as infrastructure
-            # failures: they must count against the circuit breaker, be marked
-            # retriable via the "error" key, and never be attributed to the
-            # user's code by classify_error.
-            stderr_lower = (result.stderr or "").lower()
-            is_infra_failure = result.returncode == 125 or (
-                result.returncode != 0
-                and any(pattern in stderr_lower for pattern in _DOCKER_INFRA_STDERR_PATTERNS)
+            # Distinguish docker-itself failures (daemon unreachable, image
+            # pull failure, bad flags: exit 125 or daemon-connectivity stderr)
+            # from container exits via the shared classifier. Infra failures
+            # must count against the circuit breaker, be marked retriable via
+            # the "error" key, and never be attributed to the user's code by
+            # classify_error.
+            is_infra_failure, detail = classify_docker_run_result(
+                result.returncode, result.stderr or ""
             )
             if is_infra_failure:
-                stderr_lines = (result.stderr or "").strip().splitlines()
-                detail = (
-                    stderr_lines[0]
-                    if stderr_lines
-                    else f"docker run exited with code {result.returncode}"
-                )
                 circuit_breaker.record_failure(detail)
                 return {
                     "success": False,
@@ -1551,13 +1503,13 @@ class CodeExecutor:
 
             # Exit 137 is SIGKILL — could be the OOM killer, but also `docker
             # kill` (cancel path), a pids-limit kill, or user sys.exit(137).
-            # Only the exited container's State.OOMKilled distinguishes them;
-            # inspect before the finally block removes the container. Note:
-            # in-container timeout kills are already remapped to 124 by the
-            # entrypoint, so a 137 seen here is a genuine SIGKILL.
+            # classify_sigkill inspects the exited container's State.OOMKilled
+            # before the finally block removes it. Note: in-container timeout
+            # kills are already remapped to 124 by the entrypoint, so a 137 seen
+            # here is a genuine SIGKILL.
             oom_killed: Optional[bool] = None
             if result.returncode == 137:
-                oom_killed = inspect_oom_killed(container_name)
+                oom_killed = classify_sigkill(container_name)
 
             return {
                 "success": result.returncode == 0,
