@@ -15,6 +15,8 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from tako_vm.constants import DEFAULT_IMAGE
+
 logger = logging.getLogger(__name__)
 
 # Default config file locations (searched in order)
@@ -44,6 +46,27 @@ def _sanitize_validation_error(e: ValidationError) -> str:
         loc = ".".join(str(part) for part in err.get("loc", ())) or "config"
         lines.append(f"field {loc}: {err.get('msg', 'invalid value')}")
     return "; ".join(lines) or "validation failed"
+
+
+def _parse_size_to_mb(v: str, *, allow_k_and_bytes: bool) -> int:
+    """Parse a size string ('512m', '1g', etc.) to whole megabytes.
+
+    Shared by tmpfs_size and memory_limit validation. ``v`` must already be
+    lowercased and stripped. When ``allow_k_and_bytes`` is True a 'k' suffix or
+    a bare integer (bytes) is accepted (tmpfs); otherwise only 'm'/'g' are
+    allowed (memory_limit) and anything else raises ValueError. Integer parse
+    failures propagate as ValueError so pydantic reports them.
+    """
+    if v.endswith("g"):
+        return int(v[:-1]) * 1024
+    if v.endswith("m"):
+        return int(v[:-1])
+    if allow_k_and_bytes:
+        if v.endswith("k"):
+            return int(v[:-1]) // 1024
+        # Assume bytes.
+        return int(v) // (1024 * 1024)
+    raise ValueError("memory_limit must end with 'm' or 'g'")
 
 
 def get_default_data_dir() -> Path:
@@ -89,16 +112,7 @@ class ContainerLimits(BaseModel):
         if not v:
             raise ValueError("tmpfs_size cannot be empty")
 
-        # Parse size
-        if v.endswith("g"):
-            size_mb = int(v[:-1]) * 1024
-        elif v.endswith("m"):
-            size_mb = int(v[:-1])
-        elif v.endswith("k"):
-            size_mb = int(v[:-1]) // 1024
-        else:
-            # Assume bytes
-            size_mb = int(v) // (1024 * 1024)
+        size_mb = _parse_size_to_mb(v, allow_k_and_bytes=True)
 
         # Validate bounds (10MB to 2GB)
         if size_mb < 10:
@@ -221,13 +235,7 @@ class JobTypeConfig(BaseModel):
         if not v:
             raise ValueError("memory_limit cannot be empty")
 
-        # Parse and validate
-        if v.endswith("g"):
-            size_mb = int(v[:-1]) * 1024
-        elif v.endswith("m"):
-            size_mb = int(v[:-1])
-        else:
-            raise ValueError("memory_limit must end with 'm' or 'g'")
+        size_mb = _parse_size_to_mb(v, allow_k_and_bytes=False)
 
         if size_mb < 64:
             raise ValueError("memory_limit must be at least 64m")
@@ -433,7 +441,7 @@ class TakoVMConfig(BaseModel):
     )
 
     # Docker
-    docker_image: str = Field(default="code-executor:latest")
+    docker_image: str = Field(default=DEFAULT_IMAGE)
     enable_seccomp: bool = Field(default=True)
     enable_cap_restrictions: bool = Field(
         default=True,

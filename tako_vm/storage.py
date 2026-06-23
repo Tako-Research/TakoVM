@@ -291,6 +291,33 @@ _UPDATE_SET_SQL = ",\n                    ".join(
 )
 
 
+# --- job_versions upsert: single source of truth for the column set -----------
+#
+# Same pattern as _EXECUTION_COLUMNS above: the INSERT column list, placeholder
+# run, value tuple, and ON CONFLICT ... SET clause are all derived from this one
+# list, so adding/removing a column is a single edit instead of four hand-synced
+# ones. (digest, value_extractor(version)). digest is the ON CONFLICT key and
+# carries no SET line; every other column takes EXCLUDED (a re-save replaces the
+# stored metadata).
+_VERSION_KEY_COLUMN = "digest"
+_VERSION_COLUMNS: list = [
+    ("digest", lambda v: v.digest),
+    ("job_type_name", lambda v: v.job_type_name),
+    ("version_tag", lambda v: v.version_tag),
+    ("built_at", lambda v: v.built_at),
+    ("built_by", lambda v: v.built_by),
+    ("dockerfile_hash", lambda v: v.dockerfile_hash),
+    ("requirements_hash", lambda v: v.requirements_hash),
+    ("image_ref", lambda v: v.image_ref),
+]
+
+_VERSION_INSERT_COLUMN_SQL = ", ".join(name for name, _ in _VERSION_COLUMNS)
+_VERSION_INSERT_PLACEHOLDER_SQL = ", ".join(["%s"] * len(_VERSION_COLUMNS))
+_VERSION_UPDATE_SET_SQL = ",\n                    ".join(
+    f"{name} = EXCLUDED.{name}" for name, _ in _VERSION_COLUMNS if name != _VERSION_KEY_COLUMN
+)
+
+
 class ExecutionStorage:
     """PostgreSQL storage for execution records."""
 
@@ -727,31 +754,16 @@ class ExecutionStorage:
         pool = self._get_pool()
         async with pool.connection() as conn:
             await conn.execute(
-                """
+                f"""
                 INSERT INTO job_versions (
-                    digest, job_type_name, version_tag,
-                    built_at, built_by, dockerfile_hash,
-                    requirements_hash, image_ref
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (digest) DO UPDATE SET
-                    job_type_name = EXCLUDED.job_type_name,
-                    version_tag = EXCLUDED.version_tag,
-                    built_at = EXCLUDED.built_at,
-                    built_by = EXCLUDED.built_by,
-                    dockerfile_hash = EXCLUDED.dockerfile_hash,
-                    requirements_hash = EXCLUDED.requirements_hash,
-                    image_ref = EXCLUDED.image_ref
+                    {_VERSION_INSERT_COLUMN_SQL}
+                ) VALUES (
+                    {_VERSION_INSERT_PLACEHOLDER_SQL}
+                )
+                ON CONFLICT ({_VERSION_KEY_COLUMN}) DO UPDATE SET
+                    {_VERSION_UPDATE_SET_SQL}
                 """,
-                (
-                    version.digest,
-                    version.job_type_name,
-                    version.version_tag,
-                    version.built_at,
-                    version.built_by,
-                    version.dockerfile_hash,
-                    version.requirements_hash,
-                    version.image_ref,
-                ),
+                tuple(extract(version) for _, extract in _VERSION_COLUMNS),
             )
 
     async def get_version_by_digest(self, job_type_name: str, digest: str) -> Optional[JobVersion]:

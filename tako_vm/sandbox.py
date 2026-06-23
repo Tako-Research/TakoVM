@@ -36,14 +36,16 @@ from tako_vm.constants import (
 from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
     base_isolation_args,
+    classify_docker_run_result,
+    classify_sigkill,
     decode_subprocess_stream,
     generate_container_name,
     image_exists,
-    inspect_oom_killed,
+    prepare_requirements_file,
+    read_result_json,
     remove_container,
     ulimit_args,
 )
-from tako_vm.security import validate_pip_requirement
 
 logger = logging.getLogger(__name__)
 
@@ -427,20 +429,34 @@ class Sandbox:
                     )
                     duration_ms = int((time.time() - start_time) * 1000)
 
-                    # Read output
-                    output_data = None
-                    output_file = output_dir / "result.json"
-                    if output_file.exists():
-                        try:
-                            output_data = json.loads(output_file.read_text())
-                        except (json.JSONDecodeError, OSError, ValueError) as e:
-                            # Output existed but was unreadable/unparseable.
-                            # Don't silently present None as "no output".
-                            logger.warning(
-                                "result.json for %s was not valid JSON, ignoring: %s",
-                                container_name,
-                                e,
-                            )
+                    # Distinguish docker-itself failures (daemon unreachable,
+                    # image pull failure, bad flags) from container exits via
+                    # the shared classifier. The library Sandbox has no circuit
+                    # breaker, but it must still surface an infra failure
+                    # distinctly rather than presenting daemon stderr as if the
+                    # user's code had failed.
+                    is_infra_failure, detail = classify_docker_run_result(
+                        proc.returncode, proc.stderr or ""
+                    )
+                    if is_infra_failure:
+                        logger.warning(
+                            "Sandbox %s hit a Docker infrastructure failure: %s",
+                            container_name,
+                            detail,
+                        )
+                        return SandboxResult(
+                            stdout=proc.stdout,
+                            stderr=proc.stderr,
+                            exit_code=proc.returncode,
+                            success=False,
+                            duration_ms=duration_ms,
+                            error=f"Docker infrastructure failure: {detail}",
+                        )
+
+                    # Read output (symlink-safe; surfaces an unreadable file)
+                    # via the shared helper so the library and worker paths
+                    # parse result.json identically.
+                    output_data = read_result_json(output_dir, container_name)
 
                     # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced
                     # by entrypoint.sh via timeout(1)) exits 124 when the code
@@ -453,15 +469,14 @@ class Sandbox:
                     elif proc.returncode == 137:
                         # Exit 137 is SIGKILL — could be the OOM killer, but
                         # also `docker kill` or user code calling
-                        # sys.exit(137). Only the exited container's
-                        # State.OOMKilled distinguishes them; inspect before
-                        # the finally block removes the container. In-container
-                        # timeout kills are already remapped to 124 by the
-                        # entrypoint, so a 137 seen here is a genuine SIGKILL.
-                        # None (inspect failed) falls back to reporting OOM so
-                        # a flaky inspect never loses a true OOM — same policy
-                        # as the server-side CodeExecutor.
-                        oom_killed = inspect_oom_killed(container_name)
+                        # sys.exit(137). classify_sigkill inspects the exited
+                        # container's State.OOMKilled before the finally block
+                        # removes it. In-container timeout kills are already
+                        # remapped to 124 by the entrypoint, so a 137 seen here
+                        # is a genuine SIGKILL. None (inspect failed) falls back
+                        # to reporting OOM so a flaky inspect never loses a true
+                        # OOM (same policy as the server-side CodeExecutor).
+                        oom_killed = classify_sigkill(container_name)
                         if oom_killed is False:
                             error = "Process was killed (SIGKILL) but not by the memory limit"
                         else:
@@ -534,28 +549,15 @@ class Sandbox:
         Returns:
             Tuple of (command, container_name) for cleanup on timeout.
         """
-        validated_reqs = []
-        if requirements:
-            # Enforce the policy before validation so an all-invalid list
-            # cannot bypass the allow_runtime_requirements check.
-            if not self.config.allow_runtime_requirements:
-                raise ValueError(
-                    "Runtime dependency installation is disabled. "
-                    "Use pre-built images or set allow_runtime_requirements=True."
-                )
-            if len(requirements) > MAX_REQUIREMENTS:
-                raise ValueError(
-                    f"Too many requirements ({len(requirements)} > {MAX_REQUIREMENTS})"
-                )
-            for req in requirements:
-                if not validate_pip_requirement(req):
-                    raise ValueError(f"Invalid pip requirement: {req!r}")
-                validated_reqs.append(req)
-
-        if validated_reqs:
-            requirements_file = input_dir / "_requirements.txt"
-            requirements_file.write_text("\n".join(validated_reqs) + "\n", encoding="utf-8")
-            requirements_file.chmod(0o444)
+        # Validate, cap, gate, and persist requirements via the shared helper so
+        # the library path and the server worker apply identical policy (invalid
+        # requirements are rejected with ValueError, never silently skipped).
+        validated_reqs = prepare_requirements_file(
+            requirements,
+            input_dir,
+            allow_runtime_requirements=self.config.allow_runtime_requirements,
+            max_requirements=MAX_REQUIREMENTS,
+        )
 
         # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")

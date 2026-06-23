@@ -40,6 +40,34 @@ MANAGED_POSTGRES_CONTAINER = "tako-vm-postgres"
 MANAGED_POSTGRES_VOLUME = "tako-vm-postgres-data"
 
 
+def _mask_database_url(url: str) -> str:
+    """Mask the password in a database URL for display, keeping the username."""
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    creds, host = parts.netloc.rsplit("@", 1)
+    username = creds.split(":", 1)[0] if creds else ""
+    masked_creds = f"{username}:***" if username else "***"
+    return urlunsplit(
+        (parts.scheme, f"{masked_creds}@{host}", parts.path, parts.query, parts.fragment)
+    )
+
+
+def _postgres_container_running() -> bool:
+    """Probe whether the managed PostgreSQL container is in the running state.
+
+    Assumes the container exists (caller has already inspected it). Returns
+    True only when `docker inspect` reports State.Running == true.
+    """
+    running_proc = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", MANAGED_POSTGRES_CONTAINER],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return running_proc.stdout.strip().lower() == "true"
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="tako-vm",
@@ -363,13 +391,7 @@ def _ensure_managed_postgres() -> None:
     )
 
     if inspect_proc.returncode == 0:
-        running_proc = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", MANAGED_POSTGRES_CONTAINER],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        if running_proc.stdout.strip().lower() != "true":
+        if not _postgres_container_running():
             subprocess.run(
                 ["docker", "start", MANAGED_POSTGRES_CONTAINER],
                 check=True,
@@ -426,13 +448,7 @@ def _managed_postgres_state() -> str:
     if inspect_proc.returncode != 0:
         return "missing"
 
-    running_proc = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", MANAGED_POSTGRES_CONTAINER],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return "running" if running_proc.stdout.strip().lower() == "true" else "stopped"
+    return "running" if _postgres_container_running() else "stopped"
 
 
 def _auto_start_local_postgres_if_needed(config) -> None:
@@ -626,17 +642,6 @@ def show_config(args):
         sys.exit(1)
 
     config_file = get_config_path()
-
-    def _mask_database_url(url: str) -> str:
-        parts = urlsplit(url)
-        if "@" not in parts.netloc:
-            return url
-        creds, host = parts.netloc.rsplit("@", 1)
-        username = creds.split(":", 1)[0] if creds else ""
-        masked_creds = f"{username}:***" if username else "***"
-        return urlunsplit(
-            (parts.scheme, f"{masked_creds}@{host}", parts.path, parts.query, parts.fragment)
-        )
 
     if args.json:
         import json
