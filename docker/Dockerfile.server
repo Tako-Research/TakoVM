@@ -13,7 +13,9 @@
 # Note: Docker socket access gives container root-equivalent access to host.
 # This is necessary for spawning executor containers.
 
-FROM python:3.11-slim
+# Base image pinned by digest (not just the mutable :3.11-slim tag) so a
+# repointed upstream tag can't silently change what we ship.
+FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 WORKDIR /app
 
@@ -23,14 +25,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Docker CLI from official binaries
-RUN ARCH=$(uname -m) && \
-    curl -fsSL "https://download.docker.com/linux/static/stable/${ARCH}/docker-27.5.1.tgz" | \
-    tar -xz --strip-components=1 -C /usr/local/bin docker/docker && \
-    chmod +x /usr/local/bin/docker
+# Install the Docker CLI from the official static binaries, pinned by version
+# and verified against a known SHA256 before extraction. The tarball is fetched
+# over HTTPS with no signature, so without this check a compromised mirror or
+# MITM could swap the binary the server uses to launch every sandbox container.
+ARG DOCKER_VERSION=27.5.1
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+        x86_64) sha256="4f798b3ee1e0140eab5bf30b0edc4e84f4cdb53255a429dc3bbae9524845d640" ;; \
+        aarch64) sha256="e6b53725a73763ab3f988c73f8772eaed429754c1a579db5ff11f21990fd1817" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${arch}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz; \
+    echo "${sha256}  /tmp/docker.tgz" | sha256sum -c -; \
+    tar -xz --strip-components=1 -C /usr/local/bin -f /tmp/docker.tgz docker/docker; \
+    chmod +x /usr/local/bin/docker; \
+    rm -f /tmp/docker.tgz
 
-# Install uv for fast dependency installation
-COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /usr/local/bin/uv
+# Install uv for fast dependency installation (digest-pinned, see above)
+COPY --from=ghcr.io/astral-sh/uv:0.5.14@sha256:f0786ad49e2e684c18d38697facb229f538a6f5e374c56f54125aabe7d14b3f7 /uv /usr/local/bin/uv
 
 # Copy package files
 COPY pyproject.toml README.md LICENSE ./
