@@ -672,6 +672,16 @@ class ArtifactResponse(BaseModel):
     sha256: str = Field(..., description="SHA256 hash of file contents")
     content_type: Optional[str] = Field(default=None, description="MIME type")
 
+    @classmethod
+    def from_model(cls, artifact) -> "ArtifactResponse":
+        """Build from an Artifact / InputArtifact model (same field shape)."""
+        return cls(
+            name=artifact.name,
+            size_bytes=artifact.size_bytes,
+            sha256=artifact.sha256,
+            content_type=artifact.content_type,
+        )
+
 
 class ResourceUsageResponse(BaseModel):
     """Resource consumption metrics."""
@@ -731,42 +741,21 @@ class ExecutionRecordFullResponse(ExecutionRecordResponse):
 
     @classmethod
     def from_record(cls, record: ExecutionRecord) -> "ExecutionRecordFullResponse":
-        """Create full response from ExecutionRecord."""
+        """Create full response from ExecutionRecord.
+
+        The base fields (including ``timing`` and ``runtime``) are taken from
+        ``ExecutionRecordResponse.from_record`` rather than re-mapped here: when
+        this override hand-copied the base fields it silently dropped ``timing``
+        (and later ``runtime``), so ``?view=full`` returned them as null while
+        the slim view did not. Delegating keeps the two views in lockstep.
+        """
+        base = ExecutionRecordResponse.from_record(record).model_dump()
         return cls(
-            # Base fields
-            execution_id=record.execution_id,
-            status=record.status,
-            job_type=record.job_type,
-            job_version=record.job_ref,
-            created_at=record.created_at.isoformat(),
-            started_at=record.started_at.isoformat() if record.started_at else None,
-            ended_at=record.ended_at.isoformat() if record.ended_at else None,
-            duration_ms=record.duration_ms,
-            exit_code=record.exit_code,
-            stdout=record.stdout,
-            stderr=record.stderr,
-            output=record.result_json,
-            error=record.error.model_dump() if record.error else None,
-            # Extended fields
+            **base,
+            # Extended fields only
             job_ref=record.job_ref,
-            artifacts=[
-                ArtifactResponse(
-                    name=a.name,
-                    size_bytes=a.size_bytes,
-                    sha256=a.sha256,
-                    content_type=a.content_type,
-                )
-                for a in record.artifacts
-            ],
-            input_artifacts=[
-                ArtifactResponse(
-                    name=a.name,
-                    size_bytes=a.size_bytes,
-                    sha256=a.sha256,
-                    content_type=a.content_type,
-                )
-                for a in record.input_artifacts
-            ],
+            artifacts=[ArtifactResponse.from_model(a) for a in record.artifacts],
+            input_artifacts=[ArtifactResponse.from_model(a) for a in record.input_artifacts],
             resource_usage=ResourceUsageResponse(
                 max_rss_mb=record.resource_usage.max_rss_mb,
                 cpu_time_ms=record.resource_usage.cpu_time_ms,
