@@ -166,6 +166,13 @@ CONTAINER_LABEL = "tako-vm-executor"
 # label=tako-vm.execution-id=<id>`).
 EXECUTION_ID_LABEL = "tako-vm.execution-id"
 
+# Label key carrying the durable-session ID, so a long-lived session container
+# can be mapped back to its session record and reaped by ID (e.g. `docker ps
+# --filter label=tako-vm.session-id=<id>`). Sessions are the Phase 1 step toward
+# persistent, per-agent workspaces; unlike per-job containers they survive
+# across executions, so they carry their own label alongside CONTAINER_LABEL.
+SESSION_ID_LABEL = "tako-vm.session-id"
+
 
 def is_native_linux() -> bool:
     """
@@ -358,6 +365,91 @@ def inspect_oom_killed(container_name: str) -> Optional[bool]:
         return None
 
 
+def container_running(container_name: str) -> bool:
+    """Check whether a container is currently running via ``docker inspect``.
+
+    ``State.Running`` is the authoritative signal that a session container is
+    still up and ready to be ``docker exec``'d into. Shells out and parses the
+    formatted output exactly like ``inspect_oom_killed`` so the two inspect
+    helpers behave identically.
+
+    Args:
+        container_name: Name of the container to inspect.
+
+    Returns:
+        True if ``State.Running`` is ``true``, False otherwise (not running,
+        container already gone, daemon unreachable, timeout, or unparseable
+        output). A missing/unreachable container is reported as "not running"
+        rather than raising, so callers can treat it as "needs (re)starting".
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.debug("docker inspect of %s failed (exit %s)", container_name, result.returncode)
+            return False
+        value = (result.stdout or "").strip().lower()
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        logger.debug("Unexpected Running value for %s: %r", container_name, result.stdout)
+        return False
+    except Exception as e:
+        logger.debug("Failed to inspect container %s: %s", container_name, e)
+        return False
+
+
+def stop_container(container_name: str, timeout: int = 10) -> bool:
+    """Gracefully stop a container by name (best-effort).
+
+    ``docker stop`` sends SIGTERM and then SIGKILL after a grace period, the
+    clean way to bring down a long-lived session container (vs. ``kill_container``'s
+    immediate SIGKILL). Mirrors ``remove_container``'s error-swallowing style:
+    a missing container is benign, any other failure is logged but not raised.
+
+    Args:
+        container_name: Name of the container to stop.
+        timeout: Seconds ``docker stop`` waits before sending SIGKILL.
+
+    Returns:
+        True if Docker reported the container was stopped, False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "stop", "-t", str(timeout), container_name],
+            capture_output=True,
+            timeout=timeout + 10,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.debug("Stopped container %s", container_name)
+            return True
+        # A missing container is benign (already stopped / never started); any
+        # other non-zero exit is a genuine stop failure worth surfacing.
+        stderr = decode_subprocess_stream(result.stderr).strip()
+        if "no such container" in stderr.lower():
+            logger.debug("Container %s did not exist", container_name)
+        else:
+            logger.warning(
+                "Failed to stop container %s (exit %s): %s",
+                container_name,
+                result.returncode,
+                stderr,
+            )
+        return False
+    except Exception as e:
+        # A docker CLI error (daemon unreachable, timeout) leaves the container
+        # state unknown; surface it rather than silently swallowing.
+        logger.warning("Failed to stop container %s: %s", container_name, e)
+        return False
+
+
 def ulimit_args(limits) -> list[str]:
     """Return the ``--ulimit`` flags shared by every execution path.
 
@@ -462,6 +554,159 @@ def base_isolation_args(
         args.append(f"--runtime={runtime}")
 
     return args
+
+
+def build_session_run_command(
+    container_name: str,
+    *,
+    runtime: str,
+    image: str,
+    workspace_dir: str,
+    session_id: str,
+    memory_limit: Optional[str] = None,
+    cpu_limit: Optional[str] = None,
+    enable_cap_restrictions: bool = True,
+    keepalive_cmd: Optional[Sequence[str]] = None,
+) -> list[str]:
+    """Build the ``docker run`` command for a long-lived session container.
+
+    Pure function: assembles and returns the argument list, runs no subprocess,
+    so it can be unit-tested without Docker.
+
+    Unlike a per-job container, a session container is *long-lived*: it stays up
+    across many ``docker exec`` calls (the durable, per-agent workspace step of
+    the roadmap). It therefore starts from ``base_isolation_args(...,
+    auto_remove=False)`` so the gVisor isolation posture is byte-for-byte
+    identical to a job's (same ``--read-only``/``--init``/cap-drop set/runtime)
+    AND the daemon does not reap it on the keepalive process exiting. Reusing
+    ``base_isolation_args`` is the whole point: the isolation flags are never
+    re-assembled by hand here, so they cannot drift from the job path.
+
+    Session-specific flags appended on top:
+
+    - ``-d`` so the container runs detached (the caller exec's into it later).
+    - ``--network=none``: Phase 1 sessions have NO egress. (Matches the worker's
+      glued ``--network=...`` spelling.)
+    - ``--label={SESSION_ID_LABEL}={session_id}`` so the container is traceable
+      to its session record and reapable by label.
+    - ``-v {workspace_dir}:/workspace``: the persistent workspace, mounted
+      read-WRITE. This is the only writable cross-exec surface, so it is
+      deliberately NOT ``:ro``; everything else stays read-only.
+    - ``--memory=`` / ``--cpus=`` when provided (worker's glued spelling).
+
+    Args:
+        container_name: Container name (``--name``).
+        runtime: Resolved container runtime ('runsc' or 'runc'); only 'runsc'
+            is passed explicitly (see ``base_isolation_args``).
+        image: Image reference to run.
+        workspace_dir: Host path bind-mounted read-write at ``/workspace``.
+        session_id: Durable session ID recorded as the ``SESSION_ID_LABEL``.
+        memory_limit: Optional ``--memory`` value (e.g. "512m"); omitted if None.
+        cpu_limit: Optional ``--cpus`` value (e.g. "1.0"); omitted if None.
+        enable_cap_restrictions: Forwarded to ``base_isolation_args``.
+        keepalive_cmd: Container command that keeps it alive; defaults to
+            ``["sleep", "infinity"]``.
+
+    Returns:
+        The full ``docker run`` argument list, ready to execute.
+    """
+    cmd = base_isolation_args(
+        container_name,
+        runtime=runtime,
+        enable_cap_restrictions=enable_cap_restrictions,
+        auto_remove=False,  # Long-lived: the daemon must NOT reap the container.
+    )
+
+    # Detached: the container stays up so the caller can `docker exec` into it.
+    cmd.append("-d")
+    # Phase 1 sessions have no egress. (Worker uses the same glued spelling.)
+    cmd.append("--network=none")
+    # Trace the container back to its session record / reap it by label.
+    cmd.append(f"--label={SESSION_ID_LABEL}={session_id}")
+    # The persistent workspace: the ONLY writable cross-exec surface. Mounted
+    # read-write on purpose (no ``:ro``); the rest of the rootfs is read-only.
+    cmd.append("-v")
+    cmd.append(f"{workspace_dir}:/workspace")
+
+    # Resource limits, matching the worker's glued ``--memory=``/``--cpus=``
+    # spelling. Only emitted when provided.
+    if memory_limit is not None:
+        cmd.append(f"--memory={memory_limit}")
+    if cpu_limit is not None:
+        cmd.append(f"--cpus={cpu_limit}")
+
+    # Image, then the keepalive command. The real PID1 supervisor
+    # (session_entrypoint.sh) lands in Phase 1b; until then the keepalive is a
+    # placeholder process that simply keeps the container alive between execs.
+    cmd.append(image)
+    cmd.extend(keepalive_cmd if keepalive_cmd is not None else ["sleep", "infinity"])
+
+    return cmd
+
+
+def build_session_exec_command(
+    container_name: str,
+    *,
+    command: Sequence[str],
+    timeout_seconds: Optional[float] = None,
+    workdir: str = "/workspace",
+) -> list[str]:
+    """Build the ``docker exec`` command that runs ``command`` in a live session.
+
+    Pure function: returns the argument list, runs no subprocess, so it can be
+    unit-tested without Docker.
+
+    The command runs in ``/workspace`` (the writable session surface) and is
+    dropped to the unprivileged sandbox user via the numeric ``-u 1000:1000``
+    (not a username, so the drop never depends on name resolution and can never
+    resolve to root). ``--privileged`` and ``-u 0``/root are never emitted.
+
+    Provisional Phase-1 drop: this is NOT yet the final warm-container exec
+    model. The job run path's default posture is root-then-``gosu`` (the
+    container starts as root so the entrypoint can write the root-only
+    ``/tako-meta`` timing channel, then drops to uid 1000); ``--user=1000:1000``
+    is only set when ``enable_userns`` is on (off by default). A bare
+    ``-u 1000:1000`` exec cannot write ``/tako-meta``, so per-exec OOM/timeout
+    classification on a warm container is deferred to the Phase 1b PID1
+    supervisor (which will exec as root and ``gosu``-drop per command).
+
+    When ``timeout_seconds`` is given, the user command is wrapped in GNU
+    ``timeout`` so a runaway exec cannot outlive its budget (mirroring the
+    entrypoint's ``timeout`` wrapper around the in-container run).
+
+    Args:
+        container_name: Name of the live session container to exec into.
+        command: The user command and its args (e.g. ``["python", "-c", ...]``).
+        timeout_seconds: Optional GNU-``timeout`` budget in seconds; omitted if
+            None.
+        workdir: Working directory inside the container (defaults to
+            ``/workspace``).
+
+    Returns:
+        The full ``docker exec`` argument list, ready to execute.
+    """
+    cmd = [
+        "docker",
+        "exec",
+        # Drop to the unprivileged sandbox user (uid 1000); numeric uid:gid so
+        # it can never resolve to root. Mirrors the run path's --user=1000:1000.
+        "-u",
+        "1000:1000",
+        # Run in the writable workspace surface.
+        "-w",
+        workdir,
+        container_name,
+    ]
+
+    # Wrap the user command in GNU `timeout` so a runaway exec cannot outlive
+    # its budget. --signal=TERM/--kill-after mirror the entrypoint's wrapper so
+    # code that traps SIGTERM is still SIGKILLed after a grace period.
+    if timeout_seconds is not None:
+        cmd.extend(["timeout", "--signal=TERM", "--kill-after=10s", f"{timeout_seconds}s"])
+
+    cmd.extend(command)
+
+    return cmd
 
 
 def prepare_requirements_file(
