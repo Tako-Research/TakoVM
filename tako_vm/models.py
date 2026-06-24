@@ -415,6 +415,14 @@ class ExecutionRecord(BaseModel):
     relationship: Optional[Literal["rerun", "fork"]] = None
     """Relationship to parent execution."""
 
+    # Session linkage. Nullable FK to sessions.session_id: when an execution runs
+    # inside a long-running session, this links the exec to its session for
+    # audit. None for standalone executions and for legacy rows written before
+    # sessions existed. Persistence scaffolding only (sessions are feature-flagged
+    # off via config.sessions_enabled); nothing in the execution path sets it yet.
+    session_id: Optional[str] = Field(default=None, max_length=64)
+    """ID of the session this execution ran in, if any."""
+
     @field_validator("stdout", "stderr", mode="before")
     @classmethod
     def ensure_string(cls, v: str) -> str:
@@ -573,3 +581,128 @@ class DeadLetterEntry(BaseModel):
             if value is not None:
                 summary[key] = value
         return summary
+
+
+# Canonical session status values.
+#
+# A session is a long-running, single-tenant container whose workspace persists
+# across multiple executions (the "serverless filesystem for agents" direction).
+# These states cover the full lifecycle so the sessions.status CHECK constraint
+# never needs widening:
+# - 'suspended' is reserved for a later phase (a session whose container has been
+#   stopped but whose workspace is retained for rehydration); it exists in the
+#   vocabulary now purely so the persisted CHECK constraint already accepts it.
+# - 'idle' marks a live session with no in-flight execution.
+# This scaffolding is feature-flagged off (config.sessions_enabled defaults to
+# False) and is not yet wired into any execution path.
+SessionStatus = Literal[
+    "creating",  # Container being provisioned
+    "running",  # Live container with an in-flight execution
+    "idle",  # Live container, no in-flight execution
+    "suspended",  # Reserved: container stopped, workspace retained (later phase)
+    "terminated",  # Cleanly torn down
+    "failed",  # Provisioning or runtime failure
+    "expired",  # Reaped after exceeding idle timeout or TTL
+]
+
+# Direction of a persisted session event relative to the sandboxed process.
+SessionEventDirection = Literal[
+    "in",  # Input delivered to the session (e.g. a message/file from the caller)
+    "out",  # Output produced by the session
+    "system",  # System/lifecycle event (created, terminated, etc.)
+]
+
+
+class SessionRecord(BaseModel):
+    """
+    Persistent metadata for a long-running session container.
+
+    A session owns a single container plus a workspace that survives across
+    executions. This record is the audit-grade source of truth for a session's
+    lifecycle (creation, activity, expiry, teardown). Persistence scaffolding
+    only: nothing in the execution path reads or writes it yet, and it is gated
+    behind ``config.sessions_enabled`` (default False).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # Identity
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()), max_length=64)
+    """Unique identifier for this session."""
+
+    # Status
+    status: SessionStatus = "creating"
+    """Current session lifecycle status."""
+
+    # Container binding
+    container_name: str = Field(..., min_length=1, max_length=128)
+    """Name of the container backing this session."""
+
+    container_id: Optional[str] = Field(default=None, max_length=128)
+    """Docker container ID once the container has been created."""
+
+    image_name: Optional[str] = Field(default=None, max_length=255)
+    """Image the session container was launched from."""
+
+    runtime: Optional[str] = Field(default=None, max_length=16)
+    """Effective container runtime: 'runsc' (gVisor) or 'runc' (weaker fallback)."""
+
+    workspace_dir: str = Field(..., min_length=1, max_length=1024)
+    """Path to the session's persistent workspace directory."""
+
+    # Timing
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """When the session was created/requested."""
+
+    started_at: Optional[datetime] = None
+    """When the session container started."""
+
+    last_activity_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """When the session last saw activity (drives idle-timeout reaping)."""
+
+    expires_at: Optional[datetime] = None
+    """Absolute deadline after which the session must be reaped (TTL)."""
+
+    ended_at: Optional[datetime] = None
+    """When the session was terminated/expired."""
+
+    # Lifecycle bounds
+    idle_timeout_seconds: int = Field(default=1800, ge=30, le=86400)
+    """Idle window before the session is reaped, in seconds."""
+
+    ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+    """Absolute maximum session lifetime, in seconds."""
+
+    # Free-form metadata
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    """Caller-supplied, non-secret session metadata."""
+
+
+class SessionEvent(BaseModel):
+    """
+    Input/output event persisted for a session.
+
+    Sessions accumulate an ordered event log (messages in, results out, system
+    lifecycle markers) so callers can poll a session's history. Persistence
+    scaffolding only, gated behind ``config.sessions_enabled``.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: Optional[int] = Field(default=None, ge=0)
+    """Database ID (set by storage on insert)."""
+
+    session_id: str = Field(..., min_length=1, max_length=64)
+    """Session this event belongs to (FK to sessions.session_id)."""
+
+    direction: SessionEventDirection
+    """Whether the event is input to, output from, or a system event of the session."""
+
+    event_type: str = Field(default="message", min_length=1, max_length=64)
+    """Event classifier, e.g. 'message'."""
+
+    payload: Any = None
+    """Event payload (JSON-serializable)."""
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """When the event was recorded."""
