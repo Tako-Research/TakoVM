@@ -388,3 +388,87 @@ class TestExecCommand:
     def test_float_timeout_formatted(self):
         args = _exec(timeout=0.5)
         assert "0.5s" in args
+
+
+# ---------------------------------------------------------------------------
+# Input validation + resource hardening added to the session builders
+# ---------------------------------------------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from tako_vm.execution import docker as _docker  # noqa: E402
+
+
+class TestSessionInputValidation:
+    """Every value that flows into a docker arg is validated / can't inject."""
+
+    @pytest.mark.parametrize(
+        "bad_dir",
+        [
+            "/srv/x:/host",  # ':' is the -v delimiter -> second bind / opts
+            "/srv/x,readonly",  # ','
+            "relative/dir",  # not absolute
+            "/srv/x ",  # trailing space
+            "/srv/x\n/y",  # newline
+        ],
+    )
+    def test_run_rejects_unsafe_workspace_dir(self, bad_dir):
+        with pytest.raises(ValueError):
+            build_session_run_command(
+                "c", runtime="runsc", image=IMAGE, workspace_dir=bad_dir, session_id=SESSION_ID
+            )
+
+    @pytest.mark.parametrize("bad_image", ["evil image", "img;rm -rf /", "a`b`", ""])
+    def test_run_rejects_invalid_image(self, bad_image):
+        with pytest.raises(ValueError):
+            build_session_run_command(
+                "c",
+                runtime="runsc",
+                image=bad_image,
+                workspace_dir=WORKSPACE_DIR,
+                session_id=SESSION_ID,
+            )
+
+    @pytest.mark.parametrize("bad_workdir", ["/work:dir", "rel", "/a,b", "/a b"])
+    def test_exec_rejects_unsafe_workdir(self, bad_workdir):
+        with pytest.raises(ValueError):
+            _exec(workdir=bad_workdir)
+
+    def test_exec_rejects_empty_command(self):
+        with pytest.raises(ValueError):
+            build_session_exec_command("c", command=[])
+
+
+class TestSessionResourceHardening:
+    """Sessions carry the same pids/ulimit/seccomp guards as jobs."""
+
+    def test_pids_limit_present(self):
+        assert any(a.startswith("--pids-limit=") for a in _run())
+
+    def test_ulimits_present(self):
+        args = _run()
+        assert any(a.startswith("--ulimit=nofile=") for a in args)
+        assert any(a.startswith("--ulimit=nproc=") for a in args)
+        assert any(a.startswith("--ulimit=fsize=") for a in args)
+
+    def test_memory_swap_matches_memory(self):
+        args = _run(memory="512m")
+        assert "--memory=512m" in args
+        assert "--memory-swap=512m" in args
+
+    def test_no_seccomp_by_default(self):
+        assert not any(a.startswith("--security-opt=seccomp=") for a in _run())
+
+    def test_seccomp_applied_on_native_linux(self, monkeypatch, tmp_path):
+        profile = tmp_path / "seccomp.json"
+        profile.write_text("{}")
+        monkeypatch.setattr(_docker, "is_native_linux", lambda: True)
+        args = _run(seccomp_profile_path=Path(profile))
+        assert f"--security-opt=seccomp={profile}" in args
+
+    def test_seccomp_skipped_off_native_linux(self, monkeypatch, tmp_path):
+        profile = tmp_path / "seccomp.json"
+        profile.write_text("{}")
+        monkeypatch.setattr(_docker, "is_native_linux", lambda: False)
+        args = _run(seccomp_profile_path=Path(profile))
+        assert not any(a.startswith("--security-opt=seccomp=") for a in args)

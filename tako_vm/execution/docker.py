@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from tako_vm.security import validate_pip_requirement
+from tako_vm.security import validate_docker_image, validate_pip_requirement
 
 logger = logging.getLogger(__name__)
 
@@ -556,6 +556,22 @@ def base_isolation_args(
     return args
 
 
+def _validate_session_path(value: str, field: str) -> None:
+    """Reject a path that could inject extra ``-v``/exec arguments.
+
+    The session workspace is mounted with the ``-v src:dst`` shorthand, whose
+    fields are ``:``-delimited; a ``:`` (or ``,``/whitespace/newline) in the
+    host path could append mount options or a second bind. This is the choke
+    point that keeps a future request-bound ``workspace_dir`` from re-pointing
+    or re-keying the mount (cf. the ``--mount`` ``target=`` host-escape on the
+    server-side builder). The path must be absolute and free of those chars.
+    """
+    if not value or not value.startswith("/"):
+        raise ValueError(f"{field} must be an absolute path; got {value!r}")
+    if any(c in value for c in ":,\n\r\t ") or value != value.strip():
+        raise ValueError(f"{field} contains disallowed characters: {value!r}")
+
+
 def build_session_run_command(
     container_name: str,
     *,
@@ -567,6 +583,8 @@ def build_session_run_command(
     cpu_limit: Optional[str] = None,
     enable_cap_restrictions: bool = True,
     keepalive_cmd: Optional[Sequence[str]] = None,
+    limits=None,
+    seccomp_profile_path: Optional[Path] = None,
 ) -> list[str]:
     """Build the ``docker run`` command for a long-lived session container.
 
@@ -610,6 +628,18 @@ def build_session_run_command(
     Returns:
         The full ``docker run`` argument list, ready to execute.
     """
+    # Validate everything that flows into a docker arg before assembling it.
+    if not validate_docker_image(image):
+        raise ValueError(f"invalid image name: {image!r}")
+    _validate_session_path(workspace_dir, "workspace_dir")
+    # Default to the standard container limits so ulimits/pids are bounded by
+    # default, not only when a caller opts in. Imported lazily to avoid a
+    # config<->docker import cycle at module load.
+    if limits is None:
+        from tako_vm.config import ContainerLimits
+
+        limits = ContainerLimits()
+
     cmd = base_isolation_args(
         container_name,
         runtime=runtime,
@@ -628,12 +658,23 @@ def build_session_run_command(
     cmd.append("-v")
     cmd.append(f"{workspace_dir}:/workspace")
 
-    # Resource limits, matching the worker's glued ``--memory=``/``--cpus=``
-    # spelling. Only emitted when provided.
+    # Seccomp profile (native Linux only — Docker Desktop / some CI reject
+    # custom profiles). Mirrors the job path; sessions were shipping without it.
+    if seccomp_profile_path is not None and is_native_linux() and seccomp_profile_path.exists():
+        cmd.append(f"--security-opt=seccomp={seccomp_profile_path}")
+
+    # Resource limits. ``--memory-swap`` == ``--memory`` (no swap), plus the
+    # per-container ``--pids-limit`` and the shared ``--ulimit`` set
+    # (nofile/nproc/fsize) — the writable /workspace bind makes the unbounded
+    # RLIMIT_FSIZE a host-disk-exhaustion DoS the gVisor boundary doesn't cover
+    # (issue #97), so sessions must carry it just like jobs.
     if memory_limit is not None:
         cmd.append(f"--memory={memory_limit}")
+        cmd.append(f"--memory-swap={memory_limit}")
     if cpu_limit is not None:
         cmd.append(f"--cpus={cpu_limit}")
+    cmd.append(f"--pids-limit={limits.pids_limit}")
+    cmd.extend(ulimit_args(limits))
 
     # Image, then the keepalive command. The real PID1 supervisor
     # (session_entrypoint.sh) lands in Phase 1b; until then the keepalive is a
@@ -685,6 +726,11 @@ def build_session_exec_command(
     Returns:
         The full ``docker exec`` argument list, ready to execute.
     """
+    # Validate the workdir (flows into ``-w``) and require a non-empty command.
+    _validate_session_path(workdir, "workdir")
+    if not command:
+        raise ValueError("command must be a non-empty argument list")
+
     cmd = [
         "docker",
         "exec",
