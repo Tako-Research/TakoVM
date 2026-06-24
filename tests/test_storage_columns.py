@@ -62,6 +62,7 @@ EXPECTED = [
     ("parent_execution_id", _SET_COALESCE_EXISTING),
     ("relationship", _SET_COALESCE_EXISTING),
     ("runtime", _SET_COALESCE_EXCLUDED),
+    ("session_id", _SET_COALESCE_EXISTING),
 ]
 
 

@@ -427,6 +427,35 @@ class TakoVMConfig(BaseModel):
         description="Mount a shared uv cache volume for runtime dependency installs",
     )
 
+    # Session runtime controls.
+    #
+    # Persistence scaffolding for long-running sessions (durable, per-agent
+    # workspaces). Disabled by default: when sessions_enabled is False none of
+    # this is reachable from any execution path. The bounds mirror
+    # SessionRecord.idle_timeout_seconds / ttl_seconds so config-level defaults
+    # and per-session values stay consistent.
+    sessions_enabled: bool = Field(
+        default=False,
+        description="Enable long-running sessions (persistence scaffolding; off by default)",
+    )
+    session_idle_timeout_seconds: int = Field(
+        default=1800,
+        ge=30,
+        le=86400,
+        description="Default idle window before a session is reaped, in seconds",
+    )
+    session_max_ttl_seconds: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Default absolute maximum session lifetime, in seconds",
+    )
+    session_max_concurrent: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum number of concurrent live sessions",
+    )
+
     # Retention
     execution_record_ttl_days: int = Field(default=30, ge=1, le=3650)
     dlq_ttl_days: int = Field(
@@ -528,6 +557,8 @@ class TakoVMConfig(BaseModel):
             raise ValueError("default_timeout must be <= max_timeout")
         if self.default_startup_timeout > self.max_startup_timeout:
             raise ValueError("default_startup_timeout must be <= max_startup_timeout")
+        if self.session_idle_timeout_seconds > self.session_max_ttl_seconds:
+            raise ValueError("session_idle_timeout_seconds must be <= session_max_ttl_seconds")
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
@@ -761,6 +792,20 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
             "1",
             "yes",
         )
+    if "TAKO_VM_SESSIONS_ENABLED" in os.environ:
+        config_dict["sessions_enabled"] = os.environ["TAKO_VM_SESSIONS_ENABLED"].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+    if "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS" in os.environ:
+        config_dict["session_idle_timeout_seconds"] = parse_env_int(
+            "TAKO_VM_SESSION_IDLE_TIMEOUT_SECONDS"
+        )
+    if "TAKO_VM_SESSION_MAX_TTL_SECONDS" in os.environ:
+        config_dict["session_max_ttl_seconds"] = parse_env_int("TAKO_VM_SESSION_MAX_TTL_SECONDS")
+    if "TAKO_VM_SESSION_MAX_CONCURRENT" in os.environ:
+        config_dict["session_max_concurrent"] = parse_env_int("TAKO_VM_SESSION_MAX_CONCURRENT")
     # Validate and create config
     try:
         config = TakoVMConfig(**config_dict)
