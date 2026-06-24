@@ -82,6 +82,7 @@ container_limits:
   nproc_hard: 50        # Process limit hard (10-1000)
   fsize: 104857600      # Max file size: 100MB (1MB-1GB)
   tmpfs_size: "100m"    # /tmp size (10m-2g)
+  cache_tmpfs_size: "256m"  # writable ~/.cache size (10m-2g); RAM-backed
 
 # =============================================================================
 # Paths

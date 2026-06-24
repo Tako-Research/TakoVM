@@ -624,6 +624,9 @@ class Sandbox:
                 f"--mount=type=bind,source={input_dir.absolute()},target=/input,readonly",
                 f"--mount=type=bind,source={output_dir.absolute()},target=/output",
                 f"--tmpfs=/tmp:rw,exec,nosuid,size={tmp_size}",
+                # Writable $HOME/.cache (see CodeExecutor for the rationale).
+                # mode=1777 lets the dropped sandbox user write without CAP_CHOWN.
+                f"--tmpfs=/home/sandbox/.cache:rw,exec,nosuid,mode=1777,size={limits.cache_tmpfs_size}",
             ]
         )
 

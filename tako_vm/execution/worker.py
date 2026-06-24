@@ -1425,6 +1425,13 @@ class CodeExecutor:
                 f"--mount=type=bind,source={output_dir.absolute()},target=/output",
                 # Use larger /tmp and allow exec when installing packages (packages go to /tmp/site-packages)
                 f"--tmpfs=/tmp:rw,{'exec' if has_runtime_deps else 'noexec'},nosuid,size={'300m' if has_runtime_deps else limits.tmpfs_size}",
+                # Writable cache for the sandbox user's $HOME/.cache. The root
+                # filesystem is --read-only, so without this any library caching
+                # under ~/.cache (ezdxf, matplotlib, fontconfig, Hugging Face,
+                # torch, ...) fails. mode=1777 lets the dropped sandbox user write
+                # without CAP_CHOWN (which --cap-drop=ALL removes). RAM-backed, so
+                # it counts against --memory like /tmp.
+                f"--tmpfs=/home/sandbox/.cache:rw,{'exec' if has_runtime_deps else 'noexec'},nosuid,mode=1777,size={limits.cache_tmpfs_size}",
             ]
         )
 

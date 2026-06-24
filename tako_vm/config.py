@@ -101,24 +101,31 @@ class ContainerLimits(BaseModel):
     # tmpfs size for /tmp (e.g., "100m", "256m", "1g")
     tmpfs_size: str = Field(default="100m")
 
+    # tmpfs size for the sandbox user's ~/.cache (e.g., "256m", "1g"). Mounted
+    # writable over /home/sandbox/.cache so libraries that cache under
+    # $HOME/.cache (ezdxf, matplotlib, fontconfig, Hugging Face, torch, ...) work
+    # under the --read-only root filesystem. RAM-backed, so it counts against the
+    # container memory limit, like /tmp.
+    cache_tmpfs_size: str = Field(default="256m")
+
     # PIDs limit
     pids_limit: int = Field(default=100, ge=10, le=1000)
 
-    @field_validator("tmpfs_size")
+    @field_validator("tmpfs_size", "cache_tmpfs_size")
     @classmethod
     def validate_tmpfs_size(cls, v: str) -> str:
-        """Validate tmpfs size format and bounds."""
+        """Validate a tmpfs size (format and 10m-2g bounds)."""
         v = v.lower().strip()
         if not v:
-            raise ValueError("tmpfs_size cannot be empty")
+            raise ValueError("tmpfs size cannot be empty")
 
         size_mb = _parse_size_to_mb(v, allow_k_and_bytes=True)
 
         # Validate bounds (10MB to 2GB)
         if size_mb < 10:
-            raise ValueError("tmpfs_size must be at least 10m")
+            raise ValueError("tmpfs size must be at least 10m")
         if size_mb > 2048:
-            raise ValueError("tmpfs_size must be at most 2g")
+            raise ValueError("tmpfs size must be at most 2g")
 
         return v
 

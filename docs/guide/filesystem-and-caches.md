@@ -14,18 +14,21 @@ models without hitting "read-only filesystem" errors.
 
 | Path | Type | Writable? | Persists between runs? |
 |------|------|-----------|------------------------|
-| `/` (root, incl. `/home/sandbox`) | image layers | **No** (read-only) | n/a |
+| `/` (root, incl. most of `/home/sandbox`) | image layers | **No** (read-only) | n/a |
+| `/home/sandbox/.cache` | tmpfs (RAM-backed) | Yes | **No** wiped on exit |
 | `/tmp` | tmpfs (RAM-backed) | Yes | **No** wiped on exit |
 | `/output` | bind mount | Yes | Collected as artifacts |
 | `/input`, `/code` | bind mount | No (read-only) | n/a |
 
 Two consequences matter for library behavior:
 
-- The sandbox user's home, `/home/sandbox`, lives on the **read-only** root. Anything
-  that tries to write under `$HOME` fails.
-- `/tmp` is **RAM-backed and size-capped** (100 MB default, 300 MB while installing
-  dependencies) and is **wiped when the container exits**. It is scratch space, not
-  storage.
+- The sandbox user's home, `/home/sandbox`, is on the **read-only** root, **except**
+  `~/.cache`, which is a writable tmpfs mount (see below). Writes elsewhere under
+  `$HOME` (e.g. `~/.config`, `~/.local`) fail.
+- The writable tmpfs areas (`~/.cache`, `/tmp`) are **RAM-backed, size-capped, and
+  wiped when the container exits**. `/tmp` defaults to 100 MB (300 MB while installing
+  dependencies); `~/.cache` defaults to 256 MB (`container_limits.cache_tmpfs_size`).
+  They are scratch space, not storage.
 
 > Today each container is single-use, so nothing written at runtime survives. Durable,
 > per-agent workspaces are on the roadmap, see the project direction in the README.
@@ -41,16 +44,27 @@ resources. On a read-only `$HOME` those writes fail, and you would see warnings 
 Cannot create cache home directory: '/home/sandbox/.cache/ezdxf', cache files will not be saved.
 ```
 
-Tako VM avoids this by pointing the cache/config directories at the writable `/tmp`
-tmpfs before running your code (in `docker/entrypoint.sh`):
+Tako VM avoids this by mounting a writable tmpfs **over `~/.cache` itself**, so the
+conventional path works without any redirection:
 
-```sh
-export XDG_CACHE_HOME=/tmp/.cache       # ezdxf, fontconfig, most XDG-aware libs
-export MPLCONFIGDIR=/tmp/.cache/matplotlib   # matplotlib uses its own variable
+```
+--tmpfs=/home/sandbox/.cache:rw,nosuid,mode=1777,size=<cache_tmpfs_size>
 ```
 
-This is handled automatically, no action needed for these libraries. The cache lives
-in `/tmp`, so it is recomputed on the next run (it is an optimization, not stored data).
+`mode=1777` lets the unprivileged sandbox user write to it (the container drops
+`CAP_CHOWN`, so a `chown` would not work). Because the cache is at its standard
+location, *any* library that writes under `~/.cache` works, including ones that ignore
+`XDG_CACHE_HOME`. The only knob you may want is the size:
+
+```yaml
+container_limits:
+  cache_tmpfs_size: "256m"   # default; RAM-backed, counts against memory_limit
+```
+
+This is handled automatically, no action needed for these libraries. The cache lives in
+the tmpfs, so it is recomputed on the next run (it is an optimization, not stored data).
+matplotlib also keeps a *config* dir outside `~/.cache`; the entrypoint points
+`MPLCONFIGDIR` into the writable cache so matplotlib does not warn.
 
 ## Loading ML models (Hugging Face, PyTorch, NLTK, ...)
 
@@ -60,10 +74,10 @@ library downloads weights and writes them under `$HOME/.cache` (or `HF_HOME`), t
 loads them from that path. There is no in-memory fallback, so an unwritable cache is a
 hard failure, not a warning.
 
-Redirecting the cache to `/tmp` does **not** reliably fix this, `/tmp` is too small for
-a multi-hundred-MB model, is RAM-backed (so it competes with your job's memory limit),
-and is wiped every run (so the model re-downloads each time). Network is also disabled
-by default (`--network=none`), so a runtime download often cannot happen at all.
+The writable `~/.cache` tmpfs does **not** reliably fix this: even sized up, it is
+RAM-backed (so a multi-hundred-MB model competes with your job's memory limit) and is
+wiped every run (so the model re-downloads each time). Network is also disabled by
+default (`--network=none`), so a runtime download often cannot happen at all.
 
 The correct approach is to **pre-stage the model so it is present and read-only at
 runtime.** Hugging Face and friends are happy to *load* from a read-only cache, they
@@ -116,6 +130,6 @@ an updated or moved model.
 
 | If you use... | Do this |
 |---------------|---------|
-| matplotlib, ezdxf, fontconfig (cache-for-speed libs) | Nothing, caches are redirected to `/tmp` automatically |
+| matplotlib, ezdxf, fontconfig (cache-for-speed libs) | Nothing, `~/.cache` is a writable tmpfs automatically |
 | Hugging Face / torch / NLTK (download-and-cache libs) | Pre-stage the model (bake into image or read-only volume) and set `HF_HOME` + offline mode |
 | Anything that must write at runtime | Write under `/tmp` (scratch, ephemeral) or `/output` (collected); never expect `$HOME` to be writable |
