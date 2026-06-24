@@ -79,3 +79,5 @@ result = MyClass().process(data)
 - Dependencies of your library must either be included as wheels or available via PyPI
 - To update a library, replace the wheel and rebuild the image
 - Libraries are available to all code executions using that image
+- To pre-stage **ML model weights** (not just code) into an image so they load under the
+  read-only root filesystem, see [Filesystem & Caches](filesystem-and-caches.md)

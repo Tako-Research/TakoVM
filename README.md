@@ -96,6 +96,7 @@ tako-vm --config my.yaml server   # Use specific config file
 | REST API | [docs/api/rest.md](docs/api/rest.md) |
 | Python SDK | [docs/api/sdk.md](docs/api/sdk.md) |
 | Job Types & Environments | [docs/guide/environments.md](docs/guide/environments.md) |
+| Filesystem, Caches & ML Models | [docs/guide/filesystem-and-caches.md](docs/guide/filesystem-and-caches.md) |
 | Security | [docs/deployment/security.md](docs/deployment/security.md) |
 | Deployment | [docs/deployment/how-to-deploy.md](docs/deployment/how-to-deploy.md) |
 | Config Reference | [tako_vm.yaml.example](tako_vm.yaml.example) |
