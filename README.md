@@ -32,15 +32,33 @@ queues, retries, and execution history included.
   <img src="assets/demo.gif" alt="Demo: executing Python, installing runtime dependencies, and network isolation via the Tako VM REST API" width="940">
 </p>
 
-```bash
-# Install (requires Docker + Python 3.10+)
-pip install "tako-vm[server]"
-tako-vm setup                   # pull the executor Docker image
-tako-vm server                  # start server (auto-starts PostgreSQL via Docker)
-```
+## Quickstart
+
+Pick one. **Option A** runs the whole stack in one command; **Option B** runs it on your host with `pip`. Both need Docker running.
+
+### Option A — Docker Compose (one command, nothing to install)
 
 ```bash
-# Execute code
+git clone https://github.com/Tako-Research/TakoVM.git && cd TakoVM
+docker compose up -d --build    # server + PostgreSQL + executor image + hardened socket proxy
+```
+
+The server is live at `http://localhost:8000`. Tear it down with `docker compose down`.
+
+### Option B — pip (run on your host)
+
+```bash
+pip install "tako-vm[server]"   # requires Docker + Python 3.10+
+tako-vm setup                   # pull the executor image
+tako-vm doctor                  # verify your environment is ready to run jobs
+tako-vm server                  # start the server (auto-starts PostgreSQL via Docker)
+```
+
+`tako-vm doctor` prints a pass/warn/fail checklist (Docker, executor image, gVisor, database, workspace, config) so problems surface up front instead of as cryptic mid-job errors.
+
+### Execute code
+
+```bash
 curl -X POST http://localhost:8000/execute \
   -H "Content-Type: application/json" \
   -d '{"code": "print(1 + 1)"}'
@@ -71,6 +89,7 @@ Sandbox solutions like [e2b](https://e2b.dev), [daytona](https://daytona.dev) an
 
 ```bash
 tako-vm setup                     # Pull executor image and verify Docker
+tako-vm doctor                    # Check the environment is ready (Docker, image, DB, workspace)
 tako-vm server                    # Start the API server
 tako-vm server --port 9000        # Custom port
 tako-vm dev up                    # Start local PostgreSQL for development

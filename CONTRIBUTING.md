@@ -18,15 +18,23 @@ Requirements: Python 3.10+, Docker, and `git`.
 git clone https://github.com/Tako-Research/TakoVM.git
 cd TakoVM
 
-# Install in editable mode with dev + server extras
+# One command: install (editable, dev + server extras), build the executor
+# image, and start local PostgreSQL.
+make bootstrap        # use uv instead: make bootstrap PIP="uv pip"
+
+# Confirm the environment is ready (Docker, executor image, DB, workspace, config)
+make doctor           # or: tako-vm doctor
+```
+
+Prefer the steps by hand? `make bootstrap` is equivalent to:
+
+```bash
 pip install -e ".[dev,server]"        # or: uv pip install -e ".[dev,server]"
-
-# Build the executor image (one-time)
 docker build -t code-executor:latest -f docker/Dockerfile.executor .
-
-# Start local PostgreSQL for development
 tako-vm dev up
 ```
+
+Run `make` (or `make help`) to see all developer shortcuts.
 
 ### macOS notes
 
@@ -37,7 +45,7 @@ tako-vm dev up
 ## Running tests
 
 ```bash
-TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
+make test        # or: TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
 ```
 
 - Tests need Docker running and local PostgreSQL (`tako-vm dev up`).

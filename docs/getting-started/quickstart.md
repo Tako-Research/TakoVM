@@ -4,15 +4,29 @@ description: "Get started with Tako VM in minutes: install, pull the executor im
 
 # Quick Start
 
-Get Tako VM running and execute your first code.
+Get Tako VM running and execute your first code. Pick one of the two paths below — both need Docker running.
 
-## Install and Start
+## Option A — Docker Compose (one command)
+
+Runs the whole stack (server, PostgreSQL, executor image, and a hardened Docker-socket proxy) with nothing to install but Docker:
+
+```bash
+git clone https://github.com/Tako-Research/TakoVM.git && cd TakoVM
+docker compose up -d --build    # server is live at http://localhost:8000
+```
+
+Tear it down with `docker compose down`.
+
+## Option B — pip (run on your host)
 
 ```bash
 pip install "tako-vm[server]"
 tako-vm setup                   # pull the executor Docker image
+tako-vm doctor                  # verify the environment is ready to run jobs
 tako-vm server                  # starts on http://localhost:8000
 ```
+
+`tako-vm doctor` prints a pass/warn/fail checklist (Docker, executor image, gVisor, database, workspace, config) so problems surface before you submit a job rather than as a cryptic mid-job error.
 
 `tako-vm server` auto-starts a PostgreSQL container on port 55432 for job persistence. Use `--port` to change the server port:
 

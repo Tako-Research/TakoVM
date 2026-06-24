@@ -3,6 +3,7 @@ Tako VM Command Line Interface.
 
 Usage:
     tako-vm setup           Pull executor image and verify Docker is ready
+    tako-vm doctor          Diagnose the local environment for readiness
     tako-vm server          Start the Tako VM server
     tako-vm dev up          Start local development services
     tako-vm dev status      Show local development services status
@@ -160,6 +161,11 @@ def main():
     # Setup command
     subparsers.add_parser("setup", help="Pull executor image and verify Docker is ready")
 
+    # Doctor command
+    subparsers.add_parser(
+        "doctor", help="Diagnose the local environment and report readiness to run jobs"
+    )
+
     # Version command
     subparsers.add_parser("version", help="Show version")
 
@@ -194,6 +200,8 @@ def main():
         show_config(args)
     elif args.command == "setup":
         run_setup(args)
+    elif args.command == "doctor":
+        run_doctor(args)
     elif args.command == "version":
         from tako_vm import __version__
 
@@ -301,6 +309,192 @@ def run_setup(args):
         sys.exit(1)
 
     print("\nSetup complete! Ready to run jobs.")
+
+
+def run_doctor(args):
+    """Diagnose the local environment and report readiness to run jobs.
+
+    Runs a set of independent checks (Docker, executor image, gVisor, database,
+    workspace, config) and prints a single pass/warn/fail checklist so problems
+    surface up front instead of as cryptic runtime errors mid-job. Exits non-zero
+    if any blocking ([FAIL]) check fails, so it composes in scripts and CI.
+    """
+    del args
+
+    from tako_vm.constants import DEFAULT_IMAGE, get_workspace_dir
+
+    # (level, message, hint) — level in {"ok", "warn", "fail"}.
+    results: list[tuple[str, str, str | None]] = []
+
+    # Load config once up front; reused by the gVisor and database checks. The
+    # result line is appended last so the checklist reads top-down by dependency.
+    config = None
+    config_result: tuple[str, str, str | None]
+    try:
+        from tako_vm.config import get_config
+
+        config = get_config()
+        config_result = ("ok", "Configuration valid", None)
+    except Exception as e:
+        config_result = ("fail", "Configuration invalid", str(e))
+
+    # Are the server extras (psycopg, etc.) importable? Drives the DB check.
+    try:
+        import psycopg  # noqa: F401
+
+        has_server_deps = True
+    except ImportError:
+        has_server_deps = False
+
+    # --- Docker daemon ---
+    docker_ok = False
+    try:
+        subprocess.run(["docker", "info"], check=True, capture_output=True, text=True)
+        docker_ok = True
+        results.append(("ok", "Docker daemon running", None))
+    except FileNotFoundError:
+        results.append(
+            ("fail", "Docker not installed", "Install Docker: https://docs.docker.com/get-docker/")
+        )
+    except subprocess.CalledProcessError:
+        results.append(
+            ("fail", "Docker installed but not running", "Start Docker Desktop or the daemon")
+        )
+
+    # --- Executor image ---
+    if docker_ok:
+        img = subprocess.run(
+            ["docker", "image", "inspect", DEFAULT_IMAGE], capture_output=True, check=False
+        )
+        if img.returncode == 0:
+            results.append(("ok", f"Executor image '{DEFAULT_IMAGE}' present", None))
+        else:
+            results.append(
+                (
+                    "fail",
+                    f"Executor image '{DEFAULT_IMAGE}' missing",
+                    "Run `tako-vm setup` to pull it (jobs fail without it)",
+                )
+            )
+    else:
+        results.append(("fail", "Executor image: skipped (Docker unavailable)", None))
+
+    # --- gVisor runtime ---
+    if docker_ok:
+        try:
+            from tako_vm.execution.worker import check_gvisor_available, reset_gvisor_check
+
+            reset_gvisor_check()
+            gvisor = check_gvisor_available()
+        except Exception:
+            gvisor = False
+        strict = config is not None and config.security_mode == "strict"
+        if gvisor:
+            results.append(("ok", "gVisor (runsc) runtime available", None))
+        elif strict:
+            results.append(
+                (
+                    "fail",
+                    "gVisor required by security_mode=strict but not available",
+                    "Install gVisor, or set security_mode: permissive for local dev",
+                )
+            )
+        else:
+            results.append(
+                (
+                    "warn",
+                    "gVisor (runsc) not available — permissive mode falls back to runc",
+                    "Fine for local dev; for untrusted production set security_mode: strict",
+                )
+            )
+
+    # --- Database ---
+    db_url = config.database_url if config is not None else DEFAULT_DATABASE_URL
+    if not has_server_deps:
+        results.append(
+            (
+                "warn",
+                "PostgreSQL client (psycopg) not installed",
+                "Install server extras: pip install 'tako-vm[server]'",
+            )
+        )
+    elif _can_connect_database(db_url):
+        results.append(("ok", f"Database reachable at {_mask_database_url(db_url)}", None))
+    elif _can_connect_database(MANAGED_POSTGRES_URL):
+        results.append(
+            (
+                "ok",
+                f"Managed dev PostgreSQL reachable at {_mask_database_url(MANAGED_POSTGRES_URL)}",
+                None,
+            )
+        )
+    else:
+        results.append(
+            (
+                "warn",
+                "No PostgreSQL reachable",
+                "`tako-vm server` auto-starts one in dev mode, or run `tako-vm dev up`",
+            )
+        )
+
+    # --- Workspace ---
+    workspace = Path(get_workspace_dir())
+    workspace_explicit = "TAKO_VM_WORKSPACE" in os.environ
+    if not workspace.exists():
+        results.append(
+            (
+                "fail",
+                f"Workspace {workspace} does not exist",
+                "Create it or point TAKO_VM_WORKSPACE at a writable directory",
+            )
+        )
+    elif not os.access(workspace, os.W_OK):
+        results.append(
+            (
+                "fail",
+                f"Workspace {workspace} is not writable",
+                "Point TAKO_VM_WORKSPACE at a writable directory",
+            )
+        )
+    elif sys.platform == "darwin" and not workspace_explicit:
+        # The default macOS temp dir (/var/folders/...) can't be bind-mounted into
+        # the colima/Lima Docker VM, so job mounts fail at runtime with a cryptic
+        # "bind source path does not exist". Warn before that happens.
+        results.append(
+            (
+                "warn",
+                f"Workspace defaults to the macOS system temp dir ({workspace})",
+                "Set TAKO_VM_WORKSPACE to a dir under $HOME — the default can't be "
+                "bind-mounted into the Docker VM",
+            )
+        )
+    else:
+        results.append(("ok", f"Workspace {workspace} is writable", None))
+
+    # Config result reported last.
+    results.append(config_result)
+
+    # --- Render ---
+    symbols = {"ok": "[ OK ]", "warn": "[WARN]", "fail": "[FAIL]"}
+    print("Tako VM environment check")
+    print("=" * 40)
+    for level, message, hint in results:
+        print(f"  {symbols[level]}  {message}")
+        if hint and level != "ok":
+            print(f"          -> {hint}")
+
+    fails = sum(1 for level, _, _ in results if level == "fail")
+    warns = sum(1 for level, _, _ in results if level == "warn")
+    print()
+    if fails:
+        print(
+            f"{fails} blocking issue(s). Fix the [FAIL] items above, then re-run `tako-vm doctor`."
+        )
+        sys.exit(1)
+    if warns:
+        print(f"Ready to run, with {warns} warning(s). Start the server with `tako-vm server`.")
+    else:
+        print("All checks passed. Start the server with `tako-vm server`.")
 
 
 def run_server(args):

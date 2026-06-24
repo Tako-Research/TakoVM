@@ -1095,3 +1095,52 @@ class TestCLIDevHelpers:
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
         assert "Status: docker unavailable" in captured.out
+
+
+class TestRunDoctor:
+    """Tests for the `doctor` environment diagnostic."""
+
+    def test_doctor_fails_when_docker_missing(self, capsys):
+        """A missing Docker binary is a blocking [FAIL] and exits non-zero."""
+        from tako_vm.cli import run_doctor
+
+        args = argparse.Namespace()
+        # subprocess.run raises FileNotFoundError for `docker info` (no binary).
+        with patch("tako_vm.cli.subprocess.run", side_effect=FileNotFoundError()):
+            with patch("tako_vm.cli._can_connect_database", return_value=False):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_doctor(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Docker not installed" in captured.out
+        assert "[FAIL]" in captured.out
+        assert "blocking issue" in captured.out
+
+    def test_doctor_passes_with_warnings_in_permissive_mode(self, capsys, monkeypatch, tmp_path):
+        """Healthy permissive setup: gVisor unavailable is a warning, not a failure."""
+        from tako_vm.cli import DEFAULT_DATABASE_URL, run_doctor
+
+        # An explicit, writable workspace avoids the macOS default-temp warning so
+        # the gVisor-unavailable warning is the only one and the run stays green.
+        monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path))
+
+        # Pin a permissive config so the gVisor result is a warning (not a strict
+        # [FAIL]); otherwise an ambient TAKO_VM_SECURITY_MODE=strict would make
+        # run_doctor exit(1) and this test fail. get_config is imported inside
+        # run_doctor, so patch it at its source module.
+        fake_config = MagicMock(security_mode="permissive", database_url=DEFAULT_DATABASE_URL)
+
+        args = argparse.Namespace()
+        with patch("tako_vm.cli.subprocess.run", return_value=MagicMock(returncode=0)):
+            with patch("tako_vm.config.get_config", return_value=fake_config):
+                with patch("tako_vm.execution.worker.check_gvisor_available", return_value=False):
+                    with patch("tako_vm.execution.worker.reset_gvisor_check"):
+                        with patch("tako_vm.cli._can_connect_database", return_value=True):
+                            # Must not raise SystemExit (no blocking failures).
+                            run_doctor(args)
+
+        captured = capsys.readouterr()
+        assert "[ OK ]  Docker daemon running" in captured.out
+        assert "gVisor" in captured.out
+        assert "Ready to run" in captured.out

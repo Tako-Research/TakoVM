@@ -1,13 +1,18 @@
 # Tako VM Docker Compose
 #
-# Start everything:
-#   docker-compose up -d
+# Start everything (server + PostgreSQL + executor image + hardened socket proxy):
+#   docker compose up -d --build
 #
-# Build and start:
-#   docker-compose up -d --build
+# This builds the executor image, brings up PostgreSQL and the docker-socket-proxy,
+# then starts the API server once all three are ready. The server is live at
+# http://localhost:8000.
 #
 # View logs:
-#   docker-compose logs -f tako-vm
+#   docker compose logs -f tako-vm
+#
+# The `executor-build` service builds the `code-executor:latest` image the server
+# spawns per job, then exits — seeing it as "Exited (0)" in `docker compose ps` is
+# expected, not an error.
 
 services:
   docker-socket-proxy:
@@ -45,8 +50,15 @@ services:
     volumes:
       # Shared workspace for job files (must match host path for Docker mounts)
       - /tmp/tako-vm-jobs:/tmp/tako-vm-jobs
-      # Config with scaled worker settings (16 workers, 500 queue)
-      - ./tako_vm.yaml:/app/tako_vm.yaml:ro
+      # No config file is needed for a fresh `docker compose up`: the image bakes
+      # in tako_vm.yaml.example as /app/tako_vm.yaml, and the env vars below
+      # override the settings that matter here. To customize, copy the example
+      # and uncomment the mount below:
+      #   cp tako_vm.yaml.example tako_vm.yaml
+      # Do NOT mount ./tako_vm.yaml without creating it first — Docker would
+      # create the missing path as an empty directory and the server would crash
+      # trying to read it as a file.
+      # - ./tako_vm.yaml:/app/tako_vm.yaml:ro
       # Optional: persist data
       # - tako-vm-data:/root/.tako_vm
     environment:
@@ -60,6 +72,10 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
+      # Gate startup on the executor image existing — otherwise the server comes
+      # up but every job fails with "image not found" until it's built by hand.
+      executor-build:
+        condition: service_completed_successfully
     networks:
       - default
       - docker-internal
@@ -88,7 +104,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # Build executor image (run once, then remove)
+  # Builds the per-job executor image, then exits. The server depends on this
+  # completing successfully (see tako-vm.depends_on) so a fresh `up` always has
+  # the image the sandbox needs. Compose rebuilds only when the Dockerfile or
+  # build context changes, so re-running `up` is cheap.
   executor-build:
     build:
       context: .
@@ -96,8 +115,6 @@ services:
     image: code-executor:latest
     entrypoint: []  # Override entrypoint so we can just echo
     command: ["echo", "Executor image built"]
-    profiles:
-      - build
 
 # Optional: persist data
 volumes:
