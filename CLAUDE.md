@@ -62,6 +62,16 @@ TAKO_VM_SECURITY_MODE=permissive pytest tests/ -v
 tako-vm server --port 8000
 ```
 
+## Markdown Viewing
+
+Use `mo` as the Markdown viewer for local previews and agent workflows:
+
+```bash
+mo README.md docs/
+```
+
+Do not introduce alternate Markdown viewers for repository docs unless there is a specific project need.
+
 ## Code Quality
 
 Linting is handled automatically via a PostToolUse hook (`.claude/hooks/lint.sh`) that runs `ruff check --fix` and `ruff format` on changed Python files. To run manually:

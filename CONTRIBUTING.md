@@ -14,6 +14,18 @@ Thanks for your interest in contributing! This guide covers everything you need 
 
 Requirements: Python 3.10+, Docker, and `git`.
 
+For local Markdown previews, use [`mo`](https://github.com/k1LoW/mo) so contributors and agents see the same GitHub-flavored rendering. Install it with Homebrew:
+
+```bash
+brew install k1LoW/tap/mo
+```
+
+Then open Markdown files from the repository root:
+
+```bash
+mo README.md docs/
+```
+
 ```bash
 git clone https://github.com/Tako-Research/TakoVM.git
 cd TakoVM
