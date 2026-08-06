@@ -10,6 +10,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Runtime images intentionally track a Python version covered by CI.
+      # Dependabot otherwise proposes untested interpreter major versions.
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
 
   # Keep the Python dependencies (pyproject) patched.
   - package-ecosystem: pip
