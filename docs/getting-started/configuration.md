@@ -89,6 +89,7 @@ container_limits:
   nproc_hard: 50
   fsize: 104857600        # 100MB max file size
   tmpfs_size: "100m"
+  cache_tmpfs_size: "256m"   # writable ~/.cache (RAM-backed)
 
 # ==============================================================================
 # JOB TYPES
@@ -231,6 +232,7 @@ When you define a job type, Tako VM builds a Docker image with the specified pac
 | `nproc_soft/hard` | Process count | 50 | 10-1000 |
 | `fsize` | Max file size | 100MB | 1MB-1GB |
 | `tmpfs_size` | /tmp size | 100m | 10m-2g |
+| `cache_tmpfs_size` | writable ~/.cache size (RAM-backed) | 256m | 10m-2g |
 
 ## Validating Configuration
 
