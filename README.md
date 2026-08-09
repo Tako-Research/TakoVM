@@ -117,7 +117,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup,
 
 ## Contact
 
-Questions, feedback, or partnership inquiries? Reach out to [seiji@intencion.io](mailto:seiji@intencion.io).
+Questions, feedback, or partnership inquiries? Reach out to [seiji@reachpad.dev](mailto:seiji@reachpad.dev).
 
 ## License
 
