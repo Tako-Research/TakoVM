@@ -509,6 +509,22 @@ class CodeExecutor:
 
         return job_type
 
+    def _resolve_execution_timeout(self, job: Dict[str, Any], job_type: JobType) -> int:
+        """Resolve and enforce the execution timeout at the worker boundary."""
+        timeout = job.get("timeout")
+        if timeout is None:
+            timeout = (
+                job_type.timeout
+                if job.get("job_type") is not None
+                else self.config.default_timeout
+            )
+        if timeout > self.config.max_timeout:
+            raise ValueError(
+                "effective timeout must be less than or equal to the configured "
+                f"max_timeout ({self.config.max_timeout} seconds)"
+            )
+        return timeout
+
     def execute_job(self, job: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute a job in an isolated container (legacy interface).
@@ -537,7 +553,7 @@ class CodeExecutor:
         job_type = self._get_job_type(job.get("job_type"))
 
         # Use job-specific timeout, or job type default
-        timeout = job.get("timeout", job_type.timeout)
+        timeout = self._resolve_execution_timeout(job, job_type)
         startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace
@@ -675,7 +691,13 @@ class CodeExecutor:
             record.error = ExecutionError(type="config_error", message=str(e))
             return record
 
-        timeout = job.get("timeout", job_type.timeout)
+        try:
+            timeout = self._resolve_execution_timeout(job, job_type)
+        except ValueError as e:
+            record.status = "failed"
+            record.ended_at = datetime.now(timezone.utc)
+            record.error = ExecutionError(type="config_error", message=str(e))
+            return record
         startup_timeout = job.get("startup_timeout", job_type.startup_timeout)
 
         # Create temporary workspace

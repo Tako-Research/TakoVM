@@ -285,6 +285,13 @@ class TestTakoVMConfig:
             TakoVMConfig(default_timeout=100, max_timeout=50)
         assert "default_timeout must be <= max_timeout" in str(exc_info.value)
 
+        with pytest.raises(ValueError) as exc_info:
+            TakoVMConfig(
+                max_timeout=60,
+                job_types=[{"name": "bypass", "timeout": 600}],
+            )
+        assert "job type timeout must be <= max_timeout for: bypass" in str(exc_info.value)
+
     def test_tako_vm_config_normalizes_psycopg_url_scheme(self):
         """database_url normalizes postgresql+psycopg scheme for psycopg pool."""
         config = TakoVMConfig(database_url="postgresql+psycopg://user:pass@localhost:5432/testdb")

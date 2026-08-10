@@ -179,13 +179,26 @@ state = AppState()
 state.idempotency_locks = IdempotencyLockManager()
 
 
-def _validate_execution_timeout(timeout: Optional[int]) -> None:
-    """Reject an explicit timeout above the active deployment ceiling."""
-    if timeout is not None and timeout > state.config.max_timeout:
+def _validate_execution_timeout(
+    timeout: Optional[int], job_type_name: Optional[str] = None
+) -> None:
+    """Reject an explicit or resolved timeout above the deployment ceiling."""
+    effective_timeout = timeout
+    if effective_timeout is None:
+        if job_type_name is None:
+            effective_timeout = state.config.default_timeout
+        else:
+            name = job_type_name.split("@", 1)[0]
+            job_type = state.registry.get(name)
+            if job_type is not None:
+                effective_timeout = job_type.timeout
+
+    if effective_timeout is not None and effective_timeout > state.config.max_timeout:
+        timeout_label = "timeout" if timeout is not None else "effective timeout"
         raise HTTPException(
             status_code=422,
             detail=(
-                f"timeout must be less than or equal to the configured max_timeout "
+                f"{timeout_label} must be less than or equal to the configured max_timeout "
                 f"({state.config.max_timeout} seconds)"
             ),
         )
@@ -910,7 +923,7 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
     Returns:
         Execution results including output, stdout, stderr, and execution_id
     """
-    _validate_execution_timeout(request.timeout)
+    _validate_execution_timeout(request.timeout, request.job_type)
     job_id = _generate_sync_job_id()
 
     logger.info(f"Executing job {job_id}")
@@ -996,7 +1009,7 @@ async def execute_code_async(request: ExecuteRequest, http_request: Request):
     Returns:
         Job ID and queued status
     """
-    _validate_execution_timeout(request.timeout)
+    _validate_execution_timeout(request.timeout, request.job_type)
 
     try:
         # For idempotent requests, use keyed lock to prevent race conditions
@@ -1257,11 +1270,14 @@ async def _submit_replay(
     Shared by the rerun and fork endpoints, which differ only in which code
     they replay and the relationship recorded on the new job.
     """
+    resolved_job_type = job_type or parent.job_type
+    _validate_execution_timeout(timeout, resolved_job_type)
+
     job_data = {
         "code": code,
         "input_data": input_data,
         "input_artifacts": input_artifacts,
-        "job_type": job_type or parent.job_type,
+        "job_type": resolved_job_type,
         "parent_execution_id": parent.execution_id,
         "relationship": relationship,
         "correlation_id": get_correlation_id(),

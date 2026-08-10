@@ -851,6 +851,27 @@ class TestImageResolution:
         )
         return CodeExecutor(config=config, registry=registry)
 
+    def test_job_type_default_cannot_exceed_execution_ceiling(self, tmp_path):
+        registry = JobTypeRegistry(config_path=tmp_path / "job_types.json")
+        registry.register(JobType(name="bypass", timeout=600), persist=False)
+        config = TakoVMConfig(
+            security_mode="permissive",
+            data_dir=str(tmp_path / "data"),
+            default_timeout=30,
+            max_timeout=60,
+        )
+        executor = CodeExecutor(config=config, registry=registry)
+
+        record = executor.execute_job_with_record(
+            "job-timeout-ceiling",
+            {"code": "print('hi')", "input_data": {}, "job_type": "bypass"},
+        )
+
+        assert record.status == "failed"
+        assert record.error is not None
+        assert record.error.type == "config_error"
+        assert "max_timeout (60 seconds)" in record.error.message
+
     def test_built_image_preferred_and_requirements_skipped(self, tmp_path, breaker, monkeypatch):
         """A pre-built job-type image with the executor contract is executed,
         and its baked-in requirements are NOT reinstalled at runtime."""

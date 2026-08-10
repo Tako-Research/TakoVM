@@ -244,6 +244,32 @@ class TestSyncExecutionRecord:
         )
         execute_mock.assert_not_called()
 
+    def test_execute_rejects_job_type_default_above_configured_limit(self, client):
+        """Sync execution validates the resolved job-type timeout before running."""
+        from tako_vm.job_types import JobType
+        from tako_vm.server.app import state
+
+        execute_mock = Mock()
+        with (
+            patch.object(state.config, "max_timeout", 60),
+            patch.object(
+                state.registry,
+                "get",
+                return_value=JobType(name="bypass", timeout=600),
+            ),
+            patch.object(state.executor, "execute_job_with_record", execute_mock),
+        ):
+            response = client.post(
+                "/execute", json={"code": "print('hi')", "job_type": "bypass"}
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "effective timeout must be less than or equal to the configured "
+            "max_timeout (60 seconds)"
+        )
+        execute_mock.assert_not_called()
+
 
 class TestAsyncExecution:
     """Tests for async /execute/async endpoint."""

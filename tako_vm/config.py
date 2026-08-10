@@ -552,9 +552,17 @@ class TakoVMConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> "TakoVMConfig":
-        """Ensure default timeouts <= max timeouts."""
+        """Ensure every configured timeout stays within its deployment ceiling."""
         if self.default_timeout > self.max_timeout:
             raise ValueError("default_timeout must be <= max_timeout")
+        oversized_job_types = [
+            job_type.name for job_type in self.job_types if job_type.timeout > self.max_timeout
+        ]
+        if oversized_job_types:
+            names = ", ".join(oversized_job_types)
+            raise ValueError(
+                f"job type timeout must be <= max_timeout for: {names}"
+            )
         if self.default_startup_timeout > self.max_startup_timeout:
             raise ValueError("default_startup_timeout must be <= max_startup_timeout")
         if self.session_idle_timeout_seconds > self.session_max_ttl_seconds:
