@@ -18,13 +18,17 @@ and can gate every PR.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from tako_vm.config import TakoVMConfig
+from tako_vm.constants import UV_CACHE_VOLUME, uv_cache_volume
 from tako_vm.execution import worker
 from tako_vm.execution.docker import (
     CONTAINER_LABEL,
     EXECUTION_ID_LABEL,
     base_isolation_args,
+    build_session_run_command,
+    validate_session_workspace_dir,
 )
 from tako_vm.execution.worker import RuntimeUnavailableError, resolve_runtime
 
@@ -466,4 +470,127 @@ class TestSeccompProfileStartsContainers:
             assert len(eq_on_zero) <= 1, (
                 "prctl rule lists multiple values in one rule; args are AND-ed, "
                 f"so this rule matches nothing: {rule}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Secure-by-default configuration
+#
+# The defaults are what a scanner reads and what a new user gets. These pin the
+# three that decide whether the advertised boundary is actually in force.
+# ---------------------------------------------------------------------------
+
+
+class TestSecureDefaults:
+    def test_security_mode_defaults_to_strict(self):
+        """Fail closed: no silent runc fallback unless explicitly asked for."""
+        assert TakoVMConfig().security_mode == "strict"
+
+    def test_container_runtime_defaults_to_gvisor(self):
+        assert TakoVMConfig().container_runtime == "runsc"
+
+    def test_server_binds_loopback_by_default(self):
+        assert TakoVMConfig().is_loopback_host()
+
+    def test_seccomp_and_caps_on_by_default(self):
+        cfg = TakoVMConfig()
+        assert cfg.enable_seccomp
+        assert cfg.enable_cap_restrictions
+
+    def test_runtime_deps_and_shared_cache_off_by_default(self):
+        cfg = TakoVMConfig()
+        assert not cfg.allow_runtime_requirements
+        assert not cfg.enable_runtime_dependency_cache
+
+    def test_unauthenticated_network_bind_is_refused(self):
+        """The one combination that is unauthenticated remote code execution."""
+        with pytest.raises(ValidationError):
+            TakoVMConfig(server_host="0.0.0.0", api_auth_enabled=False)
+
+    def test_unauthenticated_loopback_bind_is_allowed(self):
+        """Local development stays frictionless."""
+        assert TakoVMConfig(server_host="127.0.0.1", api_auth_enabled=False)
+
+    def test_authenticated_network_bind_is_allowed(self):
+        assert TakoVMConfig(server_host="0.0.0.0", api_auth_enabled=True, api_keys=["k" * 32])
+
+    def test_explicit_opt_out_permits_unauthenticated_bind(self):
+        cfg = TakoVMConfig(
+            server_host="0.0.0.0",
+            api_auth_enabled=False,
+            allow_unauthenticated_network_access=True,
+        )
+        # ...but it must still be surfaced loudly.
+        assert any("authentication is disabled" in w for w in cfg.security_warnings())
+
+
+class TestDependencyCacheScoping:
+    """The shared uv cache is a writable cross-job channel; scope it."""
+
+    def test_distinct_scopes_get_distinct_volumes(self):
+        assert uv_cache_volume("alpha") != uv_cache_volume("beta")
+
+    def test_same_scope_is_stable(self):
+        assert uv_cache_volume("alpha") == uv_cache_volume("alpha")
+
+    def test_scope_is_sanitized_for_the_docker_cli(self):
+        volume = uv_cache_volume("../../etc/passwd; rm -rf /")
+        assert "/" not in volume and ";" not in volume and " " not in volume
+
+    def test_empty_scope_does_not_produce_a_bare_shared_volume(self):
+        assert uv_cache_volume("") != UV_CACHE_VOLUME
+
+
+class TestSessionWorkspaceContainment:
+    """``workspace_dir`` becomes a read-write host bind mount."""
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",
+            "   ",
+            "relative/path",
+            "/srv/sessions/../../etc",
+            "/",
+            "/etc",
+            "/root",
+            "/var/run",
+            "/var/lib/docker",
+            "/etc/ssh",
+            "/tmp/ws\x00/etc",
+            "/tmp/ws\nmalicious",
+        ],
+    )
+    def test_unsafe_workspace_dirs_are_refused(self, bad):
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(bad)
+
+    def test_ordinary_workspace_dir_is_accepted(self):
+        assert validate_session_workspace_dir("/srv/sessions/sess-abc/workspace") == (
+            "/srv/sessions/sess-abc/workspace"
+        )
+
+    def test_bare_dot_components_are_normalized_not_rejected(self):
+        """'.' is a no-op component with no traversal consequence.
+
+        pathlib collapses it at construction, so it never reaches the mount as
+        written. Only '..' can escape, and that is refused above.
+        """
+        assert validate_session_workspace_dir("/srv/sessions/./x") == "/srv/sessions/x"
+
+    def test_symlinked_workspace_cannot_redirect_the_mount(self, tmp_path):
+        link = tmp_path / "workspace"
+        link.symlink_to("/etc")
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(str(link))
+
+    def test_builder_refuses_to_emit_an_unsafe_mount(self):
+        """The guard must be enforced at the point of use, not just available."""
+        with pytest.raises(ValueError):
+            build_session_run_command(
+                "tako-session-x",
+                runtime="runsc",
+                image="code-executor:latest",
+                workspace_dir="/srv/sessions/../../../etc",
+                session_id="sess-x",
             )

@@ -13,7 +13,9 @@ production_mode: false
 # Server
 # =============================================================================
 
-server_host: "0.0.0.0"
+# Loopback by default. Binding a non-loopback host with api_auth_enabled=false
+# is REFUSED at startup (see allow_unauthenticated_network_access).
+server_host: "127.0.0.1"
 server_port: 8000
 log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
@@ -66,9 +68,10 @@ enable_userns: false   # Run as non-root user (disable if using gosu)
 container_runtime: runsc
 
 # Security mode:
-# - 'permissive' (default): Falls back to runc if gVisor is unavailable.
+# - 'permissive': Falls back to runc if gVisor is unavailable. Dev/CI only.
 # - 'strict': Fails if gVisor is unavailable. Use this for production.
-security_mode: permissive
+# 'strict' (default) fails closed when gVisor is unavailable.
+security_mode: strict
 
 # =============================================================================
 # Container Resource Limits

@@ -345,7 +345,7 @@ For higher security, consider:
 
 ## gVisor Runtime
 
-Tako VM supports gVisor (runsc) for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker. By default, Tako VM runs in `permissive` mode, which falls back to runc if gVisor is not installed.
+Tako VM supports gVisor (runsc) for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker. By default, Tako VM runs in `strict` mode, which refuses to run a job at all if gVisor is not installed, rather than silently falling back to runc.
 
 ### Why gVisor?
 
@@ -384,7 +384,7 @@ security_mode: strict      # 'strict' (require gVisor) or 'permissive' (fallback
 
 **Security modes:**
 
-- **permissive** (default): Falls back to standard runc runtime with a warning. Works on all platforms.
+- **permissive**: Falls back to standard runc runtime with a warning. Works on all platforms. Development and CI only.
 - **strict**: Fails with `RuntimeUnavailableError` if gVisor is not available. Recommended for production.
 
 **Environment variable override (useful for testing):**
@@ -423,7 +423,7 @@ The Lima VM provides:
 | Kernel exploits | Protected | Vulnerable |
 | Setup complexity | Requires installation | Built into Docker |
 
-**Recommendation:** Use gVisor (`strict` mode) for production and any environment running untrusted or AI-generated code. Use `permissive` mode only for development when gVisor is not available.
+**Recommendation:** Keep the `strict` default for production and any environment running untrusted or AI-generated code. Use `permissive` mode only for development when gVisor is not available.
 
 ## Docker Isolation Limitations
 

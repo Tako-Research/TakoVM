@@ -257,7 +257,12 @@ class TestTakoVMConfig:
         assert config.max_workers == 4
         assert config.default_timeout == 30
         assert config.container_runtime == "runsc"
-        assert config.security_mode == "permissive"
+        # Secure by default: fail closed rather than silently fall back to runc.
+        assert config.security_mode == "strict"
+        # Loopback by default: the API executes arbitrary code and ships with
+        # auth disabled, so it must not be network-reachable out of the box.
+        assert config.server_host == "127.0.0.1"
+        assert config.allow_unauthenticated_network_access is False
         assert config.api_max_payload_bytes == 2097152
         assert config.api_rate_limit_enabled is True
         assert config.api_rate_limit_requests == 120
@@ -383,12 +388,24 @@ class TestSecurityWarnings:
     """Tests for TakoVMConfig.security_warnings()."""
 
     def test_security_warnings_default_config(self):
-        """Default config warns about disabled auth and permissive mode."""
-        warnings = TakoVMConfig().security_warnings()
+        """The defaults are secure, so they produce no warnings at all.
 
-        assert len(warnings) == 2
+        Previously the defaults were permissive + 0.0.0.0 and emitted two
+        warnings. Warnings were the wrong control for those: the defaults now
+        fail closed instead (strict mode, loopback bind), so a clean default
+        deployment has nothing to warn about.
+        """
+        assert TakoVMConfig().security_warnings() == []
+
+    def test_security_warnings_when_unauthenticated_bind_is_opted_into(self):
+        """The escape hatch still has to be loud."""
+        config = TakoVMConfig(
+            server_host="0.0.0.0",
+            api_auth_enabled=False,
+            allow_unauthenticated_network_access=True,
+        )
+        warnings = config.security_warnings()
         assert any("api_auth_enabled" in w for w in warnings)
-        assert any("permissive" in w for w in warnings)
 
     def test_security_warnings_empty_for_locked_down_config(self):
         """Auth enabled + strict mode produces no warnings."""
@@ -419,8 +436,14 @@ class TestSecurityWarnings:
         assert len(warnings) == 1
         assert "permissive" in warnings[0]
 
-    def test_load_config_logs_security_warnings(self, caplog):
-        """load_config emits security warnings via logging."""
+    def test_load_config_logs_security_warnings(self, caplog, monkeypatch):
+        """load_config emits security warnings via logging.
+
+        Driven from an explicitly weakened config: the defaults are secure now,
+        so they emit nothing, and asserting on a default load would test that
+        the logging path is dead rather than that it works.
+        """
+        monkeypatch.setenv("TAKO_VM_SECURITY_MODE", "permissive")
         with caplog.at_level(logging.WARNING, logger="tako_vm.config"):
             load_config()
 

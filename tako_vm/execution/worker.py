@@ -20,9 +20,9 @@ from tako_vm.config import TakoVMConfig, get_config
 from tako_vm.constants import (
     MAX_REQUIREMENTS,
     UV_CACHE_TMP_DIR,
-    UV_CACHE_VOLUME,
     UV_CACHE_VOLUME_DIR,
     get_workspace_dir,
+    uv_cache_volume,
 )
 from tako_vm.execution.docker import (
     EXECUTOR_ENTRYPOINT,
@@ -1391,7 +1391,11 @@ class CodeExecutor:
             uv_cache_dir = UV_CACHE_TMP_DIR
             if self.config.enable_runtime_dependency_cache:
                 uv_cache_dir = UV_CACHE_VOLUME_DIR
-                cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
+                # Scoped per job type, not one host-wide volume: the cache is a
+                # writable cross-job channel that outlives the install phase.
+                # See uv_cache_volume() for what this does and does not fix.
+                cache_volume = uv_cache_volume(job_type.name)
+                cmd.append(f"--mount=type=volume,source={cache_volume},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
         # Network isolation (default: no network for security)
