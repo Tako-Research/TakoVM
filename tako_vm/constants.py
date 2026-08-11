@@ -11,8 +11,39 @@ import tempfile
 # Docker image for code execution
 DEFAULT_IMAGE = "code-executor:latest"
 
-# Docker volume name for uv cache (speeds up repeated dependency installs)
+# Base name for the uv cache volume (speeds up repeated dependency installs).
+# Never mounted directly: use uv_cache_volume() so the volume is scoped.
 UV_CACHE_VOLUME = "tako-uv-cache"
+
+# Characters allowed in the scope suffix of a cache volume name. Job type names
+# are already validated to alphanumerics/dash/underscore, so this is a
+# belt-and-braces guard against a scope reaching the docker CLI unsanitized.
+_SAFE_SCOPE_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+
+
+def uv_cache_volume(scope: str) -> str:
+    """Return the uv cache volume name for a given sharing scope.
+
+    The shared dependency cache is a cross-job channel: it is mounted
+    read-write at a path the sandbox user owns, and it stays mounted for the
+    container's whole life, not just the install phase. So one job can write a
+    cache entry that a later job's ``uv pip install`` resolves and executes.
+
+    A single host-wide volume made that boundary "every job on this host".
+    Scoping the volume per job type narrows it to a group the OPERATOR defines:
+    jobs of different types can no longer reach each other's cache.
+
+    This reduces blast radius, it does not eliminate the channel. Jobs sharing
+    one job type still share one cache, so if you accept untrusted submissions
+    into a job type that has ``allow_runtime_requirements`` AND
+    ``enable_runtime_dependency_cache`` enabled, they can still poison each
+    other. Tako VM has no tenant identity to key on; job type is the only
+    boundary it knows. Give mutually untrusting workloads distinct job types,
+    or leave the cache disabled (the default).
+    """
+    sanitized = "".join(c if c in _SAFE_SCOPE_CHARS else "-" for c in scope) or "default"
+    return f"{UV_CACHE_VOLUME}-{sanitized[:64]}"
+
 
 # In-container uv cache locations. The shared-volume mount point lives under the
 # sandbox user's home (uid 1000), deliberately NOT under /root: the dependency

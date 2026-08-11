@@ -25,7 +25,7 @@ import pytest
 
 from tako_vm.sandbox import Sandbox
 
-from .conftest import requires_docker, requires_executor_image
+from .conftest import GVISOR_AVAILABLE, requires_docker, requires_executor_image
 
 # Probes the two controls that were silently absent on the library path.
 PROBE = textwrap.dedent(
@@ -62,9 +62,20 @@ class TestShippedDefaultsRunCode:
         from tako_vm import config as config_mod
         from tako_vm.config import TakoVMConfig
 
-        cfg = TakoVMConfig(data_dir=str(request.config.invocation_params.dir / ".tako-probe"))
+        # Everything at its shipped default EXCEPT the runtime gate:
+        # security_mode defaults to strict, which correctly refuses to run at
+        # all on a host without gVisor (every GitHub runner). The controls
+        # under test here -- seccomp and the capability set -- are
+        # runtime-independent, so relax only that one field when the host
+        # cannot provide gVisor, and leave it at the real default when it can.
+        cfg = TakoVMConfig(
+            data_dir=str(request.config.invocation_params.dir / ".tako-probe"),
+            **({} if GVISOR_AVAILABLE else {"security_mode": "permissive"}),
+        )
         cfg.resolve_paths()
         assert cfg.enable_seccomp and cfg.enable_cap_restrictions
+        if GVISOR_AVAILABLE:
+            assert cfg.security_mode == "strict"
         original = config_mod._config
         config_mod._config = cfg
         os.environ.pop("TAKO_VM_ENABLE_CAP_RESTRICTIONS", None)

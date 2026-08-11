@@ -29,9 +29,9 @@ from tako_vm.constants import (
     DEFAULT_IMAGE,
     MAX_REQUIREMENTS,
     UV_CACHE_TMP_DIR,
-    UV_CACHE_VOLUME,
     UV_CACHE_VOLUME_DIR,
     get_workspace_dir,
+    uv_cache_volume,
 )
 from tako_vm.execution import resolve_runtime
 from tako_vm.execution.docker import (
@@ -148,6 +148,12 @@ class SandboxConfig:
 
     enable_cap_restrictions: bool = field(default_factory=_default_enable_cap_restrictions)
     """Enable capability restrictions (--cap-drop=ALL --cap-add=...)."""
+
+    cache_scope: str = "default"
+    """Sharing scope for the runtime dependency cache volume.
+
+    Mirrors the server path's per-job-type scoping. Sandboxes given different
+    scopes cannot reach each other's uv cache; see ``uv_cache_volume``."""
 
 
 class Sandbox:
@@ -596,7 +602,11 @@ class Sandbox:
             uv_cache_dir = UV_CACHE_TMP_DIR
             if self.config.enable_runtime_dependency_cache:
                 uv_cache_dir = UV_CACHE_VOLUME_DIR
-                cmd.append(f"--mount=type=volume,source={UV_CACHE_VOLUME},target={uv_cache_dir}")
+                # Scoped like the server path (see uv_cache_volume). Library
+                # mode has no job type, so the scope is caller-supplied and
+                # defaults to "default".
+                cache_volume = uv_cache_volume(self.config.cache_scope)
+                cmd.append(f"--mount=type=volume,source={cache_volume},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
         # Resource limits. The pids-limit and the --ulimit set (nofile/nproc/

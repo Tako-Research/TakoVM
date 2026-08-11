@@ -260,10 +260,21 @@ class TakoVMConfig(BaseModel):
 
     # Server
     server_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         description=(
-            "Server host to bind to. The default (0.0.0.0, all interfaces) is "
-            "development-friendly; production should bind to a loopback or internal interface"
+            "Server host to bind to. Defaults to loopback: the API executes arbitrary code and "
+            "ships with authentication disabled, so binding all interfaces by default would "
+            "expose an unauthenticated code-execution endpoint to the network. Set 0.0.0.0 "
+            "only together with api_auth_enabled (see allow_unauthenticated_network_access)"
+        ),
+    )
+    allow_unauthenticated_network_access: bool = Field(
+        default=False,
+        description=(
+            "Escape hatch: permit binding a non-loopback interface while api_auth_enabled is "
+            "false. Refused by default, because that combination is an unauthenticated remote "
+            "code-execution endpoint. Only set this when something else (a private network, a "
+            "service mesh, an authenticating reverse proxy) provides the access control"
         ),
     )
     server_port: int = Field(default=8000, ge=1, le=65535, description="Server port to bind to")
@@ -352,11 +363,39 @@ class TakoVMConfig(BaseModel):
             normalized.append(key)
         return normalized
 
+    def is_loopback_host(self) -> bool:
+        """Whether server_host binds only the loopback interface.
+
+        Single source of truth for the check, shared by the fail-closed
+        validator and ``security_warnings`` so the two can never disagree
+        about what counts as network-exposed.
+        """
+        host = self.server_host.strip().lower()
+        return host in _LOOPBACK_HOSTS or host.startswith("127.")
+
     @model_validator(mode="after")
     def validate_api_auth_config(self) -> "TakoVMConfig":
-        """Require at least one API key when auth is enabled."""
+        """Require a key when auth is on, and refuse unauthenticated network exposure."""
         if self.api_auth_enabled and not self.api_keys:
             raise ValueError("api_keys must contain at least one key when api_auth_enabled=true")
+
+        # Fail closed on the one combination that is an unauthenticated remote
+        # code-execution endpoint. This used to be a startup log line, which is
+        # the wrong control for it: a warning scrolls past, and the operator who
+        # most needs it is the one who never reads the log. An explicit opt-out
+        # keeps it possible for deployments that authenticate elsewhere.
+        if (
+            not self.api_auth_enabled
+            and not self.is_loopback_host()
+            and not self.allow_unauthenticated_network_access
+        ):
+            raise ValueError(
+                f"refusing to bind non-loopback host '{self.server_host}' with "
+                "api_auth_enabled=false: this exposes an unauthenticated code-execution "
+                "endpoint to the network. Enable api_auth_enabled and set api_keys, bind "
+                "server_host to 127.0.0.1, or set allow_unauthenticated_network_access=true "
+                "if access control is enforced outside Tako VM"
+            )
         return self
 
     database_url: str = Field(
@@ -488,11 +527,13 @@ class TakoVMConfig(BaseModel):
 
     # Security mode
     security_mode: str = Field(
-        default="permissive",
+        default="strict",
         description=(
-            "Security mode: 'strict' fails if gVisor unavailable, 'permissive' allows fallback "
-            "to runc. The default (permissive) is development-friendly; production should use "
-            "'strict'"
+            "Security mode: 'strict' (default) FAILS if gVisor is unavailable rather than "
+            "running untrusted code behind a weaker boundary; 'permissive' allows a silent "
+            "fallback to runc. gVisor is the isolation boundary this project promises, so the "
+            "default fails closed. Set 'permissive' only when you accept runc-level isolation "
+            "(e.g. local development or CI on a host without gVisor)"
         ),
     )
 
@@ -631,14 +672,14 @@ class TakoVMConfig(BaseModel):
         """
         warnings: List[str] = []
 
-        host = self.server_host.strip().lower()
-        is_loopback = host in _LOOPBACK_HOSTS or host.startswith("127.")
-        if not self.api_auth_enabled and not is_loopback:
+        if not self.api_auth_enabled and not self.is_loopback_host():
+            # Reachable only via allow_unauthenticated_network_access; the
+            # validator refuses this combination otherwise.
             warnings.append(
                 f"API authentication is disabled (api_auth_enabled=false) while the server "
-                f"binds to non-loopback host '{self.server_host}': anyone who can reach the "
-                "port can execute code. Enable api_auth_enabled and set api_keys, or bind "
-                "server_host to 127.0.0.1."
+                f"binds to non-loopback host '{self.server_host}', permitted only because "
+                "allow_unauthenticated_network_access=true: anyone who can reach the port can "
+                "execute code. Ensure access control is enforced in front of Tako VM."
             )
 
         if self.security_mode == "permissive":

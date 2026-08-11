@@ -42,7 +42,7 @@ lima-gvisor.yaml           # Lima VM config for macOS dev with gVisor
 
 ## Key Concepts
 
-- **Security modes**: `permissive` (default) falls back to runc; `strict` fails if gVisor unavailable
+- **Security modes**: `strict` (default) fails closed if gVisor is unavailable; `permissive` falls back to runc (dev/CI only)
 - **ExecutionRecord** status: `queued`, `running`, `succeeded`, `failed`, `timeout`, `oom`, `cancelled`
 - **Queue job** status: `pending`, `running`, `completed` (different from ExecutionRecord)
 - **Timeouts**: `startup_timeout` (dep install) vs `timeout` (code execution), configured separately

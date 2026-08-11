@@ -103,7 +103,7 @@ For stronger isolation than gVisor provides, run Tako VM on dedicated hosts or p
 
 Several defaults in the shipped example configuration favor ease of first-run over maximum hardening. If you are exposing Tako VM to untrusted code in production, do not run with the example defaults unchanged. At minimum:
 
-- Set `security_mode: strict`. The default is `permissive`, which silently falls back to standard `runc` if gVisor is unavailable, meaning untrusted code can end up running without the userspace-kernel boundary you expect. `strict` fails closed instead.
+- Keep `security_mode: strict` (the default). It fails closed if gVisor is unavailable. `permissive` silently falls back to standard `runc`, meaning untrusted code can end up running without the userspace-kernel boundary you expect.
 - Install and verify gVisor (`docker run --runtime=runsc --rm hello-world`) and keep `container_runtime: runsc`.
 - Keep `enable_seccomp: true`.
 - Terminate TLS in front of the API and keep rate limiting enabled.
@@ -112,4 +112,6 @@ Several defaults in the shipped example configuration favor ease of first-run ov
 - Keep the host kernel, Docker, and gVisor patched.
 - Review execution records and logs, and re-test your isolation controls after upgrades, since security-relevant defaults can change.
 
-A deployment that leaves `security_mode: permissive` on a host without gVisor is running untrusted code with only standard container isolation. Treat that as an unsafe configuration for AI-generated or otherwise untrusted input.
+A deployment that sets `security_mode: permissive` on a host without gVisor is running untrusted code with only standard container isolation. Treat that as an unsafe configuration for AI-generated or otherwise untrusted input.
+
+The server binds `127.0.0.1` by default. Binding a non-loopback interface while `api_auth_enabled` is false is refused at startup, because that combination is an unauthenticated remote code-execution endpoint; `allow_unauthenticated_network_access: true` overrides it for deployments that authenticate in front of Tako VM.
