@@ -3225,7 +3225,7 @@
 - Dedicated execution hosts
 - VM-based isolation</p>
 <h2 id="gvisor-runtime">gVisor Runtime<a class="headerlink" href="#gvisor-runtime" title="Permanent link">&para;</a></h2>
-<p>Tako VM supports gVisor (runsc) for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker. By default, Tako VM runs in <code>permissive</code> mode, which falls back to runc if gVisor is not installed.</p>
+<p>Tako VM supports gVisor (runsc) for strong container isolation. gVisor provides a userspace kernel that intercepts and emulates syscalls, adding a significant security boundary beyond standard Docker. By default, Tako VM runs in <code>strict</code> mode, which refuses to run a job at all if gVisor is not installed, rather than silently falling back to runc.</p>
 <h3 id="why-gvisor">Why gVisor?<a class="headerlink" href="#why-gvisor" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3272,7 +3272,7 @@
 </span></code></pre></div>
 <p><strong>Security modes:</strong></p>
 <ul>
-<li><strong>permissive</strong> (default): Falls back to standard runc runtime with a warning. Works on all platforms.</li>
+<li><strong>permissive</strong>: Falls back to standard runc runtime with a warning. Works on all platforms. Development and CI only.</li>
 <li><strong>strict</strong>: Fails with <code>RuntimeUnavailableError</code> if gVisor is not available. Recommended for production.</li>
 </ul>
 <p><strong>Environment variable override (useful for testing):</strong>
@@ -3331,7 +3331,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Recommendation:</strong> Use gVisor (<code>strict</code> mode) for production and any environment running untrusted or AI-generated code. Use <code>permissive</code> mode only for development when gVisor is not available.</p>
+<p><strong>Recommendation:</strong> Keep the <code>strict</code> default for production and any environment running untrusted or AI-generated code. Use <code>permissive</code> mode only for development when gVisor is not available.</p>
 <h2 id="docker-isolation-limitations">Docker Isolation Limitations<a class="headerlink" href="#docker-isolation-limitations" title="Permanent link">&para;</a></h2>
 <p>Docker containers share the host kernel, which has security implications:</p>
 <h3 id="what-docker-provides">What Docker Provides<a class="headerlink" href="#what-docker-provides" title="Permanent link">&para;</a></h3>
@@ -3519,7 +3519,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="August 11, 2026 18:27:38 UTC"><span class="timeago" datetime="2026-08-11T18:27:38+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="August 11, 2026 18:27:38 UTC">2026-08-11</span>
   </span>
 
     

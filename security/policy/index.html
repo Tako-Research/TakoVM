@@ -2152,7 +2152,7 @@
 <h2 id="secure-deployment">Secure Deployment<a class="headerlink" href="#secure-deployment" title="Permanent link">&para;</a></h2>
 <p>Several defaults in the shipped example configuration favor ease of first-run over maximum hardening. If you are exposing Tako VM to untrusted code in production, do not run with the example defaults unchanged. At minimum:</p>
 <ul>
-<li>Set <code>security_mode: strict</code>. The default is <code>permissive</code>, which silently falls back to standard <code>runc</code> if gVisor is unavailable, meaning untrusted code can end up running without the userspace-kernel boundary you expect. <code>strict</code> fails closed instead.</li>
+<li>Keep <code>security_mode: strict</code> (the default). It fails closed if gVisor is unavailable. <code>permissive</code> silently falls back to standard <code>runc</code>, meaning untrusted code can end up running without the userspace-kernel boundary you expect.</li>
 <li>Install and verify gVisor (<code>docker run --runtime=runsc --rm hello-world</code>) and keep <code>container_runtime: runsc</code>.</li>
 <li>Keep <code>enable_seccomp: true</code>.</li>
 <li>Terminate TLS in front of the API and keep rate limiting enabled.</li>
@@ -2161,7 +2161,8 @@
 <li>Keep the host kernel, Docker, and gVisor patched.</li>
 <li>Review execution records and logs, and re-test your isolation controls after upgrades, since security-relevant defaults can change.</li>
 </ul>
-<p>A deployment that leaves <code>security_mode: permissive</code> on a host without gVisor is running untrusted code with only standard container isolation. Treat that as an unsafe configuration for AI-generated or otherwise untrusted input.</p>
+<p>A deployment that sets <code>security_mode: permissive</code> on a host without gVisor is running untrusted code with only standard container isolation. Treat that as an unsafe configuration for AI-generated or otherwise untrusted input.</p>
+<p>The server binds <code>127.0.0.1</code> by default. Binding a non-loopback interface while <code>api_auth_enabled</code> is false is refused at startup, because that combination is an unauthenticated remote code-execution endpoint; <code>allow_unauthenticated_network_access: true</code> overrides it for deployments that authenticate in front of Tako VM.</p>
 
 
 
