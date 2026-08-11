@@ -1,5 +1,5 @@
 site_name: Tako VM
-site_description: Secure Python code execution and job queue infrastructure for AI agents: run untrusted code in gVisor-isolated Docker containers with workers, retries, and replay.
+site_description: "Secure Python code execution and job queue infrastructure for AI agents: run untrusted code in gVisor-isolated Docker containers with workers, retries, and replay."
 site_url: https://tako-research.github.io/TakoVM/
 site_author: Tako VM
 
