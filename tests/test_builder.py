@@ -132,12 +132,34 @@ class TestEntrypointInstallsUnprivileged:
         assert "uv pip install" in block
         assert block.index("gosu sandbox") < block.index("uv pip install")
 
-    def test_install_targets_are_chowned_to_sandbox(self):
+    def test_install_targets_are_writable_by_sandbox_user(self):
         text = self._entrypoint_text()
-        # The unprivileged install can only write dirs it owns, so root must hand
-        # ownership of the target and cache dirs over before dropping privileges.
-        assert 'chown sandbox:sandbox "$TARGET_DIR"' in text
-        assert 'chown -R sandbox:sandbox "$UV_CACHE_DIR"' in text
+        # The unprivileged install can only write dirs it owns. These are now
+        # CREATED as the sandbox user rather than created as root and chown'd
+        # afterwards: chown needs CAP_CHOWN, which the default --cap-drop=ALL
+        # posture strips, and the resulting EPERM aborted the entrypoint under
+        # `set -e` before any user code ran. Assert the property (the sandbox
+        # user ends up able to write both dirs), not one implementation of it.
+        assert 'gosu sandbox mkdir -p "$TARGET_DIR"' in text
+        assert 'gosu sandbox mkdir -p "$UV_CACHE_DIR"' in text
+
+    def test_entrypoint_never_hard_fails_on_chown(self):
+        """No chown may be able to abort the run.
+
+        `set -e` is in effect for most of the entrypoint, so a chown that needs
+        CAP_CHOWN (dropped by default) must either not exist or be guarded with
+        an explicit fallback. This is the regression guard for the bug that made
+        every job fail in the shipped default configuration.
+        """
+        for line_no, line in enumerate(self._entrypoint_text().splitlines(), 1):
+            stripped = line.strip()
+            if not stripped.startswith("chown "):
+                continue
+            assert "|| true" in stripped or "2>/dev/null" in stripped, (
+                f"entrypoint.sh:{line_no} runs an unguarded chown under `set -e`; "
+                f"CAP_CHOWN is not held under --cap-drop=ALL, so this aborts the "
+                f"container before user code runs: {stripped!r}"
+            )
 
     def test_install_sets_home_for_sandbox_user(self):
         text = self._entrypoint_text()
