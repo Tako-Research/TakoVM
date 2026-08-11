@@ -140,7 +140,7 @@
       "action": "SCMP_ACT_ALLOW"
     },
     {
-      "comment": "Allow prctl for thread naming etc",
+      "comment": "prctl PR_SET_NAME (15): thread naming, used by the Python runtime. NOTE: each allowed prctl option needs its OWN rule, because multiple entries in a single rule's `args` are AND-ed, not OR-ed.",
       "names": [
         "prctl"
       ],
@@ -154,7 +154,7 @@
       ]
     },
     {
-      "comment": "Allow prctl PR_SET_NAME",
+      "comment": "prctl PR_SET_PDEATHSIG (1): parent-death signal.",
       "names": [
         "prctl"
       ],
@@ -163,6 +163,62 @@
         {
           "index": 0,
           "value": 1,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "comment": "prctl PR_SET_KEEPCAPS (8): required by the OCI runtime during container init (runc 'unable to set keep caps' without it).",
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 8,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "comment": "prctl PR_CAPBSET_DROP (24): required by the OCI runtime to apply the capability bounding set for --cap-drop (runc 'unable to apply bounding set' without it). This is a privilege-DROPPING operation: allowing it can only narrow the container's capabilities.",
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 24,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "comment": "prctl PR_SET_NO_NEW_PRIVS (38): one-way hardening flag; allowing it can only further restrict the process.",
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 38,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "comment": "prctl PR_CAP_AMBIENT (47): required by the OCI runtime to clear the ambient capability set during init (runc 'unable to apply caps' without it).",
+      "names": [
+        "prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 47,
           "op": "SCMP_CMP_EQ"
         }
       ]

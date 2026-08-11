@@ -41,6 +41,7 @@ from tako_vm.execution.docker import (
     decode_subprocess_stream,
     generate_container_name,
     image_exists,
+    is_native_linux,
     prepare_requirements_file,
     read_result_json,
     remove_container,
@@ -615,17 +616,35 @@ class Sandbox:
             ]
         )
 
-        # Mount directories
-        # Use larger /tmp when requirements need to be installed (packages go to /tmp/site-packages)
-        tmp_size = "300m" if has_requirements else "100m"
+        # Mount directories.
+        # /tmp is noexec unless runtime dependencies are being installed (uv
+        # unpacks packages into /tmp/site-packages and some need to execute
+        # there). This mirrors CodeExecutor exactly: the library path used to
+        # mount /tmp exec unconditionally, so a control the docs describe as
+        # always-on ("writable space is limited to /output/ and a noexec /tmp/")
+        # was silently absent for every library-mode run.
+        tmp_size = "300m" if has_requirements else str(limits.tmpfs_size)
+        tmp_exec = "exec" if has_requirements else "noexec"
         cmd.extend(
             [
                 f"--mount=type=bind,source={code_dir.absolute()},target=/code,readonly",
                 f"--mount=type=bind,source={input_dir.absolute()},target=/input,readonly",
                 f"--mount=type=bind,source={output_dir.absolute()},target=/output",
-                f"--tmpfs=/tmp:rw,exec,nosuid,size={tmp_size}",
+                f"--tmpfs=/tmp:rw,{tmp_exec},nosuid,size={tmp_size}",
             ]
         )
+
+        # Custom seccomp profile (native Linux only), identical to the
+        # CodeExecutor path. Without this the library path ran under Docker's
+        # default profile -- a denylist that permits ptrace and a far wider
+        # syscall surface -- while enable_seccomp appeared to be on. The
+        # shipped profile is default-deny (SCMP_ACT_ERRNO).
+        cfg = get_config()
+        if cfg.enable_seccomp and cfg.seccomp_profile_path:
+            if is_native_linux() and cfg.seccomp_profile_path.exists():
+                cmd.append(f"--security-opt=seccomp={cfg.seccomp_profile_path}")
+            elif not is_native_linux():
+                logger.debug("Skipping custom seccomp profile on Docker Desktop")
 
         # Mount local package directories
         pythonpath_parts = []

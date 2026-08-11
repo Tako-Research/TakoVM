@@ -54,8 +54,12 @@ DANGEROUS_FLAG_PREFIXES = (
 )
 
 # The only capabilities allowed back in: gosu needs SETUID/SETGID to drop from
-# root to the unprivileged sandbox user. Nothing else.
-ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID"}
+# root to the unprivileged sandbox user, and the root-side `timeout` supervisor
+# needs KILL to signal that dropped (uid 1000) process when its budget expires
+# -- without it the SIGTERM is refused with EPERM and the timeout never fires.
+# gosu clears all capabilities on the uid switch, so none of these reach user
+# code. Nothing else may be re-added.
+ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=KILL"}
 
 # Every combination of the optional knobs, as ``(runtime, caps, auto_remove,
 # exec_id)`` tuples. The invariants below must hold across the whole
@@ -266,3 +270,200 @@ class TestPermissiveModeFallback:
             resolve_runtime(self._config(security_mode="permissive", container_runtime="runc"))
             == "runc"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cross-path parity
+#
+# base_isolation_args is only the SHARED BASE. Each execution path
+# (CodeExecutor and the library Sandbox) appends its own network, mount,
+# tmpfs, seccomp and resource flags on top, and nothing above this point
+# inspects those. That gap is exactly where drift lived: the library path
+# shipped with no --security-opt=seccomp at all and an `exec` /tmp, so two
+# controls the docs describe as always-on ("a default-deny seccomp profile",
+# "writable space is limited to /output/ and a noexec /tmp/") were silently
+# absent for every library-mode run.
+#
+# These assert on the FULL assembled argv from BOTH paths, so a control added
+# to one builder and missed on the other fails here instead of in a benchmark.
+# ---------------------------------------------------------------------------
+
+
+def _security_flags(argv):
+    """The policy-bearing flags of an argv, with per-run noise removed."""
+    noise = ("--name=", "--label=tako-vm.execution-id", "--mount=type=bind", "--env=TAKO_")
+    return {a for a in argv if not a.startswith(noise)}
+
+
+def _worker_argv(cfg, tmp_path, requirements=None):
+    """Capture the argv CodeExecutor would execute, without running Docker."""
+    import subprocess as _sp
+
+    from tako_vm.execution.worker import DEFAULT_JOB_TYPE, CodeExecutor
+
+    captured = {}
+
+    def fake_run(cmd, *a, **kw):
+        if "cmd" not in captured and list(cmd[:2]) == ["docker", "run"]:
+            captured["cmd"] = list(cmd)
+
+        class R:
+            returncode, stdout, stderr = 0, "", ""
+
+        return R()
+
+    dirs = {}
+    for name in ("code", "input", "output"):
+        d = tmp_path / f"w-{name}"
+        d.mkdir()
+        dirs[name] = d
+
+    executor = CodeExecutor(config=cfg)
+    real_run = worker.subprocess.run
+    worker.subprocess.run = fake_run
+    try:
+        executor._run_container(
+            code_dir=dirs["code"],
+            input_dir=dirs["input"],
+            output_dir=dirs["output"],
+            timeout=30,
+            startup_timeout=120,
+            job_type=DEFAULT_JOB_TYPE,
+            extra_requirements=requirements,
+            job_id="paritytest",
+            meta_dir=None,
+        )
+    finally:
+        worker.subprocess.run = real_run
+    assert _sp  # keep the import meaningful for linters
+    return captured.get("cmd", [])
+
+
+def _sandbox_argv(tmp_path, requirements=None):
+    from tako_vm.sandbox import Sandbox
+
+    dirs = {}
+    for name in ("code", "input", "output"):
+        d = tmp_path / f"s-{name}"
+        d.mkdir()
+        dirs[name] = d
+
+    sb = Sandbox(allow_runtime_requirements=bool(requirements))
+    sb._image_checked = True
+    cmd, _ = sb._build_docker_command(
+        code_dir=dirs["code"],
+        input_dir=dirs["input"],
+        output_dir=dirs["output"],
+        timeout=30,
+        requirements=requirements,
+    )
+    return cmd
+
+
+class TestExecutionPathParity:
+    """Both execution paths must enforce the identical security posture."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_config(self, monkeypatch, tmp_path):
+        """One shared config for both paths, with gVisor resolution pinned."""
+        from tako_vm import config as config_mod
+
+        monkeypatch.setattr(worker, "check_gvisor_available", lambda: False)
+        cfg = TakoVMConfig(
+            security_mode="permissive",
+            container_runtime="runc",
+            allow_runtime_requirements=True,
+            data_dir=str(tmp_path / "data"),
+        )
+        cfg.resolve_paths()
+        # The library Sandbox reads the *global* config, so pin it there too.
+        monkeypatch.setattr(config_mod, "_config", cfg)
+        self.cfg = cfg
+
+    @pytest.mark.parametrize("requirements", [None, ["idna"]], ids=["no-reqs", "with-reqs"])
+    def test_paths_assemble_identical_security_flags(self, tmp_path, requirements):
+        worker_flags = _security_flags(_worker_argv(self.cfg, tmp_path, requirements))
+        sandbox_flags = _security_flags(_sandbox_argv(tmp_path, requirements))
+        assert worker_flags, "worker argv was not captured"
+        assert worker_flags == sandbox_flags, (
+            "execution paths drifted.\n"
+            f"  only in CodeExecutor: {sorted(worker_flags - sandbox_flags)}\n"
+            f"  only in Sandbox:      {sorted(sandbox_flags - worker_flags)}"
+        )
+
+    @pytest.mark.parametrize("build", [_worker_argv, None], ids=["worker", "sandbox"])
+    def test_seccomp_profile_applied_on_both_paths(self, tmp_path, build):
+        argv = build(self.cfg, tmp_path) if build else _sandbox_argv(tmp_path)
+        assert any(a.startswith("--security-opt=seccomp=") for a in argv), (
+            "custom seccomp profile missing; enable_seccomp is on by default and "
+            "the docs describe it as an always-on control"
+        )
+
+    @pytest.mark.parametrize("build", [_worker_argv, None], ids=["worker", "sandbox"])
+    def test_tmp_is_noexec_without_runtime_requirements(self, tmp_path, build):
+        argv = build(self.cfg, tmp_path) if build else _sandbox_argv(tmp_path)
+        tmpfs = [a for a in argv if a.startswith("--tmpfs=/tmp")]
+        assert tmpfs, "no /tmp tmpfs flag emitted"
+        assert "noexec" in tmpfs[0], f"/tmp must be noexec when no deps are installed: {tmpfs[0]}"
+
+
+class TestSeccompProfileStartsContainers:
+    """The shipped seccomp profile must not block OCI-runtime container init.
+
+    The profile is a default-deny allowlist, so every prctl option the runtime
+    needs must be allowed EXPLICITLY, each in its OWN rule -- multiple entries
+    in a single rule's ``args`` are AND-ed, not OR-ed, so one rule listing
+    several values matches nothing.
+
+    Omitting these does not weaken the sandbox, it stops the container from
+    starting at all ("unable to apply bounding set", "unable to set keep caps",
+    "unable to apply caps"), which is how the shipped default posture came to
+    be untested: both controls were switched off in CI to work around it.
+    """
+
+    # PR_SET_PDEATHSIG=1, PR_SET_KEEPCAPS=8, PR_SET_NAME=15,
+    # PR_CAPBSET_DROP=24, PR_CAP_AMBIENT=47. All are privilege-dropping or
+    # neutral; allowing them cannot widen the sandbox.
+    REQUIRED_PRCTL_OPTIONS = {1, 8, 15, 24, 47}
+
+    def _profile(self):
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "tako_vm" / "seccomp_profile.json"
+        return json.loads(path.read_text())
+
+    def test_profile_is_default_deny(self):
+        assert self._profile()["defaultAction"] == "SCMP_ACT_ERRNO"
+
+    def test_required_prctl_options_allowed(self):
+        allowed = set()
+        for rule in self._profile()["syscalls"]:
+            if rule.get("names") != ["prctl"] or rule.get("action") != "SCMP_ACT_ALLOW":
+                continue
+            args = rule.get("args") or []
+            # Only single-arg rules match a specific option (args are AND-ed).
+            if len(args) == 1 and args[0].get("op") == "SCMP_CMP_EQ":
+                allowed.add(args[0]["value"])
+            elif not args:
+                allowed.update(self.REQUIRED_PRCTL_OPTIONS)  # unrestricted prctl
+        missing = self.REQUIRED_PRCTL_OPTIONS - allowed
+        assert not missing, (
+            f"seccomp profile blocks prctl option(s) {sorted(missing)} that the OCI "
+            "runtime needs during container init; containers will fail to start"
+        )
+
+    def test_no_multi_value_prctl_rule(self):
+        """A rule with several EQ args on index 0 can never match (AND semantics)."""
+        for rule in self._profile()["syscalls"]:
+            if rule.get("names") != ["prctl"]:
+                continue
+            eq_on_zero = [
+                a
+                for a in (rule.get("args") or [])
+                if a.get("index") == 0 and a.get("op") == "SCMP_CMP_EQ"
+            ]
+            assert len(eq_on_zero) <= 1, (
+                "prctl rule lists multiple values in one rule; args are AND-ed, "
+                f"so this rule matches nothing: {rule}"
+            )

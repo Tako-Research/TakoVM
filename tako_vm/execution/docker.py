@@ -541,6 +541,21 @@ def base_isolation_args(
                 "--cap-drop=ALL",
                 "--cap-add=SETUID",  # Required for gosu to switch user
                 "--cap-add=SETGID",  # Required for gosu to switch user
+                # Required for the in-container timeout to actually fire.
+                # entrypoint.sh wraps user code in `timeout ... gosu sandbox
+                # python`, so the supervising `timeout` runs as uid 0 while the
+                # code runs as uid 1000. Signalling across uids needs CAP_KILL;
+                # without it the SIGTERM is refused with EPERM and SILENTLY
+                # dropped, so the limit is only enforced by the --kill-after
+                # SIGKILL 10s later -- past the host-side backstop, which means
+                # the phase-aware in-container timeout never won and every
+                # timeout fell through to the coarser host kill.
+                #
+                # This does not give user code any new power: gosu clears all
+                # capabilities when it drops to uid 1000, so CAP_KILL is held
+                # only by the root-side supervisor, and its scope is the
+                # container's own PID namespace, which holds only this job.
+                "--cap-add=KILL",
             ]
         )
         # Security note: We don't use --security-opt=no-new-privileges because gosu requires

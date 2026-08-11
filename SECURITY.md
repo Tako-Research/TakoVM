@@ -48,7 +48,9 @@ Tako VM uses layered isolation. No single layer is treated as sufficient on its 
 
 **Process isolation (gVisor).** When `container_runtime: runsc` is set, the executor runs under gVisor, a userspace kernel that intercepts and services guest syscalls instead of passing them to the host kernel. This is the primary boundary against kernel-level container escapes and is the recommended runtime for any untrusted workload.
 
-**Container isolation (Docker).** Each job runs in its own ephemeral container (`--rm`) with a read-only root filesystem, all Linux capabilities dropped except those required for the privilege drop, and a non-root user (uid 1000) enforced at runtime. Writable space is limited to `/output/` and a `noexec` `/tmp/`. Containers carry no persistent state between executions.
+**Container isolation (Docker).** Each job runs in its own single-use container (removed after every run, on every exit path) with a read-only root filesystem and a non-root user (uid 1000) enforced at runtime. All Linux capabilities are dropped except `SETUID`/`SETGID`, which `gosu` needs to perform the privilege drop, and `KILL`, which the root-side `timeout` supervisor needs to signal the dropped process when its budget expires. `gosu` clears all capabilities on the uid switch, so none of the three reach user code. Writable space is limited to `/output/` and a `/tmp/` that is `noexec` except when runtime dependency installation is enabled (uv needs to execute from its unpack target). Containers carry no persistent state between executions.
+
+Both execution paths -- the API server and the library-mode `Sandbox` -- assemble this posture from the same shared builder and are covered by a test that fails if they ever diverge.
 
 **Syscall filtering (seccomp).** A default-deny seccomp profile (`SCMP_ACT_ERRNO`) allows only a whitelist of syscalls and blocks dangerous ones including `ptrace`, `mount`, `reboot`, `sethostname`, and `init_module`. Controlled by `enable_seccomp`.
 
