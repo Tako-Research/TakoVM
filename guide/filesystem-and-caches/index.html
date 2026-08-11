@@ -6,19 +6,15 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Tako VM development and troubleshooting: the runtime dependency flow, debugging endpoints, and fixes for common issues.">
+        <meta name="description" content="How the Tako VM container filesystem is laid out, why library caches are redirected to writable scratch space, and how to load ML models under the read-only root filesystem.">
       
       
         <meta name="author" content="Tako VM">
       
       
-        <link rel="canonical" href="https://tako-research.github.io/TakoVM/development/troubleshooting/">
+        <link rel="canonical" href="https://tako-research.github.io/TakoVM/guide/filesystem-and-caches/">
       
       
-        <link rel="prev" href="../../guide/error-handling/">
-      
-      
-        <link rel="next" href="../../api/rest/">
       
       
         
@@ -29,7 +25,7 @@
     
     
       
-        <title>Troubleshooting - Tako VM</title>
+        <title>Filesystem & Caches - Tako VM</title>
       
     
     
@@ -67,17 +63,17 @@
     
   
 <meta property="og:type" content="website" />
-<meta property="og:title" content="Troubleshooting - Tako VM" />
-<meta property="og:description" content="Tako VM development and troubleshooting: the runtime dependency flow, debugging endpoints, and fixes for common issues." />
-<meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/development/troubleshooting.png" />
+<meta property="og:title" content="Filesystem &amp; Caches - Tako VM" />
+<meta property="og:description" content="How the Tako VM container filesystem is laid out, why library caches are redirected to writable scratch space, and how to load ML models under the read-only root filesystem." />
+<meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/guide/filesystem-and-caches.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:url" content="https://tako-research.github.io/TakoVM/development/troubleshooting/" />
+<meta property="og:url" content="https://tako-research.github.io/TakoVM/guide/filesystem-and-caches/" />
 <meta property="twitter:card" content="summary_large_image" />
-<meta property="twitter:title" content="Troubleshooting - Tako VM" />
-<meta property="twitter:description" content="Tako VM development and troubleshooting: the runtime dependency flow, debugging endpoints, and fixes for common issues." />
-<meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/development/troubleshooting.png" />
+<meta property="twitter:title" content="Filesystem &amp; Caches - Tako VM" />
+<meta property="twitter:description" content="How the Tako VM container filesystem is laid out, why library caches are redirected to writable scratch space, and how to load ML models under the read-only root filesystem." />
+<meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/guide/filesystem-and-caches.png" />
 </head>
   
   
@@ -97,7 +93,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#development-guide" class="md-skip">
+        <a href="#filesystem-caches" class="md-skip">
           Skip to content
         </a>
       
@@ -150,7 +146,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Troubleshooting
+              Filesystem &amp; Caches
             
           </span>
         </div>
@@ -301,13 +297,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../guide/tutorial/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../tutorial/" class="md-tabs__link">
           
   
   
@@ -660,10 +654,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -687,22 +679,19 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -720,7 +709,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -738,7 +727,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/tutorial/" class="md-nav__link">
+      <a href="../tutorial/" class="md-nav__link">
         
   
   
@@ -766,7 +755,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/basic-execution/" class="md-nav__link">
+      <a href="../basic-execution/" class="md-nav__link">
         
   
   
@@ -794,7 +783,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/async-jobs/" class="md-nav__link">
+      <a href="../async-jobs/" class="md-nav__link">
         
   
   
@@ -822,7 +811,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/agent-tools/" class="md-nav__link">
+      <a href="../agent-tools/" class="md-nav__link">
         
   
   
@@ -850,7 +839,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/environments/" class="md-nav__link">
+      <a href="../environments/" class="md-nav__link">
         
   
   
@@ -878,7 +867,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/custom-libraries/" class="md-nav__link">
+      <a href="../custom-libraries/" class="md-nav__link">
         
   
   
@@ -906,7 +895,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/error-handling/" class="md-nav__link">
+      <a href="../error-handling/" class="md-nav__link">
         
   
   
@@ -931,37 +920,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Troubleshooting
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../development/troubleshooting/" class="md-nav__link">
         
   
   
@@ -977,59 +939,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#dependency-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dependency Flow
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Issues
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debugging
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1743,10 +1652,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#dependency-flow" class="md-nav__link">
+  <a href="#what-is-writable" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dependency Flow
+        What is writable
       
     </span>
   </a>
@@ -1754,10 +1663,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#common-issues" class="md-nav__link">
+  <a href="#library-caches-homecache" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Common Issues
+        Library caches ($HOME/.cache)
       
     </span>
   </a>
@@ -1765,10 +1674,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#debugging" class="md-nav__link">
+  <a href="#loading-ml-models-hugging-face-pytorch-nltk" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Debugging
+        Loading ML models (Hugging Face, PyTorch, NLTK, ...)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Loading ML models (Hugging Face, PyTorch, NLTK, ...)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-bake-the-model-into-the-executor-image-build-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option A, bake the model into the executor image (build time)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-mount-a-read-only-model-volume-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Option B, mount a read-only model volume (runtime)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
       
     </span>
   </a>
@@ -1793,46 +1752,6 @@
   
 
 
-  <nav class="md-path" aria-label="Navigation" >
-    <ol class="md-path__list">
-      
-        
-  
-  
-    <li class="md-path__item">
-      <a href="../.." class="md-path__link">
-        
-  <span class="md-ellipsis">
-    Home
-  </span>
-
-      </a>
-    </li>
-  
-
-      
-      
-        
-  
-  
-    
-    
-      <li class="md-path__item">
-        <a href="../../guide/tutorial/" class="md-path__link">
-          
-  <span class="md-ellipsis">
-    Guide
-  </span>
-
-        </a>
-      </li>
-    
-  
-
-      
-    </ol>
-  </nav>
-
               
               <article class="md-content__inner md-typeset">
                 
@@ -1840,7 +1759,7 @@
 
 
   
-    <a href="https://github.com/Tako-Research/TakoVM/edit/main/docs/development/troubleshooting.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/Tako-Research/TakoVM/edit/main/docs/guide/filesystem-and-caches.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1848,31 +1767,143 @@
   
 
 
-<h1 id="development-guide">Development Guide<a class="headerlink" href="#development-guide" title="Permanent link">&para;</a></h1>
-<h2 id="dependency-flow">Dependency Flow<a class="headerlink" href="#dependency-flow" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Job submitted with <code>job_type: "data-processing"</code> (has <code>requirements: [pandas, numpy]</code>)</li>
-<li>Worker writes validated requirements to <code>/input/_requirements.txt</code></li>
-<li>Container starts, <code>entrypoint.sh</code> runs <code>uv pip install -r /input/_requirements.txt</code></li>
-<li>Code runs as <code>sandbox</code> user (uid 1000) via <code>gosu</code></li>
-</ol>
-<p>For network-isolated jobs with deps, use pre-built images via the REST API:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/job-types/data-processing/build
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># Then set base_image in job type config</span>
-</span></code></pre></div></p>
-<h2 id="common-issues">Common Issues<a class="headerlink" href="#common-issues" title="Permanent link">&para;</a></h2>
+<h1 id="filesystem-caches">Filesystem &amp; Caches<a class="headerlink" href="#filesystem-caches" title="Permanent link">&para;</a></h1>
+<p>Every job runs in a container whose <strong>root filesystem is mounted read-only</strong>
+(<code>--read-only</code>). This is a core security property: untrusted code cannot modify
+any binary, library, or config baked into the image. Understanding which paths
+<em>are</em> writable explains how caching libraries behave and how to load large
+models without hitting "read-only filesystem" errors.</p>
+<h2 id="what-is-writable">What is writable<a class="headerlink" href="#what-is-writable" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Type</th>
+<th>Writable?</th>
+<th>Persists between runs?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code> (root, incl. <code>/home/sandbox</code>)</td>
+<td>image layers</td>
+<td><strong>No</strong> (read-only)</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td><code>/tmp</code></td>
+<td>tmpfs (RAM-backed)</td>
+<td>Yes</td>
+<td><strong>No</strong> wiped on exit</td>
+</tr>
+<tr>
+<td><code>/output</code></td>
+<td>bind mount</td>
+<td>Yes</td>
+<td>Collected as artifacts</td>
+</tr>
+<tr>
+<td><code>/input</code>, <code>/code</code></td>
+<td>bind mount</td>
+<td>No (read-only)</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<p>Two consequences matter for library behavior:</p>
 <ul>
-<li><strong>RuntimeUnavailableError: gVisor not available</strong> -&gt; Install gVisor: https://gvisor.dev/docs/user_guide/install/ or set <code>security_mode: permissive</code> for dev</li>
-<li><strong>ImageNotFound: code-executor:latest</strong> -&gt; Build image first: <code>docker build -t code-executor:latest -f docker/Dockerfile.executor .</code></li>
-<li><strong>PostgreSQL migration/connection errors</strong> -&gt; Verify <code>database_url</code> and database reachability</li>
-<li><strong>Test isolation</strong> -&gt; Use <code>reset_config()</code> and temp database pattern from <code>tests/test_api.py</code></li>
-<li><strong>Dep install fails (network)</strong> -&gt; Jobs with requirements need network; use pre-built for true isolation</li>
+<li>The sandbox user's home, <code>/home/sandbox</code>, lives on the <strong>read-only</strong> root. Anything
+  that tries to write under <code>$HOME</code> fails.</li>
+<li><code>/tmp</code> is <strong>RAM-backed and size-capped</strong> (100 MB default, 300 MB while installing
+  dependencies) and is <strong>wiped when the container exits</strong>. It is scratch space, not
+  storage.</li>
 </ul>
-<h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>http://localhost:8000/health<span class="w">           </span><span class="c1"># Health check</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>curl<span class="w"> </span>http://localhost:8000/pool/stats<span class="w">       </span><span class="c1"># Worker pool status</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>curl<span class="w"> </span>http://localhost:8000/dlq/stats<span class="w">        </span><span class="c1"># Dead letter queue</span>
+<blockquote>
+<p>Today each container is single-use, so nothing written at runtime survives. Durable,
+per-agent workspaces are on the roadmap, see the project direction in the README.</p>
+</blockquote>
+<h2 id="library-caches-homecache">Library caches (<code>$HOME/.cache</code>)<a class="headerlink" href="#library-caches-homecache" title="Permanent link">&para;</a></h2>
+<p>Many libraries cache reusable data under <code>$HOME/.cache</code> by the
+<a href="https://specifications.freedesktop.org/basedir-spec/latest/">XDG convention</a>,
+matplotlib caches a font list, fontconfig caches font metadata, ezdxf caches parsed
+resources. On a read-only <code>$HOME</code> those writes fail, and you would see warnings like:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Cannot create cache home directory: &#39;/home/sandbox/.cache/ezdxf&#39;, cache files will not be saved.
 </span></code></pre></div>
+<p>Tako VM avoids this by pointing the cache/config directories at the writable <code>/tmp</code>
+tmpfs before running your code (in <code>docker/entrypoint.sh</code>):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">XDG_CACHE_HOME</span><span class="o">=</span>/tmp/.cache<span class="w">       </span><span class="c1"># ezdxf, fontconfig, most XDG-aware libs</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MPLCONFIGDIR</span><span class="o">=</span>/tmp/.cache/matplotlib<span class="w">   </span><span class="c1"># matplotlib uses its own variable</span>
+</span></code></pre></div>
+<p>This is handled automatically, no action needed for these libraries. The cache lives
+in <code>/tmp</code>, so it is recomputed on the next run (it is an optimization, not stored data).</p>
+<h2 id="loading-ml-models-hugging-face-pytorch-nltk">Loading ML models (Hugging Face, PyTorch, NLTK, ...)<a class="headerlink" href="#loading-ml-models-hugging-face-pytorch-nltk" title="Permanent link">&para;</a></h2>
+<p>Caching libraries <em>tolerate</em> an unwritable cache, they warn and continue. <strong>Download
+and cache</strong> libraries do not: when you call <code>AutoModel.from_pretrained(...)</code>, the
+library downloads weights and writes them under <code>$HOME/.cache</code> (or <code>HF_HOME</code>), then
+loads them from that path. There is no in-memory fallback, so an unwritable cache is a
+hard failure, not a warning.</p>
+<p>Redirecting the cache to <code>/tmp</code> does <strong>not</strong> reliably fix this, <code>/tmp</code> is too small for
+a multi-hundred-MB model, is RAM-backed (so it competes with your job's memory limit),
+and is wiped every run (so the model re-downloads each time). Network is also disabled
+by default (<code>--network=none</code>), so a runtime download often cannot happen at all.</p>
+<p>The correct approach is to <strong>pre-stage the model so it is present and read-only at
+runtime.</strong> Hugging Face and friends are happy to <em>load</em> from a read-only cache, they
+only fail when they must <em>write</em> one. Set offline mode so the library reads the staged
+files instead of checking the network:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/opt/hf-cache
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HF_HUB_OFFLINE</span><span class="o">=</span><span class="m">1</span><span class="w">        </span><span class="c1"># also: TRANSFORMERS_OFFLINE=1</span>
+</span></code></pre></div>
+<h3 id="option-a-bake-the-model-into-the-executor-image-build-time">Option A, bake the model into the executor image (build time)<a class="headerlink" href="#option-a-bake-the-model-into-the-executor-image-build-time" title="Permanent link">&para;</a></h3>
+<p>Download the model while building the image, where the filesystem is writable, and ship
+it inside the image. This is the same build-time pattern as
+<a href="../custom-libraries/">Custom Libraries</a>.</p>
+<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">ENV</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/opt/hf-cache
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c"># Pin a revision so every run loads byte-identical weights.</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">RUN</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from huggingface_hub import snapshot_download; \</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="s2">    snapshot_download(&#39;org/model&#39;, revision=&#39;&lt;commit-sha&gt;&#39;)&quot;</span>
+</span></code></pre></div>
+<p>At runtime <code>/opt/hf-cache</code> is read-only, which is fine, the weights are already there
+and the library only reads them.</p>
+<ul>
+<li><strong>Pros:</strong> fully self-contained, reproducible, no runtime network.</li>
+<li><strong>Cons:</strong> large images (weights can be GBs); one image per model set.</li>
+</ul>
+<h3 id="option-b-mount-a-read-only-model-volume-runtime">Option B, mount a read-only model volume (runtime)<a class="headerlink" href="#option-b-mount-a-read-only-model-volume-runtime" title="Permanent link">&para;</a></h3>
+<p>Populate a volume once and mount it read-only, the same shape Tako VM already uses for
+its read-only <code>/code</code>/<code>/input</code> mounts and the <code>UV_CACHE_VOLUME</code> dependency cache.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>--mount=type=volume,source=hf-models,target=/opt/hf-cache,readonly
+</span></code></pre></div>
+<ul>
+<li><strong>Pros:</strong> images stay small; swap models by pointing <code>HF_HOME</code> elsewhere; share across jobs.</li>
+<li><strong>Cons:</strong> the volume must be populated and managed out of band.</li>
+</ul>
+<h3 id="determinism">Determinism<a class="headerlink" href="#determinism" title="Permanent link">&para;</a></h3>
+<p>Pin the model <code>revision</code> to a commit SHA. A baked, revision-pinned model loads identical
+weights on every run, which is stronger than a runtime download that could silently pull
+an updated or moved model.</p>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>If you use...</th>
+<th>Do this</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>matplotlib, ezdxf, fontconfig (cache-for-speed libs)</td>
+<td>Nothing, caches are redirected to <code>/tmp</code> automatically</td>
+</tr>
+<tr>
+<td>Hugging Face / torch / NLTK (download-and-cache libs)</td>
+<td>Pre-stage the model (bake into image or read-only volume) and set <code>HF_HOME</code> + offline mode</td>
+</tr>
+<tr>
+<td>Anything that must write at runtime</td>
+<td>Write under <code>/tmp</code> (scratch, ephemeral) or <code>/output</code> (collected); never expect <code>$HOME</code> to be writable</td>
+</tr>
+</tbody>
+</table>
 
 
 
@@ -1893,7 +1924,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 24, 2026 20:34:36 UTC"><span class="timeago" datetime="2026-06-24T20:34:36+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 24, 2026 20:34:36 UTC">2026-06-24</span>
   </span>
 
     
@@ -1926,44 +1957,6 @@
       
         <footer class="md-footer">
   
-    
-      
-      <nav class="md-footer__inner md-grid" aria-label="Footer" >
-        
-          
-          <a href="../../guide/error-handling/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Error Handling">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Previous
-              </span>
-              <div class="md-ellipsis">
-                Error Handling
-              </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="../../api/rest/" class="md-footer__link md-footer__link--next" aria-label="Next: REST API">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Next
-              </span>
-              <div class="md-ellipsis">
-                REST API
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
-        
-      </nav>
     
   
   <div class="md-footer-meta md-typeset">

@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Tako VM security policy — how to report vulnerabilities privately, response timelines, and supported versions.">
+        <meta name="description" content="Tako VM security policy: how to report vulnerabilities privately, response timelines, and supported versions.">
       
       
         <meta name="author" content="Tako VM">
@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -68,7 +68,7 @@
   
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Security Policy - Tako VM" />
-<meta property="og:description" content="Tako VM security policy — how to report vulnerabilities privately, response timelines, and supported versions." />
+<meta property="og:description" content="Tako VM security policy: how to report vulnerabilities privately, response timelines, and supported versions." />
 <meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/security/policy.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
@@ -76,7 +76,7 @@
 <meta property="og:url" content="https://tako-research.github.io/TakoVM/security/policy/" />
 <meta property="twitter:card" content="summary_large_image" />
 <meta property="twitter:title" content="Security Policy - Tako VM" />
-<meta property="twitter:description" content="Tako VM security policy — how to report vulnerabilities privately, response timelines, and supported versions." />
+<meta property="twitter:description" content="Tako VM security policy: how to report vulnerabilities privately, response timelines, and supported versions." />
 <meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/security/policy.png" />
 </head>
   
@@ -113,7 +113,7 @@
               </button>
             
             
-  Tako VM 0.1.4 is out — typed Python SDK, reliability layer, and end-to-end hardening.
+  Tako VM 0.1.4 is out: typed Python SDK, reliability layer, and end-to-end hardening.
   <a href="../../changelog/">See what's new</a>
 
           </div>
@@ -2016,11 +2016,11 @@
 <p>A useful report includes:</p>
 <ul>
 <li>The version, commit SHA, or PyPI release you tested.</li>
-<li>Your configuration relevant to the finding — in particular <code>container_runtime</code>, <code>security_mode</code>, <code>enable_seccomp</code>, and any job types with <code>network_enabled: true</code>.</li>
+<li>Your configuration relevant to the finding, in particular <code>container_runtime</code>, <code>security_mode</code>, <code>enable_seccomp</code>, and any job types with <code>network_enabled: true</code>.</li>
 <li>A minimal reproduction: the submitted code or request, and the observed versus expected behavior.</li>
 <li>The impact you believe it has (container escape, host access, data exfiltration, denial of service, information disclosure).</li>
 </ul>
-<p>Reports that demonstrate a sandbox escape — host filesystem access, code execution outside the executor container, reaching the Docker daemon, or bypassing network isolation — are the most valuable and will be prioritized accordingly.</p>
+<p>Reports that demonstrate a sandbox escape (host filesystem access, code execution outside the executor container, reaching the Docker daemon, or bypassing network isolation) are the most valuable and will be prioritized accordingly.</p>
 <h3 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Acknowledgement of your report within 3 business days.</li>
@@ -2054,11 +2054,12 @@
 <h2 id="security-model">Security Model<a class="headerlink" href="#security-model" title="Permanent link">&para;</a></h2>
 <p>Tako VM uses layered isolation. No single layer is treated as sufficient on its own; each is intended to contain failures in the layers above it.</p>
 <p><strong>Process isolation (gVisor).</strong> When <code>container_runtime: runsc</code> is set, the executor runs under gVisor, a userspace kernel that intercepts and services guest syscalls instead of passing them to the host kernel. This is the primary boundary against kernel-level container escapes and is the recommended runtime for any untrusted workload.</p>
-<p><strong>Container isolation (Docker).</strong> Each job runs in its own ephemeral container (<code>--rm</code>) with a read-only root filesystem, all Linux capabilities dropped except those required for the privilege drop, and a non-root user (uid 1000) enforced at runtime. Writable space is limited to <code>/output/</code> and a <code>noexec</code> <code>/tmp/</code>. Containers carry no persistent state between executions.</p>
+<p><strong>Container isolation (Docker).</strong> Each job runs in its own single-use container (removed after every run, on every exit path) with a read-only root filesystem and a non-root user (uid 1000) enforced at runtime. All Linux capabilities are dropped except <code>SETUID</code>/<code>SETGID</code>, which <code>gosu</code> needs to perform the privilege drop, and <code>KILL</code>, which the root-side <code>timeout</code> supervisor needs to signal the dropped process when its budget expires. <code>gosu</code> clears all capabilities on the uid switch, so none of the three reach user code. Writable space is limited to <code>/output/</code> and a <code>/tmp/</code> that is <code>noexec</code> except when runtime dependency installation is enabled (uv needs to execute from its unpack target). Containers carry no persistent state between executions.</p>
+<p>Both execution paths -- the API server and the library-mode <code>Sandbox</code> -- assemble this posture from the same shared builder and are covered by a test that fails if they ever diverge.</p>
 <p><strong>Syscall filtering (seccomp).</strong> A default-deny seccomp profile (<code>SCMP_ACT_ERRNO</code>) allows only a whitelist of syscalls and blocks dangerous ones including <code>ptrace</code>, <code>mount</code>, <code>reboot</code>, <code>sethostname</code>, and <code>init_module</code>. Controlled by <code>enable_seccomp</code>.</p>
-<p><strong>Network isolation.</strong> Containers run with <code>--network=none</code> by default, which blocks data exfiltration, command-and-control traffic, and access to internal services. Network access is opt-in per job type via <code>network_enabled: true</code>, and when enabled it permits access to any external host — egress filtering is your responsibility (host firewall or Kubernetes NetworkPolicy). Runtime dependency installation and the shared dependency cache are disabled by default to prevent untrusted jobs from fetching and executing package setup code.</p>
+<p><strong>Network isolation.</strong> Containers run with <code>--network=none</code> by default, which blocks data exfiltration, command-and-control traffic, and access to internal services. Network access is opt-in per job type via <code>network_enabled: true</code>, and when enabled it permits access to any external host: egress filtering is your responsibility (host firewall or Kubernetes NetworkPolicy). Runtime dependency installation and the shared dependency cache are disabled by default to prevent untrusted jobs from fetching and executing package setup code.</p>
 <p><strong>Resource limits.</strong> Memory, CPU, PID, file-descriptor, file-size, and <code>/tmp</code> size limits, plus enforced execution timeouts, bound the damage from runaway or deliberately abusive code (fork bombs, memory exhaustion, disk filling).</p>
-<p><strong>Input validation.</strong> Submitted code and inputs are size-capped (100KB code, 1MB input, 300s max timeout by default). Container build inputs — base image, Python version, pip requirements, environment variables, and shared code paths — are validated to reject shell metacharacters, newlines, URL and path specifiers, and directory traversal. Output artifact filenames are checked to block path separators, parent-directory references, and hidden files.</p>
+<p><strong>Input validation.</strong> Submitted code and inputs are size-capped (100KB code, 1MB input, 300s max timeout by default). Container build inputs (base image, Python version, pip requirements, environment variables, and shared code paths) are validated to reject shell metacharacters, newlines, URL and path specifiers, and directory traversal. Output artifact filenames are checked to block path separators, parent-directory references, and hidden files.</p>
 <p><strong>Output handling.</strong> stdout, stderr, and artifacts are size-capped, and stack traces are rewritten to strip internal host paths before they are returned.</p>
 <p><strong>API front door.</strong> The server enforces a maximum request body size and per-client-IP rate limiting by default. Run it behind TLS in production.</p>
 <p>A fuller description lives in <a href="https://github.com/Tako-Research/TakoVM/blob/main/docs/deployment/security.md">docs/deployment/security.md</a>.</p>
@@ -2151,7 +2152,7 @@
 <h2 id="secure-deployment">Secure Deployment<a class="headerlink" href="#secure-deployment" title="Permanent link">&para;</a></h2>
 <p>Several defaults in the shipped example configuration favor ease of first-run over maximum hardening. If you are exposing Tako VM to untrusted code in production, do not run with the example defaults unchanged. At minimum:</p>
 <ul>
-<li>Set <code>security_mode: strict</code>. The default is <code>permissive</code>, which silently falls back to standard <code>runc</code> if gVisor is unavailable — meaning untrusted code can end up running without the userspace-kernel boundary you expect. <code>strict</code> fails closed instead.</li>
+<li>Set <code>security_mode: strict</code>. The default is <code>permissive</code>, which silently falls back to standard <code>runc</code> if gVisor is unavailable, meaning untrusted code can end up running without the userspace-kernel boundary you expect. <code>strict</code> fails closed instead.</li>
 <li>Install and verify gVisor (<code>docker run --runtime=runsc --rm hello-world</code>) and keep <code>container_runtime: runsc</code>.</li>
 <li>Keep <code>enable_seccomp: true</code>.</li>
 <li>Terminate TLS in front of the API and keep rate limiting enabled.</li>
@@ -2181,7 +2182,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 12, 2026 22:39:38 UTC"><span class="timeago" datetime="2026-06-12T22:39:38+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 12, 2026 22:39:38 UTC">2026-06-12</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
   </span>
 
     
@@ -2259,7 +2260,7 @@
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      Copyright &copy; 2026 Tako VM contributors — Apache-2.0
+      Copyright &copy; 2026 Tako VM contributors, Apache-2.0
     </div>
   
   
@@ -2315,7 +2316,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../js/timeago.min.js"></script>
       

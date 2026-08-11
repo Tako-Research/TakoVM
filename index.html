@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Tako VM is a secure file system and Python execution layer for AI agents — gVisor-isolated Docker containers with job queues, workers, retries, and replay.">
+        <meta name="description" content="Tako VM is a secure file system and Python execution layer for AI agents: gVisor-isolated Docker containers with job queues, workers, retries, and replay.">
       
       
         <meta name="author" content="Tako VM">
@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
@@ -66,7 +66,7 @@
   
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Tako VM" />
-<meta property="og:description" content="Tako VM is a secure file system and Python execution layer for AI agents — gVisor-isolated Docker containers with job queues, workers, retries, and replay." />
+<meta property="og:description" content="Tako VM is a secure file system and Python execution layer for AI agents: gVisor-isolated Docker containers with job queues, workers, retries, and replay." />
 <meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/index.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
@@ -74,7 +74,7 @@
 <meta property="og:url" content="https://tako-research.github.io/TakoVM/" />
 <meta property="twitter:card" content="summary_large_image" />
 <meta property="twitter:title" content="Tako VM" />
-<meta property="twitter:description" content="Tako VM is a secure file system and Python execution layer for AI agents — gVisor-isolated Docker containers with job queues, workers, retries, and replay." />
+<meta property="twitter:description" content="Tako VM is a secure file system and Python execution layer for AI agents: gVisor-isolated Docker containers with job queues, workers, retries, and replay." />
 <meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/index.png" />
 </head>
   
@@ -111,7 +111,7 @@
               </button>
             
             
-  Tako VM 0.1.4 is out — typed Python SDK, reliability layer, and end-to-end hardening.
+  Tako VM 0.1.4 is out: typed Python SDK, reliability layer, and end-to-end hardening.
   <a href="changelog/">See what's new</a>
 
           </div>
@@ -1856,7 +1856,7 @@
 <div class="tako-hero">
 <h1 id="tako-vm">Tako VM<a class="headerlink" href="#tako-vm" title="Permanent link">&para;</a></h1>
 <p class="tako-tagline"><strong>A secure file system for your agents to execute code.</strong><br>
-File system and Python execution for your agents — run untrusted code in gVisor-isolated containers, with the queue, workers, execution history, retries, and replay you'd otherwise build yourself.</p>
+File system and Python execution for your agents: run untrusted code in gVisor-isolated containers, with the queue, workers, execution history, retries, and replay you'd otherwise build yourself.</p>
 <div class="tako-badges">
 <p><a href="https://pypi.org/project/tako-vm/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tako-vm" /></a>
 <a href="https://pypi.org/project/tako-vm/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/tako-vm" /></a>
@@ -1966,14 +1966,14 @@ File system and Python execution for your agents — run untrusted code in gViso
 </tbody>
 </table>
 <ul>
-<li><strong>Job queue + workers</strong> — no Redis/Celery setup needed</li>
-<li><strong>Execution history</strong> — every job persisted with timing and artifacts</li>
-<li><strong>Replay to debug</strong> — rerun past jobs with exact same inputs</li>
-<li><strong>gVisor isolation</strong> — userspace-kernel syscall interception (<code>runsc</code>), seccomp filtering, no network by default</li>
-<li><strong>Self-hosted</strong> — zero per-execution cost, works offline</li>
+<li><strong>Job queue + workers</strong>: no Redis/Celery setup needed</li>
+<li><strong>Execution history</strong>: every job persisted with timing and artifacts</li>
+<li><strong>Replay to debug</strong>: rerun past jobs with exact same inputs</li>
+<li><strong>gVisor isolation</strong>: userspace-kernel syscall interception (<code>runsc</code>), seccomp filtering, no network by default</li>
+<li><strong>Self-hosted</strong>: zero per-execution cost, works offline</li>
 </ul>
 <h2 id="security-model">Security model<a class="headerlink" href="#security-model" title="Permanent link">&para;</a></h2>
-<p>Tako VM exists to run untrusted, often AI-generated, code — so isolation is layered: each job runs in its own ephemeral Docker container behind <a href="https://gvisor.dev">gVisor</a>'s userspace kernel, with a default-deny seccomp profile, no network, dropped capabilities, and a non-root user. Even a kernel exploit stays inside the sandbox.</p>
+<p>Tako VM exists to run untrusted, often AI-generated, code, so isolation is layered: each job runs in its own ephemeral Docker container behind <a href="https://gvisor.dev">gVisor</a>'s userspace kernel, with a default-deny seccomp profile, no network, dropped capabilities, and a non-root user. Even a kernel exploit stays inside the sandbox.</p>
 <p>For production with untrusted code, set <code>security_mode: strict</code> so execution <strong>fails rather than silently falling back</strong> to standard <code>runc</code> when gVisor is unavailable.</p>
 <p><a class="md-button" href="security/honest-assessment/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Read the threat model</a></p>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
@@ -1983,9 +1983,9 @@ File system and Python execution for your agents — run untrusted code in gViso
     S --&gt; P[("PostgreSQL&lt;br/&gt;execution history")]</code></pre>
 <p>Three core concepts:</p>
 <ul>
-<li><strong>Sandbox</strong> — a gVisor-backed, single-use container that executes one job and is destroyed.</li>
-<li><strong>Job</strong> — an asynchronous unit of work with a persisted <code>ExecutionRecord</code> lifecycle (<code>queued → running → succeeded/failed/timeout/oom/cancelled</code>).</li>
-<li><strong>Executor image</strong> — the container image jobs run in; runtime <code>requirements</code> can be installed per-job via <code>uv</code> (opt-in: <code>allow_runtime_requirements</code>), with an optional shared cache (<code>enable_runtime_dependency_cache</code>) to speed up repeat installs.</li>
+<li><strong>Sandbox</strong>: a gVisor-backed, single-use container that executes one job and is destroyed.</li>
+<li><strong>Job</strong>: an asynchronous unit of work with a persisted <code>ExecutionRecord</code> lifecycle (<code>queued → running → succeeded/failed/timeout/oom/cancelled</code>).</li>
+<li><strong>Executor image</strong>: the container image jobs run in; runtime <code>requirements</code> can be installed per-job via <code>uv</code> (opt-in: <code>allow_runtime_requirements</code>), with an optional shared cache (<code>enable_runtime_dependency_cache</code>) to speed up repeat installs.</li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Where Tako VM is headed</p>
@@ -1993,11 +1993,11 @@ File system and Python execution for your agents — run untrusted code in gViso
 </div>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="getting-started/installation/">Installation</a> — set up Tako VM</li>
-<li><a href="getting-started/quickstart/">Quick Start</a> — run your first code</li>
-<li><a href="guide/agent-tools/">Agent Integration</a> — use Tako VM as an agent tool</li>
-<li><a href="architecture/">Architecture</a> — how Tako VM works</li>
-<li><a href="changelog/">Changelog</a> — what's new in each release</li>
+<li><a href="getting-started/installation/">Installation</a>: set up Tako VM</li>
+<li><a href="getting-started/quickstart/">Quick Start</a>: run your first code</li>
+<li><a href="guide/agent-tools/">Agent Integration</a>: use Tako VM as an agent tool</li>
+<li><a href="architecture/">Architecture</a>: how Tako VM works</li>
+<li><a href="changelog/">Changelog</a>: what's new in each release</li>
 </ul>
 
 
@@ -2019,7 +2019,7 @@ File system and Python execution for your agents — run untrusted code in gViso
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 22, 2026 21:27:50 UTC"><span class="timeago" datetime="2026-06-22T21:27:50+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 22, 2026 21:27:50 UTC">2026-06-22</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
   </span>
 
     
@@ -2085,7 +2085,7 @@ File system and Python execution for your agents — run untrusted code in gViso
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      Copyright &copy; 2026 Tako VM contributors — Apache-2.0
+      Copyright &copy; 2026 Tako VM contributors, Apache-2.0
     </div>
   
   
@@ -2141,7 +2141,7 @@ File system and Python execution for your agents — run untrusted code in gViso
       <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="js/timeago.min.js"></script>
       

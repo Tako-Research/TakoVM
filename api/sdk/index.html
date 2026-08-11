@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Tako VM Python SDK reference — the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers.">
+        <meta name="description" content="Tako VM Python SDK reference: the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers.">
       
       
         <meta name="author" content="Tako VM">
@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -68,7 +68,7 @@
   
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Python SDK - Tako VM" />
-<meta property="og:description" content="Tako VM Python SDK reference — the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers." />
+<meta property="og:description" content="Tako VM Python SDK reference: the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers." />
 <meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/api/sdk.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
@@ -76,7 +76,7 @@
 <meta property="og:url" content="https://tako-research.github.io/TakoVM/api/sdk/" />
 <meta property="twitter:card" content="summary_large_image" />
 <meta property="twitter:title" content="Python SDK - Tako VM" />
-<meta property="twitter:description" content="Tako VM Python SDK reference — the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers." />
+<meta property="twitter:description" content="Tako VM Python SDK reference: the TakoVM HTTP client (server mode) and the Sandbox class (library mode) for running code in isolated containers." />
 <meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/api/sdk.png" />
 </head>
   
@@ -113,7 +113,7 @@
               </button>
             
             
-  Tako VM 0.1.4 is out — typed Python SDK, reliability layer, and end-to-end hardening.
+  Tako VM 0.1.4 is out: typed Python SDK, reliability layer, and end-to-end hardening.
   <a href="../../changelog/">See what's new</a>
 
           </div>
@@ -2227,7 +2227,7 @@
 </span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="n">result</span> <span class="o">=</span> <span class="n">tako_vm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">add</span><span class="p">,</span> <span class="n">Input</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">))</span>
 </span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">result</span><span class="p">)</span>  <span class="c1"># 30</span>
 </span></code></pre></div>
-<p>The module-level helpers use a default client configured via <code>tako_vm.configure()</code>, and mirror the full <code>TakoVM</code> surface — typed execution (<code>send</code>, <code>send_raw</code>), the async job lifecycle (<code>submit</code>, <code>submit_code</code>, <code>get_status</code>, <code>get_result</code>, <code>cancel</code>, <code>rerun</code>, <code>fork</code>, <code>download_artifact</code>), history (<code>list_executions</code>, <code>get_execution</code>), and metadata (<code>list_job_types</code>, <code>get_job_type</code>, <code>build_job_type</code>, <code>pool_stats</code>, <code>dlq_stats</code>, <code>health</code>). <code>configure()</code> accepts the same arguments as <code>TakoVM</code> (<code>headers</code>, <code>session</code>, <code>connect_timeout</code>, <code>correlation_id</code>). Instantiate <code>TakoVM</code> directly when you need multiple independently-configured clients in one process.</p>
+<p>The module-level helpers use a default client configured via <code>tako_vm.configure()</code>, and mirror the full <code>TakoVM</code> surface: typed execution (<code>send</code>, <code>send_raw</code>), the async job lifecycle (<code>submit</code>, <code>submit_code</code>, <code>get_status</code>, <code>get_result</code>, <code>cancel</code>, <code>rerun</code>, <code>fork</code>, <code>download_artifact</code>), history (<code>list_executions</code>, <code>get_execution</code>), and metadata (<code>list_job_types</code>, <code>get_job_type</code>, <code>build_job_type</code>, <code>pool_stats</code>, <code>dlq_stats</code>, <code>health</code>). <code>configure()</code> accepts the same arguments as <code>TakoVM</code> (<code>headers</code>, <code>session</code>, <code>connect_timeout</code>, <code>correlation_id</code>). Instantiate <code>TakoVM</code> directly when you need multiple independently-configured clients in one process.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tako_vm</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">tako_vm</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="s2">&quot;http://localhost:8000&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;X-API-Key&quot;</span><span class="p">:</span> <span class="n">KEY</span><span class="p">})</span>
@@ -2282,7 +2282,7 @@
 </tbody>
 </table>
 <h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
-<p>The SDK does <strong>not</strong> implement authentication — it forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a <code>session</code> for transport-level auth (mTLS).</p>
+<p>The SDK does <strong>not</strong> implement authentication. It forwards whatever headers you give it, verbatim, on every request. Supply the credential your deployment requires (the server's API key, a bearer token from your gateway, etc.), or use a <code>session</code> for transport-level auth (mTLS).</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># API key (matches the server&#39;s api_auth_header, default &quot;X-API-Key&quot;)</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">client</span> <span class="o">=</span> <span class="n">TakoVM</span><span class="p">(</span><span class="s2">&quot;https://tako.internal&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;X-API-Key&quot;</span><span class="p">:</span> <span class="n">API_KEY</span><span class="p">})</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
@@ -2298,11 +2298,11 @@
 <h3 id="reliability">Reliability<a class="headerlink" href="#reliability" title="Permanent link">&para;</a></h3>
 <p>The client ships with a reliability layer; all of it is automatic:</p>
 <ul>
-<li><strong>Transport retries (GETs only).</strong> The default session retries idempotent GETs (status/result polling, job types, health) on 502/503/504 with backoff. POSTs are never retried at the transport layer — the sync <code>POST /execute</code> is not idempotent, so a blind retry could run code twice. Passing your own <code>session=</code> replaces this adapter.</li>
+<li><strong>Transport retries (GETs only).</strong> The default session retries idempotent GETs (status/result polling, job types, health) on 502/503/504 with backoff. POSTs are never retried at the transport layer: the sync <code>POST /execute</code> is not idempotent, so a blind retry could run code twice. Passing your own <code>session=</code> replaces this adapter.</li>
 <li><strong>Retry-safe async submission.</strong> <code>submit()</code>/<code>submit_code()</code> auto-generate a server-compatible <code>idempotency_key</code> when you don't pass one and retry transient failures (connection errors, 502/503/504) with the <em>same</em> key, so the server returns the existing job instead of re-executing.</li>
 <li><strong>Correlation IDs.</strong> Every request carries an <code>X-Correlation-ID</code> header (auto-generated, or fixed via <code>TakoVM(correlation_id=...)</code>). The id is exposed as <code>.correlation_id</code> on <code>ExecutionResult</code> and on SDK exceptions for end-to-end tracing.</li>
-<li><strong>Structured errors.</strong> HTTP failures raise <code>TransportError</code> (connection/timeout), <code>ServerError</code> (5xx, with <code>.retryable</code> set for 502/503/504), or <code>ClientError</code> (4xx) — all subclasses of <code>TakoVMError</code> carrying <code>.status_code</code>, <code>.detail</code> (parsed from the server's error body), and <code>.correlation_id</code>. The sync <code>send()</code>/<code>send_raw()</code> path keeps its legacy contract and reports these as a failed <code>ExecutionResult</code> instead of raising them.</li>
-<li><strong>Client-side timeouts that outlive the server.</strong> When <code>timeout</code> is omitted, the HTTP read timeout is resolved from the job type's default (<code>GET /job-types/{name}</code>, cached per client) plus the startup budget, with a generous fallback — so long-running jobs are never killed client-side while they would still complete server-side. If the job-type lookup fails, the client logs a warning and falls back to the maximum read timeout.</li>
+<li><strong>Structured errors.</strong> HTTP failures raise <code>TransportError</code> (connection/timeout), <code>ServerError</code> (5xx, with <code>.retryable</code> set for 502/503/504), or <code>ClientError</code> (4xx), all subclasses of <code>TakoVMError</code> carrying <code>.status_code</code>, <code>.detail</code> (parsed from the server's error body), and <code>.correlation_id</code>. The sync <code>send()</code>/<code>send_raw()</code> path keeps its legacy contract and reports these as a failed <code>ExecutionResult</code> instead of raising them.</li>
+<li><strong>Client-side timeouts that outlive the server.</strong> When <code>timeout</code> is omitted, the HTTP read timeout is resolved from the job type's default (<code>GET /job-types/{name}</code>, cached per client) plus the startup budget, with a generous fallback, so long-running jobs are never killed client-side while they would still complete server-side. If the job-type lookup fails, the client logs a warning and falls back to the maximum read timeout.</li>
 <li><strong>Verbose on failure.</strong> Every failure path logs at <code>WARNING</code>/<code>ERROR</code> on the <code>tako_vm.sdk.client</code> logger with the correlation id, status, and server detail. A non-JSON 2xx body and an output that doesn't fit the return dataclass are both logged and surfaced (a failed <code>ExecutionResult</code> and the raw dict, respectively) rather than swallowed silently. Enable it with <code>logging.getLogger("tako_vm.sdk.client").setLevel(logging.DEBUG)</code>.</li>
 </ul>
 <hr />
@@ -2400,7 +2400,7 @@
 <p><code>list_executions()</code> returns a paginated response (<code>{"items": [...], "limit", "offset", "has_more", "count"}</code>).</p>
 <div class="admonition note">
 <p class="admonition-title">Sessions</p>
-<p>A long-lived <strong>session</strong> API is in development — neither the REST endpoints nor SDK support have shipped yet. This note will link to both once the API stabilizes.</p>
+<p>A long-lived <strong>session</strong> API is in development; neither the REST endpoints nor SDK support have shipped yet. This note will link to both once the API stabilizes.</p>
 </div>
 <hr />
 <h2 id="sandbox-library-mode">Sandbox (Library Mode)<a class="headerlink" href="#sandbox-library-mode" title="Permanent link">&para;</a></h2>
@@ -2537,7 +2537,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 12, 2026 22:39:38 UTC"><span class="timeago" datetime="2026-06-12T22:39:38+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 12, 2026 22:39:38 UTC">2026-06-12</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
   </span>
 
     
@@ -2615,7 +2615,7 @@
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      Copyright &copy; 2026 Tako VM contributors — Apache-2.0
+      Copyright &copy; 2026 Tako VM contributors, Apache-2.0
     </div>
   
   
@@ -2671,7 +2671,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../js/timeago.min.js"></script>
       

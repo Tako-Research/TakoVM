@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Use Tako VM as a code-execution tool for AI agents — LangChain and OpenAI tool-calling integrations with sandboxed Python execution.">
+        <meta name="description" content="Use Tako VM as a code-execution tool for AI agents: LangChain and OpenAI tool-calling integrations with sandboxed Python execution.">
       
       
         <meta name="author" content="Tako VM">
@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -68,7 +68,7 @@
   
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Agent Integration - Tako VM" />
-<meta property="og:description" content="Use Tako VM as a code-execution tool for AI agents — LangChain and OpenAI tool-calling integrations with sandboxed Python execution." />
+<meta property="og:description" content="Use Tako VM as a code-execution tool for AI agents: LangChain and OpenAI tool-calling integrations with sandboxed Python execution." />
 <meta property="og:image" content="https://tako-research.github.io/TakoVM/assets/images/social/guide/agent-tools.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:image:width" content="1200" />
@@ -76,7 +76,7 @@
 <meta property="og:url" content="https://tako-research.github.io/TakoVM/guide/agent-tools/" />
 <meta property="twitter:card" content="summary_large_image" />
 <meta property="twitter:title" content="Agent Integration - Tako VM" />
-<meta property="twitter:description" content="Use Tako VM as a code-execution tool for AI agents — LangChain and OpenAI tool-calling integrations with sandboxed Python execution." />
+<meta property="twitter:description" content="Use Tako VM as a code-execution tool for AI agents: LangChain and OpenAI tool-calling integrations with sandboxed Python execution." />
 <meta property="twitter:image" content="https://tako-research.github.io/TakoVM/assets/images/social/guide/agent-tools.png" />
 </head>
   
@@ -113,7 +113,7 @@
               </button>
             
             
-  Tako VM 0.1.4 is out — typed Python SDK, reliability layer, and end-to-end hardening.
+  Tako VM 0.1.4 is out: typed Python SDK, reliability layer, and end-to-end hardening.
   <a href="../../changelog/">See what's new</a>
 
           </div>
@@ -1932,15 +1932,15 @@
 <ol>
 <li>Expose one tool, e.g. <code>run_python(code, requirements)</code>.</li>
 <li>The tool submits the model-generated code to Tako VM and waits for the result.</li>
-<li>Return stdout on success and <strong>return the error text on failure</strong> — the model uses tracebacks to fix its own code, so never raise them away.</li>
+<li>Return stdout on success and <strong>return the error text on failure</strong>: the model uses tracebacks to fix its own code, so never raise them away.</li>
 </ol>
 <div class="admonition warning">
 <p class="admonition-title">Treat AI-generated code as untrusted</p>
-<p>Run agent workloads with <code>security_mode: strict</code> so jobs fail rather than silently falling back from gVisor to plain <code>runc</code>, and never pass secrets in <code>input_data</code> — anything the job receives is readable by the code. See the <a href="../../security/honest-assessment/">threat model</a>.</p>
+<p>Run agent workloads with <code>security_mode: strict</code> so jobs fail rather than silently falling back from gVisor to plain <code>runc</code>, and never pass secrets in <code>input_data</code>: anything the job receives is readable by the code. See the <a href="../../security/honest-assessment/">threat model</a>.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Letting agents install packages</p>
-<p>The <code>requirements</code> parameter needs <code>allow_runtime_requirements: true</code> in <code>tako_vm.yaml</code> (off by default), and a job that installs packages runs <strong>with network access</strong> — the container attaches to the bridge network for the install and stays attached for the run. For untrusted code, prefer <a href="../environments/">pre-built job types</a> with the packages your agents need: that keeps <code>--network=none</code> and drops the parameter entirely.</p>
+<p>The <code>requirements</code> parameter needs <code>allow_runtime_requirements: true</code> in <code>tako_vm.yaml</code> (off by default), and a job that installs packages runs <strong>with network access</strong>: the container attaches to the bridge network for the install and stays attached for the run. For untrusted code, prefer <a href="../environments/">pre-built job types</a> with the packages your agents need: that keeps <code>--network=none</code> and drops the parameter entirely.</p>
 </div>
 <h2 id="the-core-tool-function">The core tool function<a class="headerlink" href="#the-core-tool-function" title="Permanent link">&para;</a></h2>
 <p>Everything below is a thin wrapper around this:</p>
@@ -1960,7 +1960,7 @@
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="k">if</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;succeeded&quot;</span><span class="p">:</span>
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="k">return</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;stdout&quot;</span><span class="p">]</span> <span class="ow">or</span> <span class="s2">&quot;(no output)&quot;</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="c1"># Surface the failure to the model — tracebacks are how agents self-correct.</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="c1"># Surface the failure to the model. Tracebacks are how agents self-correct.</span>
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="k">return</span> <span class="p">(</span>
 </span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="sa">f</span><span class="s2">&quot;Execution </span><span class="si">{</span><span class="n">record</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">.</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="sa">f</span><span class="s2">&quot;stderr:</span><span class="se">\n</span><span class="si">{</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;stderr&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
@@ -2008,14 +2008,14 @@
 </span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;messages&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
 </span></code></pre></div>
 <h3 id="using-it-from-asyncio">Using it from asyncio<a class="headerlink" href="#using-it-from-asyncio" title="Permanent link">&para;</a></h3>
-<p>The SDK is <code>requests</code>-based and blocking, so don't call <code>run_python</code> directly inside an async agent loop — wrap it so the event loop stays free:</p>
+<p>The SDK is <code>requests</code>-based and blocking, so don't call <code>run_python</code> directly inside an async agent loop. Wrap it so the event loop stays free:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">arun_python</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">requirements</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">run_python</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">requirements</span><span class="p">)</span>
 </span></code></pre></div>
-<p>Register <code>arun_python</code> as the tool's coroutine (LangChain's <code>StructuredTool.from_function(coroutine=arun_python, ...)</code>) and <code>ainvoke</code> works without blocking. The block happens in <code>get_result</code>, which long-polls the server — cheap to park on a thread.</p>
+<p>Register <code>arun_python</code> as the tool's coroutine (LangChain's <code>StructuredTool.from_function(coroutine=arun_python, ...)</code>) and <code>ainvoke</code> works without blocking. The block happens in <code>get_result</code>, which long-polls the server: cheap to park on a thread.</p>
 <h2 id="openai-tool-calling">OpenAI tool calling<a class="headerlink" href="#openai-tool-calling" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
@@ -2051,19 +2051,19 @@
 </span><span id="__span-4-32"><a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a>             <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;tool&quot;</span><span class="p">,</span> <span class="s2">&quot;tool_call_id&quot;</span><span class="p">:</span> <span class="n">call</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">output</span><span class="p">}]</span>
 </span><span id="__span-4-33"><a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a><span class="n">final</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="n">TOOLS</span><span class="p">)</span>
 </span></code></pre></div>
-<p>The same shape works for Anthropic tool use — define one <code>run_python</code> tool and feed <code>record["stdout"]</code>/<code>stderr</code> back as the <code>tool_result</code>.</p>
+<p>The same shape works for Anthropic tool use: define one <code>run_python</code> tool and feed <code>record["stdout"]</code>/<code>stderr</code> back as the <code>tool_result</code>.</p>
 <h2 id="concurrency-and-history">Concurrency and history<a class="headerlink" href="#concurrency-and-history" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Parallel agents</strong>: jobs queue automatically; the worker pool (default 4) drains them. Submit from as many agent sessions as you like — <code>submit_code()</code> returns immediately with a <code>job_id</code>.</li>
-<li><strong>Audit trail</strong>: every execution an agent ever ran is persisted with code, stdout/stderr, and timing — <code>tako_vm.list_executions()</code> or <code>GET /executions</code>. Invaluable when an agent did something surprising last Tuesday.</li>
+<li><strong>Parallel agents</strong>: jobs queue automatically; the worker pool (default 4) drains them. Submit from as many agent sessions as you like; <code>submit_code()</code> returns immediately with a <code>job_id</code>.</li>
+<li><strong>Audit trail</strong>: every execution an agent ever ran is persisted with code, stdout/stderr, and timing: <code>tako_vm.list_executions()</code> or <code>GET /executions</code>. Invaluable when an agent did something surprising last Tuesday.</li>
 <li><strong>Replay</strong>: re-run an agent's past execution exactly (<code>tako_vm.rerun(job_id)</code>) or fork it with modified code (<code>fork</code>) while debugging.</li>
 <li><strong>No webhooks yet</strong>: poll <code>get_result(job_id, timeout=...)</code> (it long-polls server-side via <code>?wait=true</code>, so this is cheap).</li>
 </ul>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../async-jobs/">Async Jobs</a> — job lifecycle and status reference</li>
-<li><a href="../environments/">Environments</a> — pre-built job types so agents skip dependency install</li>
-<li><a href="../../deployment/security/">Hardening Guide</a> — production settings for untrusted code</li>
+<li><a href="../async-jobs/">Async Jobs</a>: job lifecycle and status reference</li>
+<li><a href="../environments/">Environments</a>: pre-built job types so agents skip dependency install</li>
+<li><a href="../../deployment/security/">Hardening Guide</a>: production settings for untrusted code</li>
 </ul>
 
 
@@ -2085,7 +2085,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 12, 2026 22:39:38 UTC"><span class="timeago" datetime="2026-06-12T22:39:38+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 12, 2026 22:39:38 UTC">2026-06-12</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
   </span>
 
     
@@ -2163,7 +2163,7 @@
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      Copyright &copy; 2026 Tako VM contributors — Apache-2.0
+      Copyright &copy; 2026 Tako VM contributors, Apache-2.0
     </div>
   
   
@@ -2219,7 +2219,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../js/timeago.min.js"></script>
       
