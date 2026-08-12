@@ -5,6 +5,80 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-12
+
+A security release. The shipped defaults now fail closed, and the default
+isolation posture is exercised for the first time: it could not previously start
+a container, and CI had switched the two controls off to work around that.
+
+Upgrading is not a drop-in swap. Three defaults changed in ways that will stop a
+deployment that relied on the old behavior; each has an explicit opt-out, listed
+under Changed.
+
+### Changed
+
+- **BREAKING: `security_mode` now defaults to `strict`** (#156). It was
+  `permissive`, so on a host without gVisor every job silently ran on runc while
+  the docs called gVisor the sole isolation boundary. Strict refuses to run
+  instead. Set `security_mode: permissive` explicitly for local development and
+  for CI on hosts without gVisor.
+- **BREAKING: `server_host` now defaults to `127.0.0.1`**, and binding a
+  non-loopback interface while `api_auth_enabled` is false is refused at startup
+  rather than warned about (#156). That combination is an unauthenticated remote
+  code-execution endpoint. Deployments that authenticate in front of Tako VM set
+  `allow_unauthenticated_network_access: true` to opt out.
+- **BREAKING: the shared uv dependency cache is now scoped per job type** rather
+  than one host-wide volume (#156). This narrows the blast radius of a poisoned
+  cache entry to a group the operator defines. It does not eliminate the channel:
+  jobs sharing a job type still share a cache, and Tako VM has no tenant identity
+  to key on.
+- The effective isolation runtime is recorded and surfaced per job, so a result
+  says whether it actually ran under gVisor (#117).
+- Dependency installation runs as the unprivileged sandbox user (#116).
+- Worker ulimits are mirrored onto the library `Sandbox` path (#113).
+
+### Fixed
+
+- **The default posture now works and now enforces** (#153). Four defects, all
+  hidden by CI running a configuration nobody ships:
+  - The default-deny seccomp profile blocked container init. It allowed `prctl`
+    only for `PR_SET_NAME` and `PR_SET_PDEATHSIG`, but the OCI runtime needs
+    `PR_CAPBSET_DROP`, `PR_SET_KEEPCAPS` and `PR_CAP_AMBIENT`; every `docker run`
+    failed with "unable to apply bounding set" on native-Linux Docker.
+  - The entrypoint aborted before user code: `chown` on the cache dirs needs
+    `CAP_CHOWN`, which `--cap-drop=ALL` strips. The dirs are created as the
+    sandbox user instead.
+  - The in-container timeout never fired. A uid-0 supervisor signalling the
+    uid-1000 child needs `CAP_KILL`; without it the SIGTERM was dropped and the
+    limit was only enforced by the SIGKILL 10s later, past the host-side backstop.
+  - The library path enforced a weaker posture than the server: it never passed
+    `--security-opt=seccomp` at all and always mounted `/tmp` exec. Both paths now
+    assemble an identical argv, asserted by test.
+- `build_session_run_command` validates `workspace_dir` before it becomes a
+  read-write host bind mount: absolute, normalized, no `..`, not a sensitive
+  system directory, and symlink-resolved (#156).
+- Leaked containers are reaped by the periodic cleanup loop (#114).
+- Executor library cache directories are redirected to a writable `/tmp` (#135).
+- `?view=full` responses no longer drop timing and runtime (#127).
+- Correctness and reliability fixes across the durable execution path (#132).
+- Container/image removal and build failures are logged instead of swallowed
+  (#133).
+
+### Security
+
+- Base images are pinned by digest and the `docker` binary is verified by
+  checksum (#118).
+- Pillow bumped to 12.2.0 and the dependency/security backlog cleared
+  (#115, #148).
+
+### Added
+
+- Executable invariants for the gVisor hardening posture, asserting the full
+  assembled argv from both execution paths and that the shipped defaults really
+  do run code with ptrace and `/tmp` exec blocked (#136, #153).
+- Session-persistence schema and session-container command builders, both
+  additive and not yet reachable (#138, #139).
+
 ## [0.1.5] - 2026-06-22
 
 Housekeeping release. Tako VM now lives under the Tako Research organization.
