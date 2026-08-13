@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tako-vm"
-version = "0.1.5"
+version = "0.2.0"
 description = "A secure file system and Python execution layer for AI agents: isolated Docker/gVisor containers with job queues, retries, and history"
 readme = "README.md"
 license = "Apache-2.0"
@@ -65,7 +65,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-timeout>=2.1.0",
     "httpx>=0.24.0",
-    "ruff==0.15.16",  # pinned: keep in sync with lint.yml + .pre-commit-config.yaml
+    "ruff==0.16.1",  # pinned: keep in sync with lint.yml + .pre-commit-config.yaml
 ]
 # Documentation
 docs = [

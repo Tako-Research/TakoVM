@@ -18,13 +18,17 @@ and can gate every PR.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from tako_vm.config import TakoVMConfig
+from tako_vm.constants import UV_CACHE_VOLUME, uv_cache_volume
 from tako_vm.execution import worker
 from tako_vm.execution.docker import (
     CONTAINER_LABEL,
     EXECUTION_ID_LABEL,
     base_isolation_args,
+    build_session_run_command,
+    validate_session_workspace_dir,
 )
 from tako_vm.execution.worker import RuntimeUnavailableError, resolve_runtime
 
@@ -54,8 +58,12 @@ DANGEROUS_FLAG_PREFIXES = (
 )
 
 # The only capabilities allowed back in: gosu needs SETUID/SETGID to drop from
-# root to the unprivileged sandbox user. Nothing else.
-ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID"}
+# root to the unprivileged sandbox user, and the root-side `timeout` supervisor
+# needs KILL to signal that dropped (uid 1000) process when its budget expires
+# -- without it the SIGTERM is refused with EPERM and the timeout never fires.
+# gosu clears all capabilities on the uid switch, so none of these reach user
+# code. Nothing else may be re-added.
+ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=KILL"}
 
 # Every combination of the optional knobs, as ``(runtime, caps, auto_remove,
 # exec_id)`` tuples. The invariants below must hold across the whole
@@ -266,3 +274,323 @@ class TestPermissiveModeFallback:
             resolve_runtime(self._config(security_mode="permissive", container_runtime="runc"))
             == "runc"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cross-path parity
+#
+# base_isolation_args is only the SHARED BASE. Each execution path
+# (CodeExecutor and the library Sandbox) appends its own network, mount,
+# tmpfs, seccomp and resource flags on top, and nothing above this point
+# inspects those. That gap is exactly where drift lived: the library path
+# shipped with no --security-opt=seccomp at all and an `exec` /tmp, so two
+# controls the docs describe as always-on ("a default-deny seccomp profile",
+# "writable space is limited to /output/ and a noexec /tmp/") were silently
+# absent for every library-mode run.
+#
+# These assert on the FULL assembled argv from BOTH paths, so a control added
+# to one builder and missed on the other fails here instead of in a benchmark.
+# ---------------------------------------------------------------------------
+
+
+def _security_flags(argv):
+    """The policy-bearing flags of an argv, with per-run noise removed."""
+    noise = ("--name=", "--label=tako-vm.execution-id", "--mount=type=bind", "--env=TAKO_")
+    return {a for a in argv if not a.startswith(noise)}
+
+
+def _worker_argv(cfg, tmp_path, requirements=None):
+    """Capture the argv CodeExecutor would execute, without running Docker."""
+    import subprocess as _sp
+
+    from tako_vm.execution.worker import DEFAULT_JOB_TYPE, CodeExecutor
+
+    captured = {}
+
+    def fake_run(cmd, *a, **kw):
+        if "cmd" not in captured and list(cmd[:2]) == ["docker", "run"]:
+            captured["cmd"] = list(cmd)
+
+        class R:
+            returncode, stdout, stderr = 0, "", ""
+
+        return R()
+
+    dirs = {}
+    for name in ("code", "input", "output"):
+        d = tmp_path / f"w-{name}"
+        d.mkdir()
+        dirs[name] = d
+
+    executor = CodeExecutor(config=cfg)
+    real_run = worker.subprocess.run
+    worker.subprocess.run = fake_run
+    try:
+        executor._run_container(
+            code_dir=dirs["code"],
+            input_dir=dirs["input"],
+            output_dir=dirs["output"],
+            timeout=30,
+            startup_timeout=120,
+            job_type=DEFAULT_JOB_TYPE,
+            extra_requirements=requirements,
+            job_id="paritytest",
+            meta_dir=None,
+        )
+    finally:
+        worker.subprocess.run = real_run
+    assert _sp  # keep the import meaningful for linters
+    return captured.get("cmd", [])
+
+
+def _sandbox_argv(tmp_path, requirements=None):
+    from tako_vm.sandbox import Sandbox
+
+    dirs = {}
+    for name in ("code", "input", "output"):
+        d = tmp_path / f"s-{name}"
+        d.mkdir()
+        dirs[name] = d
+
+    sb = Sandbox(allow_runtime_requirements=bool(requirements))
+    sb._image_checked = True
+    cmd, _ = sb._build_docker_command(
+        code_dir=dirs["code"],
+        input_dir=dirs["input"],
+        output_dir=dirs["output"],
+        timeout=30,
+        requirements=requirements,
+    )
+    return cmd
+
+
+class TestExecutionPathParity:
+    """Both execution paths must enforce the identical security posture."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_config(self, monkeypatch, tmp_path):
+        """One shared config for both paths, with gVisor resolution pinned."""
+        from tako_vm import config as config_mod
+
+        monkeypatch.setattr(worker, "check_gvisor_available", lambda: False)
+        cfg = TakoVMConfig(
+            security_mode="permissive",
+            container_runtime="runc",
+            allow_runtime_requirements=True,
+            data_dir=str(tmp_path / "data"),
+        )
+        cfg.resolve_paths()
+        # The library Sandbox reads the *global* config, so pin it there too.
+        monkeypatch.setattr(config_mod, "_config", cfg)
+        self.cfg = cfg
+
+    @pytest.mark.parametrize("requirements", [None, ["idna"]], ids=["no-reqs", "with-reqs"])
+    def test_paths_assemble_identical_security_flags(self, tmp_path, requirements):
+        worker_flags = _security_flags(_worker_argv(self.cfg, tmp_path, requirements))
+        sandbox_flags = _security_flags(_sandbox_argv(tmp_path, requirements))
+        assert worker_flags, "worker argv was not captured"
+        assert worker_flags == sandbox_flags, (
+            "execution paths drifted.\n"
+            f"  only in CodeExecutor: {sorted(worker_flags - sandbox_flags)}\n"
+            f"  only in Sandbox:      {sorted(sandbox_flags - worker_flags)}"
+        )
+
+    @pytest.mark.parametrize("build", [_worker_argv, None], ids=["worker", "sandbox"])
+    def test_seccomp_profile_applied_on_both_paths(self, tmp_path, build):
+        argv = build(self.cfg, tmp_path) if build else _sandbox_argv(tmp_path)
+        assert any(a.startswith("--security-opt=seccomp=") for a in argv), (
+            "custom seccomp profile missing; enable_seccomp is on by default and "
+            "the docs describe it as an always-on control"
+        )
+
+    @pytest.mark.parametrize("build", [_worker_argv, None], ids=["worker", "sandbox"])
+    def test_tmp_is_noexec_without_runtime_requirements(self, tmp_path, build):
+        argv = build(self.cfg, tmp_path) if build else _sandbox_argv(tmp_path)
+        tmpfs = [a for a in argv if a.startswith("--tmpfs=/tmp")]
+        assert tmpfs, "no /tmp tmpfs flag emitted"
+        assert "noexec" in tmpfs[0], f"/tmp must be noexec when no deps are installed: {tmpfs[0]}"
+
+
+class TestSeccompProfileStartsContainers:
+    """The shipped seccomp profile must not block OCI-runtime container init.
+
+    The profile is a default-deny allowlist, so every prctl option the runtime
+    needs must be allowed EXPLICITLY, each in its OWN rule -- multiple entries
+    in a single rule's ``args`` are AND-ed, not OR-ed, so one rule listing
+    several values matches nothing.
+
+    Omitting these does not weaken the sandbox, it stops the container from
+    starting at all ("unable to apply bounding set", "unable to set keep caps",
+    "unable to apply caps"), which is how the shipped default posture came to
+    be untested: both controls were switched off in CI to work around it.
+    """
+
+    # PR_SET_PDEATHSIG=1, PR_SET_KEEPCAPS=8, PR_SET_NAME=15,
+    # PR_CAPBSET_DROP=24, PR_CAP_AMBIENT=47. All are privilege-dropping or
+    # neutral; allowing them cannot widen the sandbox.
+    REQUIRED_PRCTL_OPTIONS = {1, 8, 15, 24, 47}
+
+    def _profile(self):
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "tako_vm" / "seccomp_profile.json"
+        return json.loads(path.read_text())
+
+    def test_profile_is_default_deny(self):
+        assert self._profile()["defaultAction"] == "SCMP_ACT_ERRNO"
+
+    def test_required_prctl_options_allowed(self):
+        allowed = set()
+        for rule in self._profile()["syscalls"]:
+            if rule.get("names") != ["prctl"] or rule.get("action") != "SCMP_ACT_ALLOW":
+                continue
+            args = rule.get("args") or []
+            # Only single-arg rules match a specific option (args are AND-ed).
+            if len(args) == 1 and args[0].get("op") == "SCMP_CMP_EQ":
+                allowed.add(args[0]["value"])
+            elif not args:
+                allowed.update(self.REQUIRED_PRCTL_OPTIONS)  # unrestricted prctl
+        missing = self.REQUIRED_PRCTL_OPTIONS - allowed
+        assert not missing, (
+            f"seccomp profile blocks prctl option(s) {sorted(missing)} that the OCI "
+            "runtime needs during container init; containers will fail to start"
+        )
+
+    def test_no_multi_value_prctl_rule(self):
+        """A rule with several EQ args on index 0 can never match (AND semantics)."""
+        for rule in self._profile()["syscalls"]:
+            if rule.get("names") != ["prctl"]:
+                continue
+            eq_on_zero = [
+                a
+                for a in (rule.get("args") or [])
+                if a.get("index") == 0 and a.get("op") == "SCMP_CMP_EQ"
+            ]
+            assert len(eq_on_zero) <= 1, (
+                "prctl rule lists multiple values in one rule; args are AND-ed, "
+                f"so this rule matches nothing: {rule}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Secure-by-default configuration
+#
+# The defaults are what a scanner reads and what a new user gets. These pin the
+# three that decide whether the advertised boundary is actually in force.
+# ---------------------------------------------------------------------------
+
+
+class TestSecureDefaults:
+    def test_security_mode_defaults_to_strict(self):
+        """Fail closed: no silent runc fallback unless explicitly asked for."""
+        assert TakoVMConfig().security_mode == "strict"
+
+    def test_container_runtime_defaults_to_gvisor(self):
+        assert TakoVMConfig().container_runtime == "runsc"
+
+    def test_server_binds_loopback_by_default(self):
+        assert TakoVMConfig().is_loopback_host()
+
+    def test_seccomp_and_caps_on_by_default(self):
+        cfg = TakoVMConfig()
+        assert cfg.enable_seccomp
+        assert cfg.enable_cap_restrictions
+
+    def test_runtime_deps_and_shared_cache_off_by_default(self):
+        cfg = TakoVMConfig()
+        assert not cfg.allow_runtime_requirements
+        assert not cfg.enable_runtime_dependency_cache
+
+    def test_unauthenticated_network_bind_is_refused(self):
+        """The one combination that is unauthenticated remote code execution."""
+        with pytest.raises(ValidationError):
+            TakoVMConfig(server_host="0.0.0.0", api_auth_enabled=False)
+
+    def test_unauthenticated_loopback_bind_is_allowed(self):
+        """Local development stays frictionless."""
+        assert TakoVMConfig(server_host="127.0.0.1", api_auth_enabled=False)
+
+    def test_authenticated_network_bind_is_allowed(self):
+        assert TakoVMConfig(server_host="0.0.0.0", api_auth_enabled=True, api_keys=["k" * 32])
+
+    def test_explicit_opt_out_permits_unauthenticated_bind(self):
+        cfg = TakoVMConfig(
+            server_host="0.0.0.0",
+            api_auth_enabled=False,
+            allow_unauthenticated_network_access=True,
+        )
+        # ...but it must still be surfaced loudly.
+        assert any("authentication is disabled" in w for w in cfg.security_warnings())
+
+
+class TestDependencyCacheScoping:
+    """The shared uv cache is a writable cross-job channel; scope it."""
+
+    def test_distinct_scopes_get_distinct_volumes(self):
+        assert uv_cache_volume("alpha") != uv_cache_volume("beta")
+
+    def test_same_scope_is_stable(self):
+        assert uv_cache_volume("alpha") == uv_cache_volume("alpha")
+
+    def test_scope_is_sanitized_for_the_docker_cli(self):
+        volume = uv_cache_volume("../../etc/passwd; rm -rf /")
+        assert "/" not in volume and ";" not in volume and " " not in volume
+
+    def test_empty_scope_does_not_produce_a_bare_shared_volume(self):
+        assert uv_cache_volume("") != UV_CACHE_VOLUME
+
+
+class TestSessionWorkspaceContainment:
+    """``workspace_dir`` becomes a read-write host bind mount."""
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",
+            "   ",
+            "relative/path",
+            "/srv/sessions/../../etc",
+            "/",
+            "/etc",
+            "/root",
+            "/var/run",
+            "/var/lib/docker",
+            "/etc/ssh",
+            "/tmp/ws\x00/etc",
+            "/tmp/ws\nmalicious",
+        ],
+    )
+    def test_unsafe_workspace_dirs_are_refused(self, bad):
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(bad)
+
+    def test_ordinary_workspace_dir_is_accepted(self):
+        assert validate_session_workspace_dir("/srv/sessions/sess-abc/workspace") == (
+            "/srv/sessions/sess-abc/workspace"
+        )
+
+    def test_bare_dot_components_are_normalized_not_rejected(self):
+        """'.' is a no-op component with no traversal consequence.
+
+        pathlib collapses it at construction, so it never reaches the mount as
+        written. Only '..' can escape, and that is refused above.
+        """
+        assert validate_session_workspace_dir("/srv/sessions/./x") == "/srv/sessions/x"
+
+    def test_symlinked_workspace_cannot_redirect_the_mount(self, tmp_path):
+        link = tmp_path / "workspace"
+        link.symlink_to("/etc")
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(str(link))
+
+    def test_builder_refuses_to_emit_an_unsafe_mount(self):
+        """The guard must be enforced at the point of use, not just available."""
+        with pytest.raises(ValueError):
+            build_session_run_command(
+                "tako-session-x",
+                runtime="runsc",
+                image="code-executor:latest",
+                workspace_dir="/srv/sessions/../../../etc",
+                session_id="sess-x",
+            )

@@ -105,7 +105,7 @@ tako-vm --config my.yaml server   # Use specific config file
 
 Tako VM runs untrusted, often AI-generated, code, so isolation is the core of the project. It uses layered defenses: gVisor (userspace kernel), per-job ephemeral Docker containers, a default-deny seccomp profile, network isolation (`--network=none` by default), capability dropping, non-root execution, and enforced resource and input limits.
 
-For untrusted workloads in production, set `security_mode: strict` with `container_runtime: runsc`. The default `permissive` mode falls back to standard Docker (`runc`) if gVisor is unavailable, which removes the userspace-kernel boundary.
+`security_mode: strict` with `container_runtime: runsc` is the default: Tako VM refuses to start a job rather than run it without the gVisor userspace-kernel boundary. Set `security_mode: permissive` to allow a fallback to standard Docker (`runc`) on hosts without gVisor, e.g. local development or CI; that fallback removes the userspace-kernel boundary, so do not use it for untrusted code.
 
 See [SECURITY.md](SECURITY.md) for the threat model and hardening guidance, and [docs/deployment/security.md](docs/deployment/security.md) for full details.
 
@@ -117,7 +117,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup,
 
 ## Contact
 
-Questions, feedback, or partnership inquiries? Reach out to [seiji@intencion.io](mailto:seiji@intencion.io).
+Questions, feedback, or partnership inquiries? Reach out to [seiji@reachpad.dev](mailto:seiji@reachpad.dev).
 
 ## License
 

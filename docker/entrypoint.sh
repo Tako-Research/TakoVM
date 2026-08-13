@@ -47,7 +47,6 @@ if [ -s "$REQS_FILE" ]; then
     # Install with uv to a writable target directory (avoids read-only filesystem issues)
     # Using --target instead of --system to install to /tmp/site-packages
     TARGET_DIR="/tmp/site-packages"
-    mkdir -p "$TARGET_DIR"
 
     # Run the install as the unprivileged sandbox user (uid 1000), NOT as
     # container root. Installing a package can execute arbitrary code at build
@@ -61,9 +60,16 @@ if [ -s "$REQS_FILE" ]; then
     # explicitly so uv never tries to write under /root (uid 1000 cannot).
     SANDBOX_HOME="/home/sandbox"
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
-    chown sandbox:sandbox "$TARGET_DIR"
-    mkdir -p "$UV_CACHE_DIR"
-    chown -R sandbox:sandbox "$UV_CACHE_DIR" 2>/dev/null || true
+    # Create the install target and cache dirs AS the sandbox user. Creating
+    # them as root and chown'ing needs CAP_CHOWN, which --cap-drop=ALL strips,
+    # and the failure aborted the run under `set -e` (see the /tmp/.cache note
+    # below). The chown fallback covers the one case gosu-mkdir cannot handle:
+    # a shared-cache volume whose mountpoint Docker created root-owned.
+    gosu sandbox mkdir -p "$TARGET_DIR"
+    if ! gosu sandbox mkdir -p "$UV_CACHE_DIR" 2>/dev/null; then
+        mkdir -p "$UV_CACHE_DIR"
+        chown -R sandbox:sandbox "$UV_CACHE_DIR" 2>/dev/null || true
+    fi
 
     INSTALL_ENV=("HOME=$SANDBOX_HOME" "UV_CACHE_DIR=$UV_CACHE_DIR")
     if [ -n "$TAKO_DEPENDENCY_PROXY_URL" ]; then
@@ -147,8 +153,13 @@ echo "execution_start_ms=$START_EXEC" >> "$PHASE_FILE"
 # the same way the uv cache dir is above, since code runs unprivileged.
 export XDG_CACHE_HOME=/tmp/.cache
 export MPLCONFIGDIR=/tmp/.cache/matplotlib
-mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
-chown -R sandbox:sandbox "$XDG_CACHE_HOME"
+# Create these AS the sandbox user rather than creating them as root and
+# chown'ing afterwards. The default posture is --cap-drop=ALL (only SETUID and
+# SETGID are re-added, for gosu), which strips CAP_CHOWN, so a chown here fails
+# with EPERM; under `set -e` that aborted the entrypoint BEFORE user code ran,
+# breaking every job in the shipped default configuration. /tmp is a mode-1777
+# tmpfs, so uid 1000 can create its own dirs and no capability is required.
+gosu sandbox mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
 
 # Drop privileges and run user code as sandbox user
 # Using exec replaces this process, so we need a wrapper to capture timing.

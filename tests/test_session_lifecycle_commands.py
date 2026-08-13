@@ -60,8 +60,11 @@ DANGEROUS_FLAG_PREFIXES = (
 HOST_ROOT_MOUNTS = ("/:/", "/:", "//", "/:/workspace")
 
 # The only capabilities allowed back in: gosu needs SETUID/SETGID to drop from
-# root to the unprivileged sandbox user. Nothing else.
-ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID"}
+# root to the unprivileged sandbox user, and the root-side `timeout` supervisor
+# needs KILL to signal that dropped (uid 1000) process when its budget expires.
+# gosu clears all capabilities on the uid switch, so none reach user code.
+# Nothing else. Kept in lockstep with test_isolation_invariants.ALLOWED_CAP_ADDS.
+ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=KILL"}
 
 WORKSPACE_DIR = "/srv/sessions/sess-abc123/workspace"
 IMAGE = "code-executor:latest"

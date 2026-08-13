@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tako_vm.constants import UV_CACHE_TMP_DIR, UV_CACHE_VOLUME, UV_CACHE_VOLUME_DIR
+from tako_vm.constants import UV_CACHE_TMP_DIR, UV_CACHE_VOLUME_DIR, uv_cache_volume
 from tako_vm.sandbox import DEFAULT_STARTUP_TIMEOUT, Sandbox, SandboxResult
 from tako_vm.sandbox import run as sandbox_run
 
@@ -398,7 +398,10 @@ print(f"version: {requests.__version__}")
             requirements=["requests"],
         )
 
-        cache_mount = f"--mount=type=volume,source={UV_CACHE_VOLUME},target={UV_CACHE_VOLUME_DIR}"
+        # Volume is scoped (see uv_cache_volume): the library path uses the
+        # SandboxConfig.cache_scope, which defaults to "default".
+        cache_volume = uv_cache_volume("default")
+        cache_mount = f"--mount=type=volume,source={cache_volume},target={UV_CACHE_VOLUME_DIR}"
         expected_cache_dir = UV_CACHE_VOLUME_DIR if cache_enabled else UV_CACHE_TMP_DIR
         assert (cache_mount in cmd) is expect_cache_mount
         assert f"--env=UV_CACHE_DIR={expected_cache_dir}" in cmd

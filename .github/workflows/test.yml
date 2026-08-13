@@ -31,10 +31,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -68,9 +68,20 @@ jobs:
 
       - name: Run tests with coverage
         env:
+          # security_mode stays permissive: GitHub runners have no gVisor, and
+          # strict would (correctly) refuse to run at all.
           TAKO_VM_SECURITY_MODE: permissive
-          TAKO_VM_ENABLE_CAP_RESTRICTIONS: "false"  # GitHub Actions Docker can't modify capability bounding sets
-          TAKO_VM_ENABLE_SECCOMP: "false"  # Custom seccomp profiles block container init in GitHub Actions
+          # enable_seccomp and enable_cap_restrictions are deliberately NOT
+          # overridden here. They used to be forced to "false" with the comment
+          # that GitHub Actions "can't modify capability bounding sets" and that
+          # "custom seccomp profiles block container init in GitHub Actions".
+          # Neither was a runner quirk: the shipped seccomp profile denied the
+          # prctl options the OCI runtime needs during init (PR_CAPBSET_DROP,
+          # PR_SET_KEEPCAPS, PR_CAP_AMBIENT), which broke container startup on
+          # any native-Linux Docker, and the cap failure was a downstream
+          # symptom of the same denial. Turning both off meant the entire suite
+          # ran in a posture no secure deployment uses, and no test covered the
+          # shipped defaults. Both are fixed; CI now exercises the real defaults.
           TAKO_VM_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tako_vm_test
         run: |
           pytest tests/ -v -ra --timeout=120 \
@@ -80,7 +91,7 @@ jobs:
             --cov-fail-under=50
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: matrix.python-version == '3.12'
         with:
           files: ./coverage.xml
@@ -88,7 +99,7 @@ jobs:
           verbose: true
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-results-${{ matrix.python-version }}

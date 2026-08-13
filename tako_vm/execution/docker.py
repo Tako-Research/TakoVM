@@ -6,6 +6,7 @@ Shared utilities for Docker operations across worker and sandbox.
 
 import json
 import logging
+import os
 import platform
 import subprocess
 import time
@@ -541,6 +542,21 @@ def base_isolation_args(
                 "--cap-drop=ALL",
                 "--cap-add=SETUID",  # Required for gosu to switch user
                 "--cap-add=SETGID",  # Required for gosu to switch user
+                # Required for the in-container timeout to actually fire.
+                # entrypoint.sh wraps user code in `timeout ... gosu sandbox
+                # python`, so the supervising `timeout` runs as uid 0 while the
+                # code runs as uid 1000. Signalling across uids needs CAP_KILL;
+                # without it the SIGTERM is refused with EPERM and SILENTLY
+                # dropped, so the limit is only enforced by the --kill-after
+                # SIGKILL 10s later -- past the host-side backstop, which means
+                # the phase-aware in-container timeout never won and every
+                # timeout fell through to the coarser host kill.
+                #
+                # This does not give user code any new power: gosu clears all
+                # capabilities when it drops to uid 1000, so CAP_KILL is held
+                # only by the root-side supervisor, and its scope is the
+                # container's own PID namespace, which holds only this job.
+                "--cap-add=KILL",
             ]
         )
         # Security note: We don't use --security-opt=no-new-privileges because gosu requires
@@ -554,6 +570,93 @@ def base_isolation_args(
         args.append(f"--runtime={runtime}")
 
     return args
+
+
+# Host paths a session workspace may never resolve to or sit directly under.
+# A bind mount of any of these hands the container the host's identity,
+# secrets, or the docker socket (which is a trivial full escape).
+_FORBIDDEN_WORKSPACE_ROOTS = (
+    "/",
+    "/etc",
+    "/root",
+    "/home",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/var/run",
+    "/run",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/var/lib/docker",
+)
+
+
+def validate_session_workspace_dir(workspace_dir: str) -> str:
+    """Validate a session workspace path before it becomes a host bind mount.
+
+    ``build_session_run_command`` mounts this read-write at ``/workspace``, so
+    an unvalidated value is a host-filesystem escape: ``..`` traversal out of
+    the sessions root, an absolute path to ``/``, or a symlink pointing at
+    ``/etc`` all turn the session workspace into arbitrary host access. This is
+    the same shape as the snapshot-id path traversal found in comparable
+    products, caught before the code path is reachable.
+
+    Enforced:
+
+    - non-empty, no NUL or newline (which would also break the docker argv),
+    - absolute and fully normalized (rejects ``..`` and ``.`` components),
+    - not a bare sensitive system directory, and not the filesystem root,
+    - if it exists, its REAL path (symlinks resolved) must still satisfy the
+      above, so a symlinked workspace cannot redirect the mount.
+
+    Returns:
+        The normalized path, safe to place in a ``-v`` argument.
+
+    Raises:
+        ValueError: the path is unsafe. Callers should treat this as a refusal
+            to start the session, never as something to sanitize and retry.
+    """
+    if not workspace_dir or not workspace_dir.strip():
+        raise ValueError("session workspace_dir must not be empty")
+    if any(ch in workspace_dir for ch in ("\x00", "\n", "\r")):
+        raise ValueError("session workspace_dir must not contain control characters")
+
+    candidate = Path(workspace_dir)
+    if not candidate.is_absolute():
+        raise ValueError(f"session workspace_dir must be an absolute path: {workspace_dir!r}")
+
+    # os.path.normpath collapses '..' textually; comparing against the input
+    # rejects any path that was not already normalized, rather than silently
+    # "fixing" a traversal attempt into something that looks safe.
+    normalized = Path(os.path.normpath(str(candidate)))
+    if str(normalized) != str(candidate).rstrip("/") or ".." in candidate.parts:
+        raise ValueError(
+            f"session workspace_dir must be normalized and contain no '..': {workspace_dir!r}"
+        )
+
+    def _reject_if_sensitive(path: Path, why: str) -> None:
+        as_str = str(path)
+        if as_str in _FORBIDDEN_WORKSPACE_ROOTS:
+            raise ValueError(f"session workspace_dir {why} a sensitive host directory: {as_str!r}")
+        for root in _FORBIDDEN_WORKSPACE_ROOTS:
+            if root != "/" and as_str.startswith(root + "/") and as_str.count("/") <= 2:
+                raise ValueError(
+                    f"session workspace_dir {why} directly under a sensitive host "
+                    f"directory: {as_str!r}"
+                )
+
+    _reject_if_sensitive(normalized, "is")
+
+    # Resolve symlinks when the path exists: a workspace dir that is itself a
+    # symlink to /etc would otherwise pass every textual check above.
+    if normalized.exists():
+        real = normalized.resolve()
+        _reject_if_sensitive(real, "resolves to")
+
+    return str(normalized)
 
 
 def build_session_run_command(
@@ -610,6 +713,15 @@ def build_session_run_command(
     Returns:
         The full ``docker run`` argument list, ready to execute.
     """
+    # The workspace path becomes a read-write host bind mount, so it is the
+    # highest-value injection target in this builder: a caller-influenced
+    # session id or name that reaches it unchecked turns "mount the session's
+    # workspace" into "mount any host directory read-write into a container".
+    # Validated here, at the point of use, so no caller can forget -- this
+    # builder is not wired into a live path yet, and the guard must exist
+    # BEFORE it is.
+    workspace_dir = validate_session_workspace_dir(workspace_dir)
+
     cmd = base_isolation_args(
         container_name,
         runtime=runtime,
