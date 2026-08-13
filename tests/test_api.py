@@ -259,9 +259,7 @@ class TestSyncExecutionRecord:
             ),
             patch.object(state.executor, "execute_job_with_record", execute_mock),
         ):
-            response = client.post(
-                "/execute", json={"code": "print('hi')", "job_type": "bypass"}
-            )
+            response = client.post("/execute", json={"code": "print('hi')", "job_type": "bypass"})
 
         assert response.status_code == 422
         assert response.json()["detail"] == (

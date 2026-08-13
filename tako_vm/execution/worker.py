@@ -514,9 +514,7 @@ class CodeExecutor:
         timeout = job.get("timeout")
         if timeout is None:
             timeout = (
-                job_type.timeout
-                if job.get("job_type") is not None
-                else self.config.default_timeout
+                job_type.timeout if job.get("job_type") is not None else self.config.default_timeout
             )
         if timeout > self.config.max_timeout:
             raise ValueError(
