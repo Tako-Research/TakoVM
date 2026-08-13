@@ -96,6 +96,11 @@ POST /execute
 | `job_type` | string | No | Environment name (default: "default") |
 | `requirements` | array | No | Python packages to install at runtime when `allow_runtime_requirements` is enabled (e.g., `["pandas", "numpy>=1.20"]`). Prefer pre-built images in production. |
 
+The deployment's `max_timeout` configuration controls the largest accepted
+`timeout` override. The request schema permits values up to 86,400 seconds so
+operators can raise that ceiling; requests above the configured value return
+HTTP 422 before execution starts.
+
 ### Example Request
 
 ```bash
@@ -175,6 +180,10 @@ POST /execute/async
 | `job_type` | string | No | Environment name (default: "default") |
 | `requirements` | array | No | Python packages to install at runtime when `allow_runtime_requirements` is enabled (e.g., `["pandas", "numpy>=1.20"]`). Prefer pre-built images in production. |
 | `idempotency_key` | string | No | Unique key for idempotent submission |
+
+As with synchronous execution, explicit `timeout` values must not exceed the
+deployment's configured `max_timeout`. Values above that ceiling return HTTP
+422 before the job is queued.
 
 ### Idempotency
 
@@ -390,6 +399,13 @@ Rerun a previous execution with the same code and inputs.
 POST /jobs/{job_id}/rerun
 ```
 
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `job_type` | string | No | Job type override |
+| `timeout` | integer | No | Execution timeout override, limited by the deployment's configured `max_timeout` |
+
 ### Response
 
 ```json
@@ -420,6 +436,8 @@ POST /jobs/{job_id}/fork
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `code` | string | Yes | New Python code to execute |
+| `job_type` | string | No | Job type override |
+| `timeout` | integer | No | Execution timeout override, limited by the deployment's configured `max_timeout` |
 
 ### Example Request
 

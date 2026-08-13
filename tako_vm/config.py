@@ -447,7 +447,12 @@ class TakoVMConfig(BaseModel):
     """Default timeout for startup phase (container init + dep install) in seconds."""
 
     max_timeout: int = Field(default=300, ge=1, le=86400)
-    """Maximum allowed timeout for code execution phase."""
+    """Maximum allowed timeout for code execution phase.
+
+    A hard ceiling on the effective timeout, not only on request overrides:
+    ``default_timeout`` and every configured job type's ``timeout`` must stay at
+    or below it, and a request resolving to a larger value is refused.
+    """
 
     max_startup_timeout: int = Field(default=600, ge=30, le=1800)
     """Maximum allowed timeout for startup phase (up to 30 minutes for large deps)."""
@@ -593,9 +598,15 @@ class TakoVMConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> "TakoVMConfig":
-        """Ensure default timeouts <= max timeouts."""
+        """Ensure every configured timeout stays within its deployment ceiling."""
         if self.default_timeout > self.max_timeout:
             raise ValueError("default_timeout must be <= max_timeout")
+        oversized_job_types = [
+            job_type.name for job_type in self.job_types if job_type.timeout > self.max_timeout
+        ]
+        if oversized_job_types:
+            names = ", ".join(oversized_job_types)
+            raise ValueError(f"job type timeout must be <= max_timeout for: {names}")
         if self.default_startup_timeout > self.max_startup_timeout:
             raise ValueError("default_startup_timeout must be <= max_startup_timeout")
         if self.session_idle_timeout_seconds > self.session_max_ttl_seconds:

@@ -5,6 +5,30 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **BREAKING: a configured job type may no longer declare a `timeout` above
+  `max_timeout`** (#146). `max_timeout` is documented as the maximum allowed
+  execution timeout, but it only bounded explicit per-request overrides: a
+  request could name a job type whose default exceeded it and the worker would
+  run the larger value. The ceiling is now enforced on the *effective* timeout
+  at three layers — config validation, the API boundary, and the worker — so a
+  deployment whose `job_types` declare a timeout above `max_timeout` is refused
+  at startup instead of quietly exceeding its own limit. Raise `max_timeout` to
+  cover the largest job type you run.
+- **`default_timeout` now applies to requests that name no job type.** Such
+  requests previously resolved the built-in default job type's hardcoded 30s and
+  ignored `default_timeout` entirely; they now use the configured value. Both
+  are 30 out of the box, so this changes nothing unless the deployment sets
+  `default_timeout`.
+- **The `timeout` request field accepts values up to 86,400 seconds** rather
+  than being capped at 300 by the request schema (#146, fixes #143). This is an
+  absolute schema ceiling only — the deployment's `max_timeout` (default 300)
+  still applies and rejects anything above it with HTTP 422, so the accepted
+  range is unchanged unless an operator raises `max_timeout`.
+
 ## [0.2.0] - 2026-08-12
 
 A security release. The shipped defaults now fail closed, and the default

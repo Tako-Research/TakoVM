@@ -294,6 +294,14 @@ Tako VM separates startup time from code execution time:
 | `default_startup_timeout` | Container startup + dep install timeout | `120` | 10-600 |
 | `max_startup_timeout` | Maximum allowed startup timeout | `600` | 30-1800 |
 
+`max_timeout` is a hard ceiling on the *effective* execution timeout, not just
+on what a request may ask for. Both `default_timeout` and every configured job
+type's `timeout` must be less than or equal to it, or the server refuses to
+start. A request that names a job type whose default exceeds the ceiling is
+rejected with HTTP 422 before execution.
+
+Requests that specify no `job_type` run at `default_timeout`.
+
 ## gVisor and Security Modes
 
 Tako VM supports gVisor (runsc) for strong container isolation:

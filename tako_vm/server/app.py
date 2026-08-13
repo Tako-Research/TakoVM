@@ -57,6 +57,10 @@ logger = logging.getLogger(__name__)
 # Maximum wait timeout to prevent slowloris-style attacks (5 minutes)
 MAX_WAIT_TIMEOUT = 300.0
 
+# Absolute request-schema ceiling. Deployments may set a lower runtime ceiling
+# with TakoVMConfig.max_timeout.
+MAX_EXECUTION_TIMEOUT = 86_400
+
 
 def _configure_log_level(log_level: str) -> None:
     """Configure logging level from config."""
@@ -173,6 +177,31 @@ class AppState:
 
 state = AppState()
 state.idempotency_locks = IdempotencyLockManager()
+
+
+def _validate_execution_timeout(
+    timeout: Optional[int], job_type_name: Optional[str] = None
+) -> None:
+    """Reject an explicit or resolved timeout above the deployment ceiling."""
+    effective_timeout = timeout
+    if effective_timeout is None:
+        if job_type_name is None:
+            effective_timeout = state.config.default_timeout
+        else:
+            name = job_type_name.split("@", 1)[0]
+            job_type = state.registry.get(name)
+            if job_type is not None:
+                effective_timeout = job_type.timeout
+
+    if effective_timeout is not None and effective_timeout > state.config.max_timeout:
+        timeout_label = "timeout" if timeout is not None else "effective timeout"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{timeout_label} must be less than or equal to the configured max_timeout "
+                f"({state.config.max_timeout} seconds)"
+            ),
+        )
 
 
 def _get_runtime_config() -> TakoVMConfig:
@@ -331,7 +360,13 @@ class ExecuteRequest(BaseModel):
         default_factory=dict, description="Input data as JSON (max 1MB when serialized)"
     )
     timeout: Optional[int] = Field(
-        default=None, ge=1, le=300, description="Timeout for code execution in seconds (1-300)"
+        default=None,
+        ge=1,
+        le=MAX_EXECUTION_TIMEOUT,
+        description=(
+            "Timeout for code execution in seconds. The deployment's configured "
+            "max_timeout may impose a lower limit."
+        ),
     )
     startup_timeout: Optional[int] = Field(
         default=None,
@@ -655,7 +690,13 @@ class RerunRequest(BaseModel):
         description="Optional job type override",
     )
     timeout: Optional[int] = Field(
-        default=None, ge=1, le=300, description="Optional timeout override (1-300s)"
+        default=None,
+        ge=1,
+        le=MAX_EXECUTION_TIMEOUT,
+        description=(
+            "Optional timeout override. The deployment's configured max_timeout "
+            "may impose a lower limit."
+        ),
     )
 
 
@@ -674,7 +715,13 @@ class ForkRequest(BaseModel):
         description="Optional job type override",
     )
     timeout: Optional[int] = Field(
-        default=None, ge=1, le=300, description="Optional timeout override (1-300s)"
+        default=None,
+        ge=1,
+        le=MAX_EXECUTION_TIMEOUT,
+        description=(
+            "Optional timeout override. The deployment's configured max_timeout "
+            "may impose a lower limit."
+        ),
     )
 
     @field_validator("code")
@@ -876,6 +923,7 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
     Returns:
         Execution results including output, stdout, stderr, and execution_id
     """
+    _validate_execution_timeout(request.timeout, request.job_type)
     job_id = _generate_sync_job_id()
 
     logger.info(f"Executing job {job_id}")
@@ -961,6 +1009,8 @@ async def execute_code_async(request: ExecuteRequest, http_request: Request):
     Returns:
         Job ID and queued status
     """
+    _validate_execution_timeout(request.timeout, request.job_type)
+
     try:
         # For idempotent requests, use keyed lock to prevent race conditions
         if request.idempotency_key:
@@ -1220,11 +1270,14 @@ async def _submit_replay(
     Shared by the rerun and fork endpoints, which differ only in which code
     they replay and the relationship recorded on the new job.
     """
+    resolved_job_type = job_type or parent.job_type
+    _validate_execution_timeout(timeout, resolved_job_type)
+
     job_data = {
         "code": code,
         "input_data": input_data,
         "input_artifacts": input_artifacts,
-        "job_type": job_type or parent.job_type,
+        "job_type": resolved_job_type,
         "parent_execution_id": parent.execution_id,
         "relationship": relationship,
         "correlation_id": get_correlation_id(),
@@ -1259,6 +1312,7 @@ async def rerun_job(job_id: str, request: RerunRequest, http_request: Request):
     Returns:
         New job ID and status
     """
+    _validate_execution_timeout(request.timeout)
     parent = await state.storage.get_record(job_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1304,6 +1358,7 @@ async def fork_job(job_id: str, request: ForkRequest, http_request: Request):
     Returns:
         New job ID and status
     """
+    _validate_execution_timeout(request.timeout)
     parent = await state.storage.get_record(job_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Job not found")

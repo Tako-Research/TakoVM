@@ -7,7 +7,7 @@ using FastAPI's TestClient (no running server required).
 
 import threading
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -210,6 +210,64 @@ class TestSyncExecutionRecord:
         assert data["output"] == {"answer": 42}
         save_mock.assert_awaited_once()
 
+    def test_execute_accepts_timeout_at_configured_limit(self, client):
+        """Sync execution forwards an explicit timeout allowed by max_timeout."""
+        from tako_vm.server.app import state
+
+        def fake_execute(job_id, job, client_ip=None):
+            assert job["timeout"] == 600
+            return _make_succeeded_record(job_id)
+
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.executor, "execute_job_with_record", side_effect=fake_execute),
+            patch.object(state.storage, "save_record", AsyncMock()),
+        ):
+            response = client.post("/execute", json={"code": "print('hi')", "timeout": 600})
+
+        assert response.status_code == 200
+
+    def test_execute_rejects_timeout_above_configured_limit(self, client):
+        """Sync execution rejects a timeout before invoking the executor."""
+        from tako_vm.server.app import state
+
+        execute_mock = Mock()
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.executor, "execute_job_with_record", execute_mock),
+        ):
+            response = client.post("/execute", json={"code": "print('hi')", "timeout": 601})
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "timeout must be less than or equal to the configured max_timeout (600 seconds)"
+        )
+        execute_mock.assert_not_called()
+
+    def test_execute_rejects_job_type_default_above_configured_limit(self, client):
+        """Sync execution validates the resolved job-type timeout before running."""
+        from tako_vm.job_types import JobType
+        from tako_vm.server.app import state
+
+        execute_mock = Mock()
+        with (
+            patch.object(state.config, "max_timeout", 60),
+            patch.object(
+                state.registry,
+                "get",
+                return_value=JobType(name="bypass", timeout=600),
+            ),
+            patch.object(state.executor, "execute_job_with_record", execute_mock),
+        ):
+            response = client.post("/execute", json={"code": "print('hi')", "job_type": "bypass"})
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "effective timeout must be less than or equal to the configured "
+            "max_timeout (60 seconds)"
+        )
+        execute_mock.assert_not_called()
+
 
 class TestAsyncExecution:
     """Tests for async /execute/async endpoint."""
@@ -262,6 +320,38 @@ with open("/output/result.json", "w") as f:
         """Non-existent job returns 404."""
         response = client.get("/jobs/nonexistent-job-id")
         assert response.status_code == 404
+
+    def test_async_submit_accepts_timeout_at_configured_limit(self, client):
+        """Async execution forwards an explicit timeout allowed by max_timeout."""
+        from tako_vm.server.app import state
+
+        submit_mock = AsyncMock(return_value="job-with-custom-timeout")
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.worker_pool, "submit", submit_mock),
+        ):
+            response = client.post(
+                "/execute/async", json={"code": "print('hello')", "timeout": 600}
+            )
+
+        assert response.status_code == 200
+        assert submit_mock.await_args.kwargs["job_data"]["timeout"] == 600
+
+    def test_async_submit_rejects_timeout_above_configured_limit(self, client):
+        """Async execution rejects a timeout before queue submission."""
+        from tako_vm.server.app import state
+
+        submit_mock = AsyncMock()
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.worker_pool, "submit", submit_mock),
+        ):
+            response = client.post(
+                "/execute/async", json={"code": "print('hello')", "timeout": 601}
+            )
+
+        assert response.status_code == 422
+        submit_mock.assert_not_awaited()
 
 
 class TestJobTypes:
@@ -431,6 +521,20 @@ with open("/output/result.json", "w") as f:
         response = client.post("/jobs/nonexistent-id/rerun", json={})
         assert response.status_code == 404
 
+    def test_rerun_rejects_timeout_above_configured_limit_before_lookup(self, client):
+        """Rerun timeout validation happens before reading the parent job."""
+        from tako_vm.server.app import state
+
+        get_record_mock = AsyncMock()
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.storage, "get_record", get_record_mock),
+        ):
+            response = client.post("/jobs/parent-id/rerun", json={"timeout": 601})
+
+        assert response.status_code == 422
+        get_record_mock.assert_not_awaited()
+
     def test_rerun_pending_job_fails(self, client):
         """Cannot rerun a job that hasn't completed yet."""
         # Submit a long-running job
@@ -532,6 +636,23 @@ with open("/output/result.json", "w") as f:
         """Fork of non-existent job returns 404."""
         response = client.post("/jobs/nonexistent-id/fork", json={"code": "print('test')"})
         assert response.status_code == 404
+
+    def test_fork_rejects_timeout_above_configured_limit_before_lookup(self, client):
+        """Fork timeout validation happens before reading the parent job."""
+        from tako_vm.server.app import state
+
+        get_record_mock = AsyncMock()
+        with (
+            patch.object(state.config, "max_timeout", 600),
+            patch.object(state.storage, "get_record", get_record_mock),
+        ):
+            response = client.post(
+                "/jobs/parent-id/fork",
+                json={"code": "print('test')", "timeout": 601},
+            )
+
+        assert response.status_code == 422
+        get_record_mock.assert_not_awaited()
 
     def test_fork_requires_code(self, client):
         """Fork requires new code in request body."""
