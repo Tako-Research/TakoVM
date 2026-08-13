@@ -1404,6 +1404,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#request-body_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#response_3" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1432,7 +1443,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#request-body_2" class="md-nav__link">
+  <a href="#request-body_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Request Body
@@ -3049,6 +3060,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#request-body_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Body
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#response_3" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3077,7 +3099,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#request-body_2" class="md-nav__link">
+  <a href="#request-body_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Request Body
@@ -4010,6 +4032,10 @@
 </tr>
 </tbody>
 </table>
+<p>The deployment's <code>max_timeout</code> configuration controls the largest accepted
+<code>timeout</code> override. The request schema permits values up to 86,400 seconds so
+operators can raise that ceiling; requests above the configured value return
+HTTP 422 before execution starts.</p>
 <h3 id="example-request">Example Request<a class="headerlink" href="#example-request" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/execute<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
@@ -4116,6 +4142,9 @@
 </tr>
 </tbody>
 </table>
+<p>As with synchronous execution, explicit <code>timeout</code> values must not exceed the
+deployment's configured <code>max_timeout</code>. Values above that ceiling return HTTP
+422 before the job is queued.</p>
 <h3 id="idempotency">Idempotency<a class="headerlink" href="#idempotency" title="Permanent link">&para;</a></h3>
 <p>When <code>idempotency_key</code> is provided:</p>
 <ul>
@@ -4433,6 +4462,31 @@
 <p>Rerun a previous execution with the same code and inputs.</p>
 <div class="language-http highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="err">POST /jobs/{job_id}/rerun</span>
 </span></code></pre></div>
+<h3 id="request-body_2">Request Body<a class="headerlink" href="#request-body_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>job_type</code></td>
+<td>string</td>
+<td>No</td>
+<td>Job type override</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>integer</td>
+<td>No</td>
+<td>Execution timeout override, limited by the deployment's configured <code>max_timeout</code></td>
+</tr>
+</tbody>
+</table>
 <h3 id="response_3">Response<a class="headerlink" href="#response_3" title="Permanent link">&para;</a></h3>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="p">{</span>
 </span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;661f9511-f30c-52e5-b827-557766551111&quot;</span><span class="p">,</span>
@@ -4449,7 +4503,7 @@
 <p>Fork a job with new code but the same inputs.</p>
 <div class="language-http highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="err">POST /jobs/{job_id}/fork</span>
 </span></code></pre></div>
-<h3 id="request-body_2">Request Body<a class="headerlink" href="#request-body_2" title="Permanent link">&para;</a></h3>
+<h3 id="request-body_3">Request Body<a class="headerlink" href="#request-body_3" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -4465,6 +4519,18 @@
 <td>string</td>
 <td>Yes</td>
 <td>New Python code to execute</td>
+</tr>
+<tr>
+<td><code>job_type</code></td>
+<td>string</td>
+<td>No</td>
+<td>Job type override</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>integer</td>
+<td>No</td>
+<td>Execution timeout override, limited by the deployment's configured <code>max_timeout</code></td>
 </tr>
 </tbody>
 </table>
@@ -5307,7 +5373,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 23, 2026 05:53:46 UTC"><span class="timeago" datetime="2026-06-23T05:53:46+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 23, 2026 05:53:46 UTC">2026-06-23</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="August 13, 2026 19:31:58 UTC"><span class="timeago" datetime="2026-08-13T19:31:58+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="August 13, 2026 19:31:58 UTC">2026-08-13</span>
   </span>
 
     
