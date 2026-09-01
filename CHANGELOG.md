@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`--host` can no longer bypass the fail-closed bind guard.** The config
+  validator refused `api_auth_enabled: false` together with a non-loopback
+  `server_host`, but `tako-vm server --host 0.0.0.0` resolved the host after
+  validation and handed it straight to uvicorn unchecked. The shipped
+  `docker/Dockerfile.server` `CMD` does exactly that, over a baked-in config
+  with authentication disabled, so `docker compose up` published an
+  unauthenticated `POST /execute` code-execution endpoint on every interface.
+  The CLI now re-applies the config's own rule (`ensure_bind_host_allowed`,
+  one rule shared by the validator and the CLI) to the host it actually binds,
+  and exits with a message naming all three ways out.
+  `TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS` is a new environment override
+  for the existing escape hatch, needed because container images bake in their
+  config file.
+- **`docker-compose.yaml` no longer publishes PostgreSQL on the host.** The
+  `postgres` service mapped `5432:5432` with `postgres`/`postgres`
+  credentials; the API reaches it by service name over the compose network, so
+  the mapping only exposed the database to anything that could route to the
+  host. Credentials are now interpolated from `TAKO_VM_POSTGRES_USER` /
+  `TAKO_VM_POSTGRES_PASSWORD` / `TAKO_VM_POSTGRES_DB` with a placeholder
+  default. The API's own port is now published on `127.0.0.1:8000` only.
+- **Rate limiting now runs before the authentication rejection.** Failed-auth
+  requests returned 401 before reaching the limiter, so API-key brute force was
+  unmetered and the DoS control was inert against unauthenticated callers.
+  Identity is still resolved first, so authenticated clients keep their
+  per-key buckets.
+- **A non-ASCII API key header no longer returns HTTP 500.**
+  `hmac.compare_digest` raises `TypeError` on non-ASCII `str` operands; that
+  reached the middleware's catch-all, which logged a full traceback at ERROR
+  and returned 500 — an unauthenticated log-flood amplifier. Keys are now
+  compared as UTF-8 bytes.
+
 ### Changed
 
 - **BREAKING: a configured job type may no longer declare a `timeout` above

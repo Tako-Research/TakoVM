@@ -145,18 +145,15 @@ class ApiProtectionMiddleware:
         path = scope.get("path", "")
         authenticated_identity = None
 
-        if config.api_auth_enabled and not self._is_auth_exempt(path):
+        # Authenticate first but do NOT reject yet: the rate limiter has to run
+        # on failed-auth requests too. Rejecting here used to let every 401
+        # short-circuit past the limiter, which made API-key brute force
+        # unmetered and left the DoS control inert against exactly the callers
+        # it exists to stop. Resolving the identity before limiting keeps
+        # authenticated clients bucketed per key rather than per source IP.
+        auth_required = config.api_auth_enabled and not self._is_auth_exempt(path)
+        if auth_required:
             authenticated_identity = self._authenticate_request(scope, config)
-            if authenticated_identity is None:
-                await self._send_error_response(
-                    scope,
-                    receive,
-                    send,
-                    status_code=401,
-                    detail="Missing or invalid API key.",
-                    extra_headers={"WWW-Authenticate": "Bearer"},
-                )
-                return
 
         if config.api_rate_limit_enabled and not self._is_rate_limit_exempt(path):
             limiter = self._get_rate_limiter(config)
@@ -173,6 +170,17 @@ class ApiProtectionMiddleware:
                     extra_headers={"Retry-After": str(retry_after)},
                 )
                 return
+
+        if auth_required and authenticated_identity is None:
+            await self._send_error_response(
+                scope,
+                receive,
+                send,
+                status_code=401,
+                detail="Missing or invalid API key.",
+                extra_headers={"WWW-Authenticate": "Bearer"},
+            )
+            return
 
         content_length = self._get_content_length(scope)
         if content_length is not None and content_length > config.api_max_payload_bytes:
@@ -259,8 +267,13 @@ class ApiProtectionMiddleware:
         if provided_key is None:
             return None
 
+        # Compare bytes, not str: hmac.compare_digest rejects str operands that
+        # are not ASCII-only with a TypeError, so a header carrying any
+        # non-ASCII character used to crash the middleware into a logged
+        # traceback and a 500 - an unauthenticated log-flood amplifier.
+        provided_bytes = provided_key.encode("utf-8")
         for index, configured_key in enumerate(config.api_keys):
-            if hmac.compare_digest(provided_key, configured_key):
+            if hmac.compare_digest(provided_bytes, configured_key.encode("utf-8")):
                 return f"api_key:{index}"
         return None
 

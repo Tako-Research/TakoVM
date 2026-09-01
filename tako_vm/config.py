@@ -34,6 +34,16 @@ _SAFE_PROXY_URL_CHARS = frozenset(
 _LOOPBACK_HOSTS = frozenset({"localhost", "::1", "[::1]"})
 
 
+def host_is_loopback(host: str) -> bool:
+    """Whether ``host`` names only the loopback interface.
+
+    Free function so the identical test applies to a configured
+    ``server_host`` and to a host resolved later from a CLI flag.
+    """
+    value = host.strip().lower()
+    return value in _LOOPBACK_HOSTS or value.startswith("127.")
+
+
 def _sanitize_validation_error(e: ValidationError) -> str:
     """
     Format a pydantic ValidationError WITHOUT echoing input values.
@@ -370,8 +380,30 @@ class TakoVMConfig(BaseModel):
         validator and ``security_warnings`` so the two can never disagree
         about what counts as network-exposed.
         """
-        host = self.server_host.strip().lower()
-        return host in _LOOPBACK_HOSTS or host.startswith("127.")
+        return host_is_loopback(self.server_host)
+
+    def ensure_bind_host_allowed(self, host: str) -> None:
+        """Raise ``ValueError`` if binding ``host`` would expose unauthenticated RCE.
+
+        THE bind rule, expressed once. The model validator applies it to the
+        configured ``server_host``; the CLI applies it to the host it actually
+        hands uvicorn, which may have come from ``--host`` and therefore never
+        passed through pydantic. Both call here so a flag can never route
+        around the config's refusal.
+        """
+        if self.api_auth_enabled or self.allow_unauthenticated_network_access:
+            return
+        if host_is_loopback(host):
+            return
+        raise ValueError(
+            f"refusing to bind non-loopback host '{host}' with "
+            "api_auth_enabled=false: this exposes an unauthenticated code-execution "
+            "endpoint to the network. Fix it in one of three ways: set "
+            "api_auth_enabled=true and populate api_keys; bind loopback "
+            "(server_host: 127.0.0.1 in the config, or --host 127.0.0.1); or set "
+            "allow_unauthenticated_network_access=true if access control is enforced "
+            "outside Tako VM"
+        )
 
     @model_validator(mode="after")
     def validate_api_auth_config(self) -> "TakoVMConfig":
@@ -384,18 +416,7 @@ class TakoVMConfig(BaseModel):
         # the wrong control for it: a warning scrolls past, and the operator who
         # most needs it is the one who never reads the log. An explicit opt-out
         # keeps it possible for deployments that authenticate elsewhere.
-        if (
-            not self.api_auth_enabled
-            and not self.is_loopback_host()
-            and not self.allow_unauthenticated_network_access
-        ):
-            raise ValueError(
-                f"refusing to bind non-loopback host '{self.server_host}' with "
-                "api_auth_enabled=false: this exposes an unauthenticated code-execution "
-                "endpoint to the network. Enable api_auth_enabled and set api_keys, bind "
-                "server_host to 127.0.0.1, or set allow_unauthenticated_network_access=true "
-                "if access control is enforced outside Tako VM"
-            )
+        self.ensure_bind_host_allowed(self.server_host)
         return self
 
     database_url: str = Field(
@@ -810,6 +831,18 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         config_dict["api_keys"] = [
             key.strip() for key in os.environ["TAKO_VM_API_KEYS"].split(",") if key.strip()
         ]
+    if "TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS" in os.environ:
+        # The escape hatch has to be reachable without editing a config file
+        # baked into an image: containers must bind 0.0.0.0 to be reachable at
+        # all, so a container deployment that authenticates in front of Tako VM
+        # otherwise has no way to say so.
+        config_dict["allow_unauthenticated_network_access"] = os.environ[
+            "TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS"
+        ].lower() in (
+            "true",
+            "1",
+            "yes",
+        )
     if "TAKO_VM_API_AUTH_HEADER" in os.environ:
         config_dict["api_auth_header"] = os.environ["TAKO_VM_API_AUTH_HEADER"]
     if "TAKO_VM_API_RATE_LIMIT_ENABLED" in os.environ:

@@ -88,7 +88,13 @@ def main():
     # Server command
     server_parser = subparsers.add_parser("server", help="Start the Tako VM server")
     server_parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: from config, 0.0.0.0)"
+        "--host",
+        default=None,
+        help=(
+            "Host to bind to (default: from config, 127.0.0.1). A non-loopback host is "
+            "refused while api_auth_enabled=false unless "
+            "allow_unauthenticated_network_access=true"
+        ),
     )
     server_parser.add_argument(
         "--port", type=int, default=None, help="Port to bind to (default: from config, 8000)"
@@ -127,7 +133,13 @@ def main():
         help="Start API server after PostgreSQL is ready",
     )
     dev_up_parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: from config, 0.0.0.0)"
+        "--host",
+        default=None,
+        help=(
+            "Host to bind to (default: from config, 127.0.0.1). A non-loopback host is "
+            "refused while api_auth_enabled=false unless "
+            "allow_unauthenticated_network_access=true"
+        ),
     )
     dev_up_parser.add_argument(
         "--port", type=int, default=None, help="Port to bind to (default: from config, 8000)"
@@ -333,6 +345,17 @@ def run_server(args):
     # Use CLI args if provided, otherwise fall back to config values
     host = args.host if args.host is not None else config.server_host
     port = args.port if args.port is not None else config.server_port
+
+    # --host never passed through pydantic, so re-apply the config's own
+    # fail-closed bind rule to the host we are about to hand uvicorn. Without
+    # this, `tako-vm server --host 0.0.0.0` (what docker/Dockerfile.server's
+    # CMD does) silently walks around the validator and publishes an
+    # unauthenticated /execute endpoint.
+    try:
+        config.ensure_bind_host_allowed(host)
+    except ValueError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     workers = getattr(args, "workers", None)
     if workers is None:

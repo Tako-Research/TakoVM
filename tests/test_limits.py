@@ -119,6 +119,38 @@ class TestApiRateLimiting:
             assert client.get("/limited", headers={"X-API-Key": keys[0]}).status_code == 429
             assert client.get("/limited", headers={"X-API-Key": keys[1]}).status_code == 200
 
+    def test_failed_auth_is_rate_limited(self):
+        """Failed authentication consumes the rate-limit budget.
+
+        The 401 used to be returned before the limiter ran, so API-key brute
+        force was unmetered and the DoS control was inert against exactly the
+        unauthenticated callers it exists to stop.
+        """
+        with create_client(
+            api_auth_enabled=True,
+            api_keys=["a" * 16],
+            api_rate_limit_requests=2,
+            api_rate_limit_window_seconds=60,
+        ) as client:
+            bad = {"X-API-Key": "b" * 16}
+            assert client.get("/limited", headers=bad).status_code == 401
+            assert client.get("/limited", headers=bad).status_code == 401
+            response = client.get("/limited", headers=bad)
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"]
+
+    def test_unauthenticated_flood_cannot_exhaust_via_401(self):
+        """A caller sending no key at all is limited the same way."""
+        with create_client(
+            api_auth_enabled=True,
+            api_keys=["a" * 16],
+            api_rate_limit_requests=1,
+            api_rate_limit_window_seconds=60,
+        ) as client:
+            assert client.get("/limited").status_code == 401
+            assert client.get("/limited").status_code == 429
+
 
 class TestApiAuthentication:
     """API key authentication behavior."""
@@ -157,6 +189,41 @@ class TestApiAuthentication:
         """Bearer tokens are accepted for clients that prefer Authorization."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get("/limited", headers={"Authorization": f"Bearer {'a' * 16}"})
+
+        assert response.status_code == 200
+
+    def test_non_ascii_api_key_header_is_rejected_not_crashed(self):
+        """A non-ASCII key header must 401, not 500.
+
+        hmac.compare_digest raises TypeError on non-ASCII str operands. That
+        propagated to the middleware's catch-all, which logged a full
+        traceback at ERROR and returned 500 - an unauthenticated log-flood
+        amplifier reachable by anyone who can reach the port.
+        """
+        # Sent as raw UTF-8 bytes so the header survives httpx's latin-1
+        # encoding and reaches the comparison as a non-ASCII str.
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get(
+                "/limited", headers={"X-API-Key": ("\u00e9" * 16).encode("utf-8")}
+            )
+
+        assert response.status_code == 401
+
+    def test_non_ascii_bearer_token_is_rejected_not_crashed(self):
+        """Same for the Authorization bearer path."""
+        with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
+            response = client.get(
+                "/limited",
+                headers={"Authorization": ("Bearer " + "\u4f60\u597d" * 8).encode("utf-8")},
+            )
+
+        assert response.status_code == 401
+
+    def test_non_ascii_configured_key_still_matches(self):
+        """A configured key containing non-ASCII still authenticates."""
+        key = "\u00e9" * 20
+        with create_client(api_auth_enabled=True, api_keys=[key]) as client:
+            response = client.get("/limited", headers={"X-API-Key": key.encode("utf-8")})
 
         assert response.status_code == 200
 

@@ -14,7 +14,10 @@ production_mode: false
 # =============================================================================
 
 # Loopback by default. Binding a non-loopback host with api_auth_enabled=false
-# is REFUSED at startup (see allow_unauthenticated_network_access).
+# is REFUSED at startup (see allow_unauthenticated_network_access). The same
+# rule applies to `tako-vm server --host ...`, so the flag cannot route around
+# it. Set TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true to opt out from the
+# environment when the config file is baked into an image.
 server_host: "127.0.0.1"
 server_port: 8000
 log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
