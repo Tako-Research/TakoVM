@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from tako_vm.config import (
     ConfigurationError,
@@ -389,6 +390,45 @@ class TestTakoVMConfig:
         """TakoVMConfig rejects unknown fields."""
         with pytest.raises(ValueError):
             TakoVMConfig.model_validate({"unknown_field": "value"})
+
+
+class TestBindHostRule:
+    """The fail-closed bind rule is one rule, applied wherever a host appears."""
+
+    def test_validator_delegates_to_ensure_bind_host_allowed(self):
+        """The model validator refuses the unauthenticated non-loopback bind."""
+        with pytest.raises(ValidationError) as exc_info:
+            TakoVMConfig(server_host="0.0.0.0", api_auth_enabled=False)
+
+        assert "refusing to bind non-loopback host" in str(exc_info.value)
+
+    def test_ensure_bind_host_allowed_refuses_late_resolved_host(self):
+        """A host resolved after validation (a --host flag) hits the same rule."""
+        config = TakoVMConfig(server_host="127.0.0.1", api_auth_enabled=False)
+
+        with pytest.raises(ValueError) as exc_info:
+            config.ensure_bind_host_allowed("0.0.0.0")
+
+        message = str(exc_info.value)
+        assert "refusing to bind non-loopback host '0.0.0.0'" in message
+        assert "api_auth_enabled=true" in message
+        assert "127.0.0.1" in message
+        assert "allow_unauthenticated_network_access=true" in message
+
+    def test_ensure_bind_host_allowed_accepts_loopback_forms(self):
+        """Every loopback spelling is permitted with auth off."""
+        config = TakoVMConfig(server_host="127.0.0.1", api_auth_enabled=False)
+
+        for host in ("127.0.0.1", "127.0.0.5", "localhost", "::1", "[::1]", " LOCALHOST "):
+            config.ensure_bind_host_allowed(host)
+
+    def test_ensure_bind_host_allowed_permitted_when_auth_enabled(self):
+        config = TakoVMConfig(api_auth_enabled=True, api_keys=["a" * 16])
+        config.ensure_bind_host_allowed("0.0.0.0")
+
+    def test_ensure_bind_host_allowed_permitted_by_opt_out(self):
+        config = TakoVMConfig(allow_unauthenticated_network_access=True)
+        config.ensure_bind_host_allowed("0.0.0.0")
 
 
 class TestSecurityWarnings:

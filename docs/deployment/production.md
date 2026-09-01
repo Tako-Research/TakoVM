@@ -61,6 +61,10 @@ User=tako-vm
 Group=tako-vm
 WorkingDirectory=/opt/tako-vm
 Environment=TAKO_VM_CONFIG=/etc/tako-vm/config.yaml
+# --host 0.0.0.0 requires api_auth_enabled + api_keys in the config above (or an
+# explicit allow_unauthenticated_network_access when a proxy authenticates in
+# front). Without one of those the server refuses to start rather than expose an
+# unauthenticated code-execution endpoint.
 ExecStart=/usr/local/bin/tako-vm server --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5

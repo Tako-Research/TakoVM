@@ -4,8 +4,14 @@
 #   docker build -f Dockerfile.server -t tako-vm-server .
 #
 # Run:
+#   The CMD binds 0.0.0.0 (a container has to, to be reachable). Tako VM refuses
+#   that while api_auth_enabled is false, so the mounted config must enable
+#   api_auth_enabled + api_keys, or set allow_unauthenticated_network_access
+#   (env: TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true) when something in
+#   front does the authenticating. Scope -p to 127.0.0.1 if nothing does.
+#
 #   docker run -d \
-#     -p 8000:8000 \
+#     -p 127.0.0.1:8000:8000 \
 #     -v /var/run/docker.sock:/var/run/docker.sock \
 #     -v $(pwd)/tako_vm.yaml:/app/tako_vm.yaml:ro \
 #     tako-vm-server

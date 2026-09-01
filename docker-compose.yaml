@@ -41,7 +41,14 @@ services:
     image: tako-vm-server:latest
     container_name: tako-vm
     ports:
-      - "8000:8000"
+      # Published on the host loopback ONLY, deliberately. This stack runs the
+      # API with authentication disabled (see
+      # TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS below); "8000:8000" would
+      # bind every host interface and hand an unauthenticated /execute
+      # code-execution endpoint to the whole network. To serve real traffic,
+      # turn on TAKO_VM_API_AUTH_ENABLED + TAKO_VM_API_KEYS first, then widen
+      # this mapping.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Shared workspace for job files (must match host path for Docker mounts)
       - /tmp/tako-vm-jobs:/tmp/tako-vm-jobs
@@ -53,8 +60,14 @@ services:
       - PYTHONUNBUFFERED=1
       # Use shared workspace path for job files
       - TAKO_VM_WORKSPACE=/tmp/tako-vm-jobs
-      - TAKO_VM_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tako_vm
+      - TAKO_VM_DATABASE_URL=postgresql://${TAKO_VM_POSTGRES_USER:-tako}:${TAKO_VM_POSTGRES_PASSWORD:-change-me-local-dev-only}@postgres:5432/${TAKO_VM_POSTGRES_DB:-tako_vm}
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
+      # The container must bind 0.0.0.0 for the published port above to reach
+      # it, which Tako VM refuses while api_auth_enabled=false. The refusal is
+      # waived here only because the mapping above is loopback-scoped. Delete
+      # this line the moment you widen it, and set TAKO_VM_API_AUTH_ENABLED=true
+      # plus TAKO_VM_API_KEYS instead.
+      - TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true
     depends_on:
       docker-socket-proxy:
         condition: service_started
@@ -75,15 +88,22 @@ services:
     image: postgres:16-alpine@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb
     container_name: tako-vm-postgres
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=tako_vm
-    ports:
-      - "5432:5432"
+      # Placeholder credentials for local development. Override them in a .env
+      # file (or the shell) before this stack goes anywhere real; the default
+      # password is deliberately not a valid secret. Keep the password free of
+      # characters that need percent-encoding in a URL - it is interpolated
+      # into TAKO_VM_DATABASE_URL above verbatim.
+      - POSTGRES_USER=${TAKO_VM_POSTGRES_USER:-tako}
+      - POSTGRES_PASSWORD=${TAKO_VM_POSTGRES_PASSWORD:-change-me-local-dev-only}
+      - POSTGRES_DB=${TAKO_VM_POSTGRES_DB:-tako_vm}
+    # No `ports:` mapping, deliberately. The API reaches Postgres by service
+    # name over the compose network; publishing 5432 on the host only exposed
+    # the database to anything that can route to this machine. Use
+    # `docker compose exec postgres psql` for a shell.
     volumes:
       - tako-vm-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tako_vm"]
+      test: ["CMD-SHELL", "pg_isready -U ${TAKO_VM_POSTGRES_USER:-tako} -d ${TAKO_VM_POSTGRES_DB:-tako_vm}"]
       interval: 10s
       timeout: 5s
       retries: 5

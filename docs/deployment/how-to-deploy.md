@@ -155,6 +155,12 @@ services:
       dockerfile: docker/Dockerfile.server
     image: tako-vm-server:latest
     ports:
+      # The image's CMD binds 0.0.0.0, which Tako VM refuses while
+      # api_auth_enabled is false. Either enable api_auth_enabled + api_keys
+      # before widening this, or keep it loopback-scoped
+      # ("127.0.0.1:8000:8000") with
+      # TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true, as the repo's
+      # docker-compose.yaml does.
       - "8000:8000"
     volumes:
       # Shared workspace for job files

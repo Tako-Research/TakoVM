@@ -520,7 +520,9 @@ class TestRunServerFunction:
         mock_run = MagicMock()
         with patch.object(uvicorn, "run", mock_run):
             args = MagicMock()
-            args.host = "0.0.0.0"
+            # Loopback: this test is about the mode banner, and a non-loopback
+            # host with auth off is refused before uvicorn.run is reached.
+            args.host = "127.0.0.1"
             args.port = 8000
             args.reload = False
             args.workers = None
@@ -552,7 +554,7 @@ class TestRunServerFunction:
         with patch.object(config_module, "get_config", return_value=mock_config):
             with patch.object(uvicorn, "run"):
                 args = MagicMock()
-                args.host = "0.0.0.0"
+                args.host = "127.0.0.1"
                 args.port = 8000
                 args.reload = False
                 args.workers = None
@@ -591,8 +593,14 @@ class TestRunServerFunction:
 
         reset_config()
 
-    def test_run_server_explicit_default_host_port_not_overridden_by_config(self):
-        """Explicit --host 0.0.0.0/--port 8000 are honored even when config differs."""
+    def test_run_server_refuses_non_loopback_host_flag_without_auth(self, capsys):
+        """--host 0.0.0.0 cannot walk around the config's fail-closed bind rule.
+
+        The validator only ever saw ``server_host``; a --host flag reached
+        uvicorn unchecked, which is how the shipped Dockerfile CMD
+        (``server --host 0.0.0.0``) published an unauthenticated /execute
+        endpoint on every interface.
+        """
         import uvicorn
 
         from tako_vm import config as config_module
@@ -619,11 +627,91 @@ class TestRunServerFunction:
         mock_run = MagicMock()
         with patch.object(config_module, "get_config", return_value=mock_config):
             with patch.object(uvicorn, "run", mock_run):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_server(args)
+
+        assert exc_info.value.code == 1
+        mock_run.assert_not_called()
+
+        captured = capsys.readouterr()
+        assert "refusing to bind non-loopback host '0.0.0.0'" in captured.err
+        # The message has to tell the operator all three ways out.
+        assert "api_auth_enabled=true" in captured.err
+        assert "--host 127.0.0.1" in captured.err
+        assert "allow_unauthenticated_network_access=true" in captured.err
+
+        reset_config()
+
+    def test_run_server_allows_non_loopback_host_flag_when_auth_enabled(self):
+        """--host 0.0.0.0 is honored once authentication is on."""
+        import uvicorn
+
+        from tako_vm import config as config_module
+        from tako_vm.cli import run_server
+        from tako_vm.config import TakoVMConfig, reset_config
+
+        reset_config()
+
+        mock_config = TakoVMConfig(
+            server_host="127.0.0.1",
+            server_port=9999,
+            security_mode="permissive",
+            api_auth_enabled=True,
+            api_keys=["k" * 32],
+        )
+
+        args = argparse.Namespace(
+            host="0.0.0.0",
+            port=8000,
+            reload=False,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(config_module, "get_config", return_value=mock_config):
+            with patch.object(uvicorn, "run", mock_run):
                 run_server(args)
 
         call_kwargs = mock_run.call_args[1]
         assert call_kwargs["host"] == "0.0.0.0"
         assert call_kwargs["port"] == 8000
+
+        reset_config()
+
+    def test_run_server_allows_non_loopback_host_flag_with_explicit_opt_out(self):
+        """--host 0.0.0.0 is honored under allow_unauthenticated_network_access."""
+        import uvicorn
+
+        from tako_vm import config as config_module
+        from tako_vm.cli import run_server
+        from tako_vm.config import TakoVMConfig, reset_config
+
+        reset_config()
+
+        mock_config = TakoVMConfig(
+            server_host="127.0.0.1",
+            server_port=9999,
+            security_mode="permissive",
+            allow_unauthenticated_network_access=True,
+        )
+
+        args = argparse.Namespace(
+            host="0.0.0.0",
+            port=8000,
+            reload=False,
+            workers=None,
+            config=None,
+            auto_start_postgres=False,
+        )
+
+        mock_run = MagicMock()
+        with patch.object(config_module, "get_config", return_value=mock_config):
+            with patch.object(uvicorn, "run", mock_run):
+                run_server(args)
+
+        assert mock_run.call_args[1]["host"] == "0.0.0.0"
 
         reset_config()
 
@@ -1023,7 +1111,13 @@ class TestCLIDevHelpers:
         mock_config = TakoVMConfig(database_url=DEFAULT_DATABASE_URL, security_mode="permissive")
 
         args = argparse.Namespace(
-            host="0.0.0.0", port=8000, reload=False, workers=None, auto_start_postgres=True
+            # Loopback: this test is about postgres auto-start, and a
+            # non-loopback bind with auth off is refused before uvicorn.run.
+            host="127.0.0.1",
+            port=8000,
+            reload=False,
+            workers=None,
+            auto_start_postgres=True,
         )
 
         with patch.object(config_module, "get_config", return_value=mock_config):
