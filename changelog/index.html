@@ -1678,6 +1678,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1728,7 +1739,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#security_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1828,7 +1839,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_1" class="md-nav__link">
+  <a href="#security_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1920,6 +1931,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1970,7 +1992,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#security_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -2070,7 +2092,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_1" class="md-nav__link">
+  <a href="#security_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -2185,6 +2207,39 @@
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>--host</code> can no longer bypass the fail-closed bind guard.</strong> The config
+  validator refused <code>api_auth_enabled: false</code> together with a non-loopback
+  <code>server_host</code>, but <code>tako-vm server --host 0.0.0.0</code> resolved the host after
+  validation and handed it straight to uvicorn unchecked. The shipped
+  <code>docker/Dockerfile.server</code> <code>CMD</code> does exactly that, over a baked-in config
+  with authentication disabled, so <code>docker compose up</code> published an
+  unauthenticated <code>POST /execute</code> code-execution endpoint on every interface.
+  The CLI now re-applies the config's own rule (<code>ensure_bind_host_allowed</code>,
+  one rule shared by the validator and the CLI) to the host it actually binds,
+  and exits with a message naming all three ways out.
+  <code>TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS</code> is a new environment override
+  for the existing escape hatch, needed because container images bake in their
+  config file.</li>
+<li><strong><code>docker-compose.yaml</code> no longer publishes PostgreSQL on the host.</strong> The
+  <code>postgres</code> service mapped <code>5432:5432</code> with <code>postgres</code>/<code>postgres</code>
+  credentials; the API reaches it by service name over the compose network, so
+  the mapping only exposed the database to anything that could route to the
+  host. Credentials are now interpolated from <code>TAKO_VM_POSTGRES_USER</code> /
+  <code>TAKO_VM_POSTGRES_PASSWORD</code> / <code>TAKO_VM_POSTGRES_DB</code> with a placeholder
+  default. The API's own port is now published on <code>127.0.0.1:8000</code> only.</li>
+<li><strong>Rate limiting now runs before the authentication rejection.</strong> Failed-auth
+  requests returned 401 before reaching the limiter, so API-key brute force was
+  unmetered and the DoS control was inert against unauthenticated callers.
+  Identity is still resolved first, so authenticated clients keep their
+  per-key buckets.</li>
+<li><strong>A non-ASCII API key header no longer returns HTTP 500.</strong>
+  <code>hmac.compare_digest</code> raises <code>TypeError</code> on non-ASCII <code>str</code> operands; that
+  reached the middleware's catch-all, which logged a full traceback at ERROR
+  and returned 500 — an unauthenticated log-flood amplifier. Keys are now
+  compared as UTF-8 bytes.</li>
+</ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>BREAKING: a configured job type may no longer declare a <code>timeout</code> above
@@ -2263,7 +2318,7 @@ under Changed.</p>
 <li>Container/image removal and build failures are logged instead of swallowed
   (#133).</li>
 </ul>
-<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Base images are pinned by digest and the <code>docker</code> binary is verified by
   checksum (#118).</li>
@@ -2352,7 +2407,7 @@ end-to-end for durability, traceability, and security.</p>
 <li>Postgres-backed tests now actually run in CI and fail loudly when the database
   is unreachable (#80).</li>
 </ul>
-<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
+<h3 id="security_2">Security<a class="headerlink" href="#security_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Runtime dependency installs are disabled by default (#51); Docker access is
   routed through a socket proxy (#52).</li>

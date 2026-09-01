@@ -1827,7 +1827,7 @@ per-agent workspaces are on the roadmap, see the project direction in the README
 <a href="https://specifications.freedesktop.org/basedir-spec/latest/">XDG convention</a>,
 matplotlib caches a font list, fontconfig caches font metadata, ezdxf caches parsed
 resources. On a read-only <code>$HOME</code> those writes fail, and you would see warnings like:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Cannot create cache home directory: &#39;/home/sandbox/.cache/ezdxf&#39;, cache files will not be saved.
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Cannot create cache home directory: '/home/sandbox/.cache/ezdxf', cache files will not be saved.
 </span></code></pre></div>
 <p>Tako VM avoids this by pointing the cache/config directories at the writable <code>/tmp</code>
 tmpfs before running your code (in <code>docker/entrypoint.sh</code>):</p>
@@ -1859,8 +1859,8 @@ it inside the image. This is the same build-time pattern as
 <a href="../custom-libraries/">Custom Libraries</a>.</p>
 <div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">ENV</span><span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/opt/hf-cache
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c"># Pin a revision so every run loads byte-identical weights.</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">RUN</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from huggingface_hub import snapshot_download; \</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="s2">    snapshot_download(&#39;org/model&#39;, revision=&#39;&lt;commit-sha&gt;&#39;)&quot;</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">RUN</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from huggingface_hub import snapshot_download; \</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="s2">    snapshot_download('org/model', revision='&lt;commit-sha&gt;')"</span>
 </span></code></pre></div>
 <p>At runtime <code>/opt/hf-cache</code> is read-only, which is fine, the weights are already there
 and the library only reads them.</p>
