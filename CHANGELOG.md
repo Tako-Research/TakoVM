@@ -5,7 +5,17 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-09-02
+
+A security release, and the one that closes the hole the quickstart itself
+published: `docker compose up` served an unauthenticated `POST /execute` on
+every interface, plus PostgreSQL on `5432` with `postgres`/`postgres`. Anyone
+who followed the README was running remote code execution open to their
+network. Upgrade before anything else.
+
+The minor bump is the `max_timeout` ceiling below, not the security fixes: a
+deployment whose `job_types` declare a timeout above `max_timeout` is now
+refused at startup instead of quietly exceeding its own limit.
 
 ### Security
 
