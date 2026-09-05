@@ -70,8 +70,12 @@ dev = [
 # Documentation
 docs = [
     "mkdocs>=1.5.0",
-    "mkdocs-material[imaging]>=9.0.0",  # [imaging] pulls cairosvg+pillow for social cards
+    # floor 9.7.7: CVE-2026-73295, DOM XSS in the search.suggest feature
+    "mkdocs-material[imaging]>=9.7.7",  # [imaging] pulls cairosvg+pillow for social cards
     "mkdocs-git-revision-date-localized-plugin>=1.2.0",
+    # transitive via the git-revision-date plugin; floor 3.1.59 for
+    # CVE-2026-78675/78676/78677/78678 (arbitrary file read, config injection)
+    "GitPython>=3.1.59",
 ]
 
 [project.urls]

@@ -26,7 +26,9 @@ jobs:
           sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
 
       - name: Install dependencies
-        run: pip install "mkdocs-material[imaging]" mkdocs-git-revision-date-localized-plugin
+        # Floors match the docs extra in pyproject.toml. This workflow resolves at
+        # build time rather than from uv.lock, so the pins have to be repeated here.
+        run: pip install "mkdocs-material[imaging]>=9.7.7" mkdocs-git-revision-date-localized-plugin "GitPython>=3.1.59"
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force
