@@ -1,7 +1,7 @@
 # Base image pinned by digest (not just the mutable :3.11-slim tag) so a
 # repointed upstream tag can't silently change what we ship. The tag is kept
 # alongside the digest for readability and so dependabot can bump both.
-FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce
 
 # Install gosu for proper privilege dropping
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
