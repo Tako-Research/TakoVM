@@ -19,6 +19,7 @@ regression shows up as a failing test instead of a workaround.
 """
 
 import os
+import subprocess
 import textwrap
 
 import pytest
@@ -108,4 +109,42 @@ class TestShippedDefaultsRunCode:
         assert "TMPEXEC:BLOCKED" in probe_result.stdout, (
             f"a binary dropped in /tmp executed: /tmp is not noexec "
             f"(stdout={probe_result.stdout!r})"
+        )
+
+
+@requires_docker
+@requires_executor_image
+class TestExecutorImageHasNoSetuidBinaries:
+    """The built image must carry no setuid/setgid files.
+
+    Without no-new-privileges (gosu needs a real setuid() to drop from root),
+    a setuid-root binary is the one route by which uid-1000 user code could
+    regain the SETUID/SETGID/KILL capabilities left in the bounding set.
+    """
+
+    def test_no_setuid_or_setgid_files_in_image(self):
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--entrypoint",
+                "find",
+                "code-executor:latest",
+                "/",
+                "-xdev",
+                "-perm",
+                "/6000",
+                "-type",
+                "f",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "", (
+            f"setuid/setgid binaries present in the executor image:\n{result.stdout}"
         )

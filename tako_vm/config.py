@@ -679,6 +679,18 @@ class TakoVMConfig(BaseModel):
         return self._resolved_data_dir  # type: ignore
 
     @property
+    def sessions_dir(self) -> Path:
+        """Root directory every session workspace must live under.
+
+        ``build_session_run_command`` bind-mounts a session's workspace
+        read-write into its container and refuses any path that is not
+        strictly inside this directory, so this is the boundary of what a
+        session can ever be given on the host. Derived from ``data_dir`` so it
+        is always a location the operator already chose for Tako VM state.
+        """
+        return self.data_dir / "sessions"
+
+    @property
     def seccomp_profile_path(self) -> Path:
         """Get seccomp profile path (backward compatible)."""
         if self._resolved_seccomp_profile_path is None:

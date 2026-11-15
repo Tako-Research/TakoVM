@@ -5,6 +5,39 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Executor images no longer ship setuid/setgid binaries.** The container
+  cannot use `no-new-privileges` (gosu needs a real `setuid()` to drop from
+  root) and the capability bounding set keeps `SETUID`/`SETGID`/`KILL` for the
+  root-side entrypoint, so a setuid-root binary (`su`, `mount`, `passwd`, ...;
+  the base image carried eleven) was the one route by which uid-1000 user code
+  could regain them. `docker/Dockerfile.executor` and every Dockerfile generated
+  by `tako-vm build` now strip the bits. Rebuild the executor image and any
+  job-type images to pick this up.
+- **A session workspace must live inside a designated sessions root.**
+  `validate_session_workspace_dir` relied on a denylist that only refused a
+  sensitive directory and its direct children, so `/etc/ssh/keys`,
+  `/var/lib/docker/volumes/<x>` and any unlisted host directory were accepted as
+  a read-write bind mount. It now requires the path to sit strictly inside
+  `sessions_root` (new `TakoVMConfig.sessions_dir`, `<data_dir>/sessions`),
+  textually and after resolving symlinks, and refuses system trees at any depth.
+  Not reachable in any release: nothing calls the session builders yet.
+
+### Changed
+
+- **BREAKING (internal API): `validate_session_workspace_dir` and
+  `build_session_run_command` take a required `sessions_root`.** There is no
+  default, so a caller cannot mount a workspace without naming the boundary.
+
+### Fixed
+
+- `docs/architecture.md` said a job with runtime requirements used the bridge
+  network for the install and was then isolated for code execution. It is not:
+  the container stays on the bridge network for its whole run (#100).
+
 ## [0.3.0] - 2026-09-02
 
 A security release, and the one that closes the hole the quickstart itself

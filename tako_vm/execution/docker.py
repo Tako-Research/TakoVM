@@ -593,8 +593,82 @@ _FORBIDDEN_WORKSPACE_ROOTS = (
     "/var/lib/docker",
 )
 
+# Host trees a session workspace may never sit inside at ANY depth. The
+# shallow rule above only refuses a forbidden directory and its direct
+# children, because the default data dir legitimately lives a few levels
+# under /root or /home. Nothing legitimate lives under these, and the shallow
+# rule let /etc/ssh/keys, /var/lib/docker/volumes/<x> and
+# /var/run/docker.sock/<x> through.
+_FORBIDDEN_WORKSPACE_TREES = (
+    "/etc",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/var/run",
+    "/run",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/var/lib/docker",
+)
 
-def validate_session_workspace_dir(workspace_dir: str) -> str:
+
+def _with_real_paths(roots: Sequence[str]) -> tuple[str, ...]:
+    """Return ``roots`` plus the real path of any that is itself a symlink.
+
+    A resolved workspace path is compared against these. Where a forbidden
+    root is a symlink (macOS: /etc -> /private/etc; merged-usr Linux:
+    /bin -> /usr/bin, /var/run -> /run) the literal spelling alone would never
+    match a resolved path, so the denylist would silently not apply.
+    """
+    expanded = list(roots)
+    for root in roots:
+        try:
+            real = str(Path(root).resolve())
+        except OSError:
+            continue
+        if real not in expanded:
+            expanded.append(real)
+    return tuple(expanded)
+
+
+def _reject_if_sensitive_host_path(path: Path, label: str) -> None:
+    """Raise ValueError if ``path`` is, or sits inside, a sensitive host dir."""
+    as_str = str(path)
+    shallow_roots = _with_real_paths(_FORBIDDEN_WORKSPACE_ROOTS)
+    if as_str in shallow_roots:
+        raise ValueError(f"{label} a sensitive host directory: {as_str!r}")
+    for root in shallow_roots:
+        if root != "/" and as_str.startswith(root + "/") and as_str.count("/") <= 2:
+            raise ValueError(f"{label} directly under a sensitive host directory: {as_str!r}")
+    for tree in _with_real_paths(_FORBIDDEN_WORKSPACE_TREES):
+        if as_str == tree or as_str.startswith(tree + "/"):
+            raise ValueError(f"{label} inside a sensitive host directory: {as_str!r}")
+
+
+def _require_absolute_normalized(value: str, name: str) -> Path:
+    """Return ``value`` as a Path, refusing anything not absolute and normalized."""
+    if not value or not value.strip():
+        raise ValueError(f"session {name} must not be empty")
+    if any(ch in value for ch in ("\x00", "\n", "\r")):
+        raise ValueError(f"session {name} must not contain control characters")
+
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        raise ValueError(f"session {name} must be an absolute path: {value!r}")
+
+    # os.path.normpath collapses '..' textually; comparing against the input
+    # rejects any path that was not already normalized, rather than silently
+    # "fixing" a traversal attempt into something that looks safe.
+    normalized = Path(os.path.normpath(str(candidate)))
+    if str(normalized) != str(candidate).rstrip("/") or ".." in candidate.parts:
+        raise ValueError(f"session {name} must be normalized and contain no '..': {value!r}")
+    return normalized
+
+
+def validate_session_workspace_dir(workspace_dir: str, sessions_root: str) -> str:
     """Validate a session workspace path before it becomes a host bind mount.
 
     ``build_session_run_command`` mounts this read-write at ``/workspace``, so
@@ -604,13 +678,33 @@ def validate_session_workspace_dir(workspace_dir: str) -> str:
     the same shape as the snapshot-id path traversal found in comparable
     products, caught before the code path is reachable.
 
-    Enforced:
+    The primary control is CONTAINMENT: the workspace must live strictly inside
+    ``sessions_root``, the one directory the operator has designated for
+    session workspaces (``TakoVMConfig.sessions_dir``). A denylist of sensitive
+    directories can only refuse the paths someone thought to list; anything
+    else on the host (another service's data dir, a secrets mount, a different
+    customer's files) passes it. The denylist is kept as a second layer so a
+    misconfigured root cannot make a system directory mountable.
+
+    Enforced, for both ``workspace_dir`` and ``sessions_root``:
 
     - non-empty, no NUL or newline (which would also break the docker argv),
     - absolute and fully normalized (rejects ``..`` and ``.`` components),
-    - not a bare sensitive system directory, and not the filesystem root,
-    - if it exists, its REAL path (symlinks resolved) must still satisfy the
-      above, so a symlinked workspace cannot redirect the mount.
+    - not a sensitive system directory, at any depth for system trees,
+    - the REAL path (symlinks resolved, including symlinked parents of a
+      workspace that does not exist yet) must satisfy the same rule.
+
+    And for ``workspace_dir``:
+
+    - it is strictly inside ``sessions_root``, textually and after resolving
+      symlinks on both sides, so neither a sibling such as
+      ``<root>-other/x`` nor a symlink planted inside the root can redirect
+      the mount outside it. The root itself is refused: a session never gets
+      every other session's workspace.
+
+    Args:
+        workspace_dir: Host path to mount read-write at ``/workspace``.
+        sessions_root: Host directory every session workspace must live under.
 
     Returns:
         The normalized path, safe to place in a ``-v`` argument.
@@ -619,42 +713,30 @@ def validate_session_workspace_dir(workspace_dir: str) -> str:
         ValueError: the path is unsafe. Callers should treat this as a refusal
             to start the session, never as something to sanitize and retry.
     """
-    if not workspace_dir or not workspace_dir.strip():
-        raise ValueError("session workspace_dir must not be empty")
-    if any(ch in workspace_dir for ch in ("\x00", "\n", "\r")):
-        raise ValueError("session workspace_dir must not contain control characters")
+    normalized = _require_absolute_normalized(workspace_dir, "workspace_dir")
+    root = _require_absolute_normalized(sessions_root, "sessions_root")
 
-    candidate = Path(workspace_dir)
-    if not candidate.is_absolute():
-        raise ValueError(f"session workspace_dir must be an absolute path: {workspace_dir!r}")
+    _reject_if_sensitive_host_path(root, "session sessions_root is")
+    _reject_if_sensitive_host_path(normalized, "session workspace_dir is")
 
-    # os.path.normpath collapses '..' textually; comparing against the input
-    # rejects any path that was not already normalized, rather than silently
-    # "fixing" a traversal attempt into something that looks safe.
-    normalized = Path(os.path.normpath(str(candidate)))
-    if str(normalized) != str(candidate).rstrip("/") or ".." in candidate.parts:
+    if normalized == root or not normalized.is_relative_to(root):
         raise ValueError(
-            f"session workspace_dir must be normalized and contain no '..': {workspace_dir!r}"
+            f"session workspace_dir must be inside the sessions root {str(root)!r}: "
+            f"{workspace_dir!r}"
         )
 
-    def _reject_if_sensitive(path: Path, why: str) -> None:
-        as_str = str(path)
-        if as_str in _FORBIDDEN_WORKSPACE_ROOTS:
-            raise ValueError(f"session workspace_dir {why} a sensitive host directory: {as_str!r}")
-        for root in _FORBIDDEN_WORKSPACE_ROOTS:
-            if root != "/" and as_str.startswith(root + "/") and as_str.count("/") <= 2:
-                raise ValueError(
-                    f"session workspace_dir {why} directly under a sensitive host "
-                    f"directory: {as_str!r}"
-                )
-
-    _reject_if_sensitive(normalized, "is")
-
-    # Resolve symlinks when the path exists: a workspace dir that is itself a
-    # symlink to /etc would otherwise pass every textual check above.
-    if normalized.exists():
-        real = normalized.resolve()
-        _reject_if_sensitive(real, "resolves to")
+    # Resolve symlinks on both sides. Non-strict resolve() follows symlinks in
+    # whatever prefix of the path exists, so a workspace that has not been
+    # created yet is still checked against a symlinked parent directory.
+    real_root = root.resolve()
+    real = normalized.resolve()
+    _reject_if_sensitive_host_path(real_root, "session sessions_root resolves to")
+    _reject_if_sensitive_host_path(real, "session workspace_dir resolves to")
+    if real == real_root or not real.is_relative_to(real_root):
+        raise ValueError(
+            f"session workspace_dir resolves outside the sessions root {str(real_root)!r}: "
+            f"{workspace_dir!r}"
+        )
 
     return str(normalized)
 
@@ -665,6 +747,7 @@ def build_session_run_command(
     runtime: str,
     image: str,
     workspace_dir: str,
+    sessions_root: str,
     session_id: str,
     memory_limit: Optional[str] = None,
     cpu_limit: Optional[str] = None,
@@ -703,6 +786,9 @@ def build_session_run_command(
             is passed explicitly (see ``base_isolation_args``).
         image: Image reference to run.
         workspace_dir: Host path bind-mounted read-write at ``/workspace``.
+        sessions_root: Host directory the workspace must live strictly inside
+            (``TakoVMConfig.sessions_dir``). Required, with no default, so a
+            caller cannot mount a workspace without naming the boundary.
         session_id: Durable session ID recorded as the ``SESSION_ID_LABEL``.
         memory_limit: Optional ``--memory`` value (e.g. "512m"); omitted if None.
         cpu_limit: Optional ``--cpus`` value (e.g. "1.0"); omitted if None.
@@ -720,7 +806,7 @@ def build_session_run_command(
     # Validated here, at the point of use, so no caller can forget -- this
     # builder is not wired into a live path yet, and the guard must exist
     # BEFORE it is.
-    workspace_dir = validate_session_workspace_dir(workspace_dir)
+    workspace_dir = validate_session_workspace_dir(workspace_dir, sessions_root)
 
     cmd = base_isolation_args(
         container_name,

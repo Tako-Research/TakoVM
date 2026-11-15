@@ -174,6 +174,11 @@ RUN mkdir -p /code /input /output /tmp && \\
     chmod 755 /code /input && \\
     chmod 777 /output /tmp
 
+# Strip setuid/setgid bits, matching docker/Dockerfile.executor. A no-op on the
+# stock executor base; this covers a custom executor-derived base_image and
+# anything the layers above installed.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {{}} +
+
 WORKDIR /app
 
 # Deliberately NO USER/CMD/ENTRYPOINT overrides: the container must start as

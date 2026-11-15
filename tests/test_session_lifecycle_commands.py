@@ -66,6 +66,7 @@ HOST_ROOT_MOUNTS = ("/:/", "/:", "//", "/:/workspace")
 # Nothing else. Kept in lockstep with test_isolation_invariants.ALLOWED_CAP_ADDS.
 ALLOWED_CAP_ADDS = {"--cap-add=SETUID", "--cap-add=SETGID", "--cap-add=KILL"}
 
+SESSIONS_ROOT = "/srv/sessions"
 WORKSPACE_DIR = "/srv/sessions/sess-abc123/workspace"
 IMAGE = "code-executor:latest"
 SESSION_ID = "sess-abc123"
@@ -93,6 +94,7 @@ def _run(runtime="runsc", caps=True, memory=None, cpu=None, **kw):
         runtime=runtime,
         image=IMAGE,
         workspace_dir=WORKSPACE_DIR,
+        sessions_root=SESSIONS_ROOT,
         session_id=SESSION_ID,
         memory_limit=memory,
         cpu_limit=cpu,

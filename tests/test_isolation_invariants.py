@@ -541,6 +541,11 @@ class TestDependencyCacheScoping:
         assert uv_cache_volume("") != UV_CACHE_VOLUME
 
 
+# The designated root for session workspaces in these tests (in production,
+# ``TakoVMConfig.sessions_dir``).
+SESSIONS_ROOT = "/srv/sessions"
+
+
 class TestSessionWorkspaceContainment:
     """``workspace_dir`` becomes a read-write host bind mount."""
 
@@ -563,12 +568,12 @@ class TestSessionWorkspaceContainment:
     )
     def test_unsafe_workspace_dirs_are_refused(self, bad):
         with pytest.raises(ValueError):
-            validate_session_workspace_dir(bad)
+            validate_session_workspace_dir(bad, SESSIONS_ROOT)
 
     def test_ordinary_workspace_dir_is_accepted(self):
-        assert validate_session_workspace_dir("/srv/sessions/sess-abc/workspace") == (
-            "/srv/sessions/sess-abc/workspace"
-        )
+        assert validate_session_workspace_dir(
+            "/srv/sessions/sess-abc/workspace", SESSIONS_ROOT
+        ) == ("/srv/sessions/sess-abc/workspace")
 
     def test_bare_dot_components_are_normalized_not_rejected(self):
         """'.' is a no-op component with no traversal consequence.
@@ -576,13 +581,15 @@ class TestSessionWorkspaceContainment:
         pathlib collapses it at construction, so it never reaches the mount as
         written. Only '..' can escape, and that is refused above.
         """
-        assert validate_session_workspace_dir("/srv/sessions/./x") == "/srv/sessions/x"
+        assert validate_session_workspace_dir("/srv/sessions/./x", SESSIONS_ROOT) == (
+            "/srv/sessions/x"
+        )
 
     def test_symlinked_workspace_cannot_redirect_the_mount(self, tmp_path):
         link = tmp_path / "workspace"
         link.symlink_to("/etc")
         with pytest.raises(ValueError):
-            validate_session_workspace_dir(str(link))
+            validate_session_workspace_dir(str(link), str(tmp_path))
 
     def test_builder_refuses_to_emit_an_unsafe_mount(self):
         """The guard must be enforced at the point of use, not just available."""
@@ -592,5 +599,107 @@ class TestSessionWorkspaceContainment:
                 runtime="runsc",
                 image="code-executor:latest",
                 workspace_dir="/srv/sessions/../../../etc",
+                sessions_root=SESSIONS_ROOT,
+                session_id="sess-x",
+            )
+
+    # -- Containment: the workspace must live inside the sessions root -------
+
+    @pytest.mark.parametrize(
+        "outside",
+        [
+            # Ordinary host paths no denylist would ever name.
+            "/opt/app/secrets",
+            "/srv/other-tenant/data",
+            "/var/lib/postgresql/data",
+            # Sibling whose name merely starts with the root's name.
+            "/srv/sessions-evil/x",
+            # The root itself: one session must not get every other workspace.
+            "/srv/sessions",
+        ],
+    )
+    def test_workspace_outside_sessions_root_is_refused(self, outside):
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(outside, SESSIONS_ROOT)
+
+    def test_symlink_inside_root_cannot_point_outside_it(self, tmp_path):
+        """A link planted in the root must not redirect the mount elsewhere,
+        even to a directory no denylist considers sensitive."""
+        root = tmp_path / "sessions"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (root / "sess-a").symlink_to(elsewhere)
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(str(root / "sess-a"), str(root))
+
+    def test_symlinked_parent_of_uncreated_workspace_is_caught(self, tmp_path):
+        """The workspace leaf need not exist for a symlinked parent to count."""
+        root = tmp_path / "sessions"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (root / "sess-a").symlink_to(elsewhere)
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(str(root / "sess-a" / "workspace"), str(root))
+
+    def test_real_directory_inside_root_is_accepted(self, tmp_path):
+        root = tmp_path / "sessions"
+        workspace = root / "sess-a" / "workspace"
+        workspace.mkdir(parents=True)
+        assert validate_session_workspace_dir(str(workspace), str(root)) == str(workspace)
+
+    @pytest.mark.parametrize("bad_root", ["", "relative/root", "/", "/etc", "/srv/x/../.."])
+    def test_unsafe_sessions_root_is_refused(self, bad_root):
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir("/srv/sessions/sess-a", bad_root)
+
+    # -- Denylist depth: second layer behind containment ---------------------
+
+    @pytest.mark.parametrize(
+        ("nested", "misconfigured_root"),
+        [
+            ("/etc/ssh/keys", "/etc/ssh"),
+            ("/var/lib/docker/volumes/x", "/var/lib/docker/volumes"),
+            ("/var/run/docker.sock/x", "/var/run/docker.sock"),
+            ("/run/secrets/x/y", "/run/secrets/x"),
+            ("/proc/1/root/x", "/proc/1/root"),
+        ],
+    )
+    def test_system_trees_are_refused_at_any_depth(self, nested, misconfigured_root):
+        """Even a root that (wrongly) sits inside a system tree cannot make
+        that tree mountable. The old rule only refused two path levels."""
+        with pytest.raises(ValueError):
+            validate_session_workspace_dir(nested, misconfigured_root)
+
+    def test_default_data_dir_locations_remain_usable(self):
+        """The default data dir sits a few levels under /root or /home; the
+        deep-tree rule must not sweep those up."""
+        for root in ("/root/.tako_vm/sessions", "/home/tako/.tako_vm/sessions"):
+            assert validate_session_workspace_dir(f"{root}/sess-a", root) == f"{root}/sess-a"
+
+    def test_config_exposes_sessions_dir_under_data_dir(self, tmp_path):
+        cfg = TakoVMConfig(data_dir=str(tmp_path))
+        assert cfg.sessions_dir == cfg.data_dir / "sessions"
+
+    def test_builder_mounts_only_the_validated_workspace(self):
+        cmd = build_session_run_command(
+            "tako-session-x",
+            runtime="runsc",
+            image="code-executor:latest",
+            workspace_dir="/srv/sessions/sess-x/workspace",
+            sessions_root=SESSIONS_ROOT,
+            session_id="sess-x",
+        )
+        assert cmd[cmd.index("-v") + 1] == "/srv/sessions/sess-x/workspace:/workspace"
+
+    def test_builder_refuses_workspace_outside_sessions_root(self):
+        with pytest.raises(ValueError):
+            build_session_run_command(
+                "tako-session-x",
+                runtime="runsc",
+                image="code-executor:latest",
+                workspace_dir="/opt/app/secrets",
+                sessions_root=SESSIONS_ROOT,
                 session_id="sess-x",
             )
