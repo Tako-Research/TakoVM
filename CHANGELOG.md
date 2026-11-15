@@ -5,6 +5,25 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Minimum versions raised past known advisories.** `urllib3>=2.8.0` and
+  `certifi>=2026.10.18` are now direct requirements, and `anyio>=4.14.2` is
+  required by the `server` and `all` extras. All three were already what a
+  fresh install resolves; listing them means upgrading tako-vm also moves an
+  existing environment off the affected versions. The `docs` extra requires
+  `mkdocs-material>=9.7.7` and `GitPython>=3.2.1`.
+- **`uv.lock` refreshed.** The development lockfile pinned versions of Pillow,
+  GitPython, virtualenv, filelock, urllib3, anyio, certifi, cairosvg and
+  mkdocs-material with 93 open advisories between them. Nothing that ships
+  reads the lockfile (CI, the server image and `pip install` resolve from
+  `pyproject.toml`), so this affected `uv sync` development environments.
+  The lock is now resolved for Python 3.11 and later only: Python 3.10 is end
+  of life and Pillow and filelock have no patched release that supports it.
+  The package itself still installs on 3.10.
+
 ## [0.3.1] - 2026-11-15
 
 A fix release. Upgrade if you serve artifacts: on a current Starlette (which is
