@@ -199,9 +199,10 @@ Security Layers:
               │  └──────────┘ └──────────┘ └────────┘ │
               └────────────────────────────────────────┘
 
-              * Uses bridge network for dependency installation,
-                then isolates for code execution.
-                Use pre-built images for true network=none.
+              * With runtime requirements, the container is attached
+                to the bridge network for its WHOLE run: your code
+                has the same network access the install did.
+                Use pre-built images for network=none.
 ```
 
 ## Quick Start Workflow

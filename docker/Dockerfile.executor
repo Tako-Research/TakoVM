@@ -29,6 +29,15 @@ RUN useradd -m -u 1000 sandbox && \
 RUN chmod 755 /code /input && \
     chmod 777 /output /tmp
 
+# Strip setuid/setgid bits from every binary in the image (su, mount, passwd,
+# newgrp, ...). User code runs as uid 1000 with no effective capabilities, but
+# the container cannot use --security-opt=no-new-privileges (gosu needs a real
+# setuid() to drop from root) and the capability bounding set still holds
+# SETUID/SETGID/KILL for the root-side entrypoint. A setuid-root binary is the
+# one thing that could hand those back to user code, and nothing in the
+# entrypoint contract needs one: gosu starts as root and only drops.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+
 # Copy entrypoint script
 COPY ./docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

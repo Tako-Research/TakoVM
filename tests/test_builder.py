@@ -103,6 +103,42 @@ class TestGenerateDockerfileEntrypointContract:
             assert not stripped.startswith("ENTRYPOINT "), line
 
 
+class TestImagesStripSetuidBinaries:
+    """Executor images must not ship setuid/setgid binaries.
+
+    The container cannot run with no-new-privileges (gosu needs a real
+    setuid() to drop from root), and the capability bounding set keeps
+    SETUID/SETGID/KILL for the root-side entrypoint. A setuid-root binary in
+    the image (su, mount, passwd, ...) is what could hand those back to user
+    code, so both the base Dockerfile and every generated job-type Dockerfile
+    strip the bits. Guarded statically here; test_default_posture.py checks
+    the built image.
+    """
+
+    STRIP_STEP = "find / -xdev -perm /6000 -type f -exec chmod a-s {} +"
+
+    def test_executor_dockerfile_strips_setuid_bits(self):
+        text = (
+            Path(__file__).resolve().parent.parent / "docker" / "Dockerfile.executor"
+        ).read_text()
+        assert f"RUN {self.STRIP_STEP}" in text
+
+    def test_strip_runs_after_packages_are_installed(self):
+        """A strip that ran before apt-get would miss what apt-get installs."""
+        text = (
+            Path(__file__).resolve().parent.parent / "docker" / "Dockerfile.executor"
+        ).read_text()
+        assert text.index("apt-get install") < text.index(self.STRIP_STEP)
+
+    def test_generated_job_type_dockerfile_strips_setuid_bits(self):
+        dockerfile = ContainerBuilder().generate_dockerfile(
+            JobType(name="jt", requirements=["requests"])
+        )
+        assert f"RUN {self.STRIP_STEP}" in dockerfile
+        # After the requirements install, so anything it added is covered too.
+        assert dockerfile.index("uv pip install") < dockerfile.index(self.STRIP_STEP)
+
+
 class TestEntrypointInstallsUnprivileged:
     """The dependency install must drop to the sandbox user (issue #102).
 
