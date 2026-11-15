@@ -219,7 +219,18 @@ class ApiProtectionMiddleware:
             try:
                 return next(buffered_messages_iter)
             except StopIteration:
-                return {"type": "http.request", "body": b"", "more_body": False}
+                # The buffered body is exhausted. Hand over to the server's
+                # real receive(), which blocks until the client disconnects.
+                # This used to return an empty "http.request" immediately,
+                # forever. Streaming responses wait for a disconnect with
+                # `while (await receive())["type"] != "http.disconnect"`, and
+                # a receive() that never blocks turns that into a busy loop
+                # that never yields to the event loop: the response is never
+                # sent and the whole server stops answering. Starlette's
+                # FileResponse does exactly that on ASGI spec < 2.4 (which is
+                # what uvicorn advertises), so one artifact download hung the
+                # API server permanently.
+                return await receive()
 
         await self.app(scope, replay_receive, send)
 
