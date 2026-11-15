@@ -1,11 +1,3 @@
-"""
-Docker health monitoring with circuit breaker and cleanup utilities.
-
-Provides:
-- Circuit breaker to prevent cascading failures when Docker is unavailable
-- Orphaned container cleanup on startup
-"""
-
 import logging
 import subprocess
 import threading
@@ -21,42 +13,22 @@ logger = logging.getLogger(__name__)
 
 
 class CircuitState(Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"  # Normal operation, requests pass through
-    OPEN = "open"  # Failing, reject requests immediately
-    HALF_OPEN = "half_open"  # Testing if service recovered
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
 
 
 @dataclass
 class CircuitBreakerConfig:
-    """Configuration for circuit breaker."""
-
     failure_threshold: int = 5
-    """Number of failures before opening circuit."""
 
     recovery_timeout: float = 30.0
-    """Seconds to wait before testing recovery (half-open state)."""
 
     success_threshold: int = 2
-    """Successful calls in half-open state before closing circuit."""
 
 
 class DockerCircuitBreaker:
-    """
-    Circuit breaker for Docker operations.
-
-    Prevents cascading failures by temporarily stopping attempts
-    to reach Docker when it's unavailable.
-    """
-
     def __init__(self, config: Optional[CircuitBreakerConfig] = None):
-        """
-        Initialize circuit breaker.
-
-        Args:
-            config: Circuit breaker configuration
-        """
         self.config = config or CircuitBreakerConfig()
         self._state = CircuitState.CLOSED
         self._failure_count = 0
@@ -66,25 +38,16 @@ class DockerCircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Get current circuit state."""
         with self._lock:
             return self._state
 
     @property
     def is_available(self) -> bool:
-        """Check if requests should be allowed through.
-
-        Side effect: this getter is intentionally not pure. When the circuit is
-        OPEN and the recovery timeout has elapsed, reading it transitions the
-        breaker to HALF_OPEN (and resets the success count) so the next call is
-        allowed through as a recovery probe.
-        """
         with self._lock:
             if self._state == CircuitState.CLOSED:
                 return True
 
             if self._state == CircuitState.OPEN:
-                # Check if recovery timeout has passed
                 if self._last_failure_time is not None:
                     elapsed = time.time() - self._last_failure_time
                     if elapsed >= self.config.recovery_timeout:
@@ -94,11 +57,9 @@ class DockerCircuitBreaker:
                         return True
                 return False
 
-            # HALF_OPEN - allow requests for testing
             return True
 
     def record_success(self) -> None:
-        """Record a successful Docker operation."""
         with self._lock:
             if self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
@@ -107,16 +68,9 @@ class DockerCircuitBreaker:
                     self._failure_count = 0
                     logger.info("Circuit breaker closed (Docker recovered)")
             elif self._state == CircuitState.CLOSED:
-                # Reset failure count on success
                 self._failure_count = 0
 
     def record_failure(self, error: Optional[str] = None) -> None:
-        """
-        Record a failed Docker operation.
-
-        Args:
-            error: Optional error message for logging
-        """
         with self._lock:
             self._failure_count += 1
             self._last_failure_time = time.time()
@@ -125,7 +79,6 @@ class DockerCircuitBreaker:
                 logger.warning(f"Docker operation failed: {error}")
 
             if self._state == CircuitState.HALF_OPEN:
-                # Any failure in half-open goes back to open
                 self._state = CircuitState.OPEN
                 logger.warning("Circuit breaker re-opened (Docker still failing)")
             elif self._state == CircuitState.CLOSED:
@@ -134,12 +87,6 @@ class DockerCircuitBreaker:
                     logger.error(f"Circuit breaker opened after {self._failure_count} failures")
 
     def check_docker_health(self) -> bool:
-        """
-        Perform a health check on Docker daemon.
-
-        Returns:
-            True if Docker is healthy
-        """
         try:
             result = subprocess.run(
                 ["docker", "info"], capture_output=True, timeout=5.0, check=False
@@ -164,7 +111,6 @@ class DockerCircuitBreaker:
             return False
 
     def get_status(self) -> dict:
-        """Get circuit breaker status for monitoring."""
         with self._lock:
             return {
                 "state": self._state.value,
@@ -175,23 +121,10 @@ class DockerCircuitBreaker:
 
 
 class DockerCleanup:
-    """Utilities for cleaning up Docker resources."""
-
     CONTAINER_LABEL = EXECUTOR_CONTAINER_LABEL
-    """Label used to identify Tako VM executor containers (shared with docker.py,
-    where launch paths apply it via ``base_isolation_args``)."""
 
     @staticmethod
     def _parse_created_at(created_at: str) -> Optional[float]:
-        """Parse a ``docker ps {{.CreatedAt}}`` value into a Unix timestamp.
-
-        Docker formats it as ``2024-01-15 10:30:00 +0000 UTC``. The trailing
-        timezone *name* is dropped before parsing because ``%Z`` only accepts
-        a few well-known names; the numeric ``%z`` offset is what matters.
-
-        Returns:
-            Unix timestamp, or None if the value cannot be parsed.
-        """
         try:
             fields = created_at.strip().split(" ")
             dt = datetime.strptime(" ".join(fields[:3]), "%Y-%m-%d %H:%M:%S %z")
@@ -201,35 +134,9 @@ class DockerCleanup:
 
     @classmethod
     def cleanup_orphaned_containers(cls, max_age_seconds: int = 3600) -> int:
-        """
-        Remove orphaned Tako VM executor containers.
-
-        Containers are matched by the ``tako-vm-executor`` label, which every
-        launch path applies via ``base_isolation_args`` (worker and library
-        sandbox alike). Matching is label-only by design: name-pattern filters
-        do substring matching and could sweep up unrelated user containers.
-        (Containers launched by versions that predate the label are not
-        matched, a one-time concern, accepted to keep matching unambiguous.)
-
-        This runs at server startup, so any labeled container still *running*
-        was launched by a previous (now dead) server process; its supervising
-        subprocess is gone and nothing will ever reap it. Exited/dead labeled
-        containers are removed unconditionally; running ones are only removed
-        once older than ``max_age_seconds``, as a safety guard against killing
-        in-flight work from another live Tako VM instance sharing the same
-        Docker daemon.
-
-        Args:
-            max_age_seconds: Only force-remove *running* labeled containers
-                older than this age. Non-running containers are always removed.
-
-        Returns:
-            Number of containers removed
-        """
         removed = 0
 
         try:
-            # Find containers with our label
             result = subprocess.run(
                 [
                     "docker",
@@ -262,10 +169,6 @@ class DockerCleanup:
                 container_id, created_at, state = parts[0], parts[1], parts[2]
 
                 if state in ("running", "restarting", "paused"):
-                    # Age guard: only treat live containers as orphans once
-                    # they exceed max_age_seconds. Unparseable timestamps are
-                    # skipped (fail safe: never kill a container whose age we
-                    # cannot determine).
                     created_ts = cls._parse_created_at(created_at)
                     if created_ts is None:
                         logger.warning(
@@ -283,10 +186,8 @@ class DockerCleanup:
 
                 containers_to_remove.append(container_id)
 
-            # Remove containers
             for container_id in containers_to_remove:
                 try:
-                    # Force remove (handles running containers too)
                     rm_result = subprocess.run(
                         ["docker", "rm", "-f", container_id],
                         capture_output=True,
@@ -313,16 +214,6 @@ class DockerCleanup:
 
     @classmethod
     def cleanup_dangling_images(cls) -> bool:
-        """
-        Remove dangling Docker images via ``docker image prune -f``.
-
-        Returns a bool rather than a count: ``docker image prune`` only reports
-        the total reclaimed space, not the number of images removed, so an
-        honest count is not available. The reclaimed-space summary is logged.
-
-        Returns:
-            True if the prune command ran successfully, False otherwise.
-        """
         try:
             result = subprocess.run(
                 ["docker", "image", "prune", "-f"],
@@ -333,7 +224,6 @@ class DockerCleanup:
             )
 
             if result.returncode == 0:
-                # Docker doesn't give a count, just the reclaimed space summary.
                 output = result.stdout
                 if "Total reclaimed space" in output:
                     logger.info(f"Image cleanup: {output.strip()}")
@@ -347,12 +237,10 @@ class DockerCleanup:
             return False
 
 
-# Global circuit breaker instance
 _circuit_breaker: Optional[DockerCircuitBreaker] = None
 
 
 def get_circuit_breaker() -> DockerCircuitBreaker:
-    """Get or create the global circuit breaker instance."""
     global _circuit_breaker
     if _circuit_breaker is None:
         _circuit_breaker = DockerCircuitBreaker()
@@ -360,25 +248,15 @@ def get_circuit_breaker() -> DockerCircuitBreaker:
 
 
 def startup_cleanup() -> dict:
-    """
-    Perform startup cleanup tasks.
-
-    Returns:
-        Dict with cleanup results
-    """
     results = {
         "docker_healthy": False,
         "containers_removed": 0,
     }
 
-    # Check Docker health
     breaker = get_circuit_breaker()
     results["docker_healthy"] = breaker.check_docker_health()
 
     if results["docker_healthy"]:
-        # Clean up orphaned executor containers: exited ones unconditionally,
-        # running ones only past the default 1h age guard (see
-        # cleanup_orphaned_containers for the rationale).
         results["containers_removed"] = DockerCleanup.cleanup_orphaned_containers()
 
     return results

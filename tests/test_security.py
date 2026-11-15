@@ -1,5 +1,3 @@
-"""Tests for security validation helpers."""
-
 from unittest.mock import MagicMock
 
 import pytest
@@ -296,9 +294,6 @@ class TestExecutorRejectsUnsafeIds:
         input_dir.mkdir()
         output_dir.mkdir()
 
-        # Keep image resolution off the (shared) subprocess mock: this test
-        # asserts that NO docker command runs once the policy rejects the job,
-        # and the pre-built-image probe would otherwise count as a call.
         monkeypatch.setattr(worker_module, "image_exists", lambda name: False)
 
         fake_run = MagicMock()
@@ -419,8 +414,6 @@ class TestExecutorRejectsUnsafeIds:
             job_id="job-123",
         )
 
-        # Volume is scoped per job type (see uv_cache_volume); this job type
-        # is named "default".
         cache_volume = uv_cache_volume("default")
         cache_mount = f"--mount=type=volume,source={cache_volume},target={UV_CACHE_VOLUME_DIR}"
         expected_cache_dir = UV_CACHE_VOLUME_DIR if cache_enabled else UV_CACHE_TMP_DIR

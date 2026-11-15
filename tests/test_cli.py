@@ -1,9 +1,3 @@
-"""
-Tests for Tako VM CLI (command-line interface).
-
-Tests command parsing and execution using subprocess/mock approaches.
-"""
-
 import argparse
 import os
 import subprocess
@@ -16,10 +10,7 @@ import pytest
 
 
 class TestCLIVersion:
-    """Tests for version command."""
-
     def test_version_command(self):
-        """tako-vm version prints version."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "version"],
             capture_output=True,
@@ -33,21 +24,16 @@ class TestCLIVersion:
 
 
 class TestCLIHelp:
-    """Tests for help output."""
-
     def test_help_without_command(self):
-        """tako-vm without command shows help."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli"],
             capture_output=True,
             text=True,
         )
-        # Should exit with error and show help
         assert result.returncode == 1
         assert "usage" in result.stderr.lower() or "usage" in result.stdout.lower()
 
     def test_help_flag(self):
-        """tako-vm --help shows help."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "--help"],
             capture_output=True,
@@ -61,10 +47,7 @@ class TestCLIHelp:
 
 
 class TestCLIValidate:
-    """Tests for validate command."""
-
     def test_validate_valid_config(self):
-        """validate command accepts valid config."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(
                 """
@@ -88,7 +71,6 @@ security_mode: permissive
             Path(config_path).unlink()
 
     def test_validate_invalid_config(self):
-        """validate command rejects invalid config."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(
                 """
@@ -110,7 +92,6 @@ max_workers: -1
             Path(config_path).unlink()
 
     def test_validate_nonexistent_file(self):
-        """validate command handles missing file."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "validate", "/nonexistent/config.yaml"],
             capture_output=True,
@@ -120,10 +101,7 @@ max_workers: -1
 
 
 class TestCLIConfig:
-    """Tests for config command."""
-
     def test_config_show(self):
-        """config command shows configuration."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "config"],
             capture_output=True,
@@ -135,7 +113,6 @@ class TestCLIConfig:
         assert "max_workers" in result.stdout
 
     def test_config_json_output(self):
-        """config --json outputs JSON."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "config", "--json"],
             capture_output=True,
@@ -143,7 +120,6 @@ class TestCLIConfig:
             env={**os.environ, "TAKO_VM_SECURITY_MODE": "permissive"},
         )
         assert result.returncode == 0
-        # Should be valid JSON
         import json
 
         data = json.loads(result.stdout)
@@ -154,26 +130,19 @@ class TestCLIConfig:
 
 
 class TestCLIStatus:
-    """Tests for status command."""
-
     def test_status_server_not_running(self):
-        """status command handles server not running."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "status", "--url", "http://localhost:59999"],
             capture_output=True,
             text=True,
         )
         assert result.returncode == 1
-        # Errors are written to stderr (stdout stays clean for parseable output).
         combined = (result.stdout + result.stderr).lower()
         assert "cannot connect" in combined or "error" in combined
 
 
 class TestCLIConfigPath:
-    """Tests for --config global option."""
-
     def test_config_path_nonexistent(self):
-        """--config with nonexistent file shows error."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "--config", "/nonexistent.yaml", "version"],
             capture_output=True,
@@ -183,7 +152,6 @@ class TestCLIConfigPath:
         assert "not found" in result.stderr.lower()
 
     def test_config_path_valid(self):
-        """--config with valid file is accepted."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("max_workers: 4\n")
             f.flush()
@@ -201,19 +169,14 @@ class TestCLIConfigPath:
 
 
 class TestCLIMain:
-    """Tests for main() function directly."""
-
     def test_main_import(self):
-        """Can import main from cli module."""
         from tako_vm.cli import main
 
         assert callable(main)
 
     def test_main_check_status_function(self):
-        """check_status function handles connection errors."""
         from tako_vm.cli import check_status
 
-        # Create mock args
         args = MagicMock()
         args.url = "http://localhost:59999"
 
@@ -222,7 +185,6 @@ class TestCLIMain:
         assert exc_info.value.code == 1
 
     def test_main_show_config_function(self):
-        """show_config function works."""
         from tako_vm.cli import show_config
         from tako_vm.config import reset_config
 
@@ -232,13 +194,11 @@ class TestCLIMain:
         args.json = False
         args.show_defaults = False
 
-        # Should not raise
         show_config(args)
 
         reset_config()
 
     def test_main_show_config_json(self, capsys):
-        """show_config with --json outputs JSON."""
         from tako_vm.cli import show_config
         from tako_vm.config import reset_config
 
@@ -260,10 +220,7 @@ class TestCLIMain:
 
 
 class TestCheckStatusFunction:
-    """Tests for check_status() function directly."""
-
     def test_check_status_success(self, capsys):
-        """check_status displays server info on success."""
         import requests
 
         from tako_vm.cli import check_status
@@ -288,7 +245,6 @@ class TestCheckStatusFunction:
         assert "1.0.0" in captured.out
 
     def test_check_status_docker_unavailable(self, capsys):
-        """check_status shows docker unavailable status."""
         import requests
 
         from tako_vm.cli import check_status
@@ -311,7 +267,6 @@ class TestCheckStatusFunction:
         assert "unavailable" in captured.out
 
     def test_check_status_generic_exception(self):
-        """check_status handles generic exceptions."""
         import requests
 
         from tako_vm.cli import check_status
@@ -326,14 +281,10 @@ class TestCheckStatusFunction:
 
 
 class TestValidateConfigFunction:
-    """Tests for validate_config() function directly."""
-
     def test_validate_config_no_file_found(self, capsys):
-        """validate_config exits when no config file found."""
         from tako_vm import config as config_module
         from tako_vm.cli import validate_config
 
-        # Mock find_config_file to return None (it's imported from config module)
         with patch.object(config_module, "find_config_file", return_value=None):
             args = MagicMock()
             args.config_file = None
@@ -347,7 +298,6 @@ class TestValidateConfigFunction:
         assert "No configuration file found" in captured.out
 
     def test_validate_config_uses_global_config(self):
-        """validate_config uses --config when config_file not specified."""
         from tako_vm.cli import validate_config
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -360,13 +310,11 @@ class TestValidateConfigFunction:
             args.config_file = None
             args.config = config_path
 
-            # Should not raise (valid config)
             validate_config(args)
         finally:
             config_path.unlink()
 
     def test_validate_config_with_job_types(self, capsys):
-        """validate_config shows job types in summary."""
         from tako_vm.cli import validate_config
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -404,17 +352,13 @@ job_types:
 
 
 class TestShowConfigFunction:
-    """Tests for show_config() function directly."""
-
     def test_show_config_with_job_types(self, capsys):
-        """show_config displays job types section."""
         from tako_vm import config as config_module
         from tako_vm.cli import show_config
         from tako_vm.config import JobTypeConfig, TakoVMConfig, reset_config
 
         reset_config()
 
-        # Create config with job types
         mock_config = TakoVMConfig(
             security_mode="permissive",
             job_types=[
@@ -428,7 +372,6 @@ class TestShowConfigFunction:
             ],
         )
 
-        # Patch at the config module since show_config imports from there
         with patch.object(config_module, "get_config", return_value=mock_config):
             with patch.object(config_module, "get_config_path", return_value=None):
                 args = MagicMock()
@@ -445,7 +388,6 @@ class TestShowConfigFunction:
         reset_config()
 
     def test_show_config_configuration_error(self):
-        """show_config handles ConfigurationError."""
         from tako_vm import config as config_module
         from tako_vm.cli import show_config
         from tako_vm.config import ConfigurationError, reset_config
@@ -465,7 +407,6 @@ class TestShowConfigFunction:
         reset_config()
 
     def test_show_config_no_config_file(self, capsys):
-        """show_config shows '(using defaults)' when no config file."""
         from tako_vm import config as config_module
         from tako_vm.cli import show_config
         from tako_vm.config import reset_config
@@ -485,7 +426,6 @@ class TestShowConfigFunction:
         reset_config()
 
     def test_show_config_with_config_file(self, capsys):
-        """show_config shows config file path when available."""
         from tako_vm import config as config_module
         from tako_vm.cli import show_config
         from tako_vm.config import reset_config
@@ -506,10 +446,7 @@ class TestShowConfigFunction:
 
 
 class TestRunServerFunction:
-    """Tests for run_server() function."""
-
     def test_run_server_development_mode(self, capsys):
-        """run_server starts in development mode by default."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -520,8 +457,6 @@ class TestRunServerFunction:
         mock_run = MagicMock()
         with patch.object(uvicorn, "run", mock_run):
             args = MagicMock()
-            # Loopback: this test is about the mode banner, and a non-loopback
-            # host with auth off is refused before uvicorn.run is reached.
             args.host = "127.0.0.1"
             args.port = 8000
             args.reload = False
@@ -536,7 +471,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_production_mode(self, capsys):
-        """run_server indicates production mode."""
         import uvicorn
 
         from tako_vm import config as config_module
@@ -550,7 +484,6 @@ class TestRunServerFunction:
             security_mode="permissive",
         )
 
-        # Patch at config module since run_server imports from there
         with patch.object(config_module, "get_config", return_value=mock_config):
             with patch.object(uvicorn, "run"):
                 args = MagicMock()
@@ -567,7 +500,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_custom_host_port(self):
-        """run_server uses custom host and port from args."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -594,13 +526,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_refuses_non_loopback_host_flag_without_auth(self, capsys):
-        """--host 0.0.0.0 cannot walk around the config's fail-closed bind rule.
-
-        The validator only ever saw ``server_host``; a --host flag reached
-        uvicorn unchecked, which is how the shipped Dockerfile CMD
-        (``server --host 0.0.0.0``) published an unauthenticated /execute
-        endpoint on every interface.
-        """
         import uvicorn
 
         from tako_vm import config as config_module
@@ -635,7 +560,6 @@ class TestRunServerFunction:
 
         captured = capsys.readouterr()
         assert "refusing to bind non-loopback host '0.0.0.0'" in captured.err
-        # The message has to tell the operator all three ways out.
         assert "api_auth_enabled=true" in captured.err
         assert "--host 127.0.0.1" in captured.err
         assert "allow_unauthenticated_network_access=true" in captured.err
@@ -643,7 +567,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_allows_non_loopback_host_flag_when_auth_enabled(self):
-        """--host 0.0.0.0 is honored once authentication is on."""
         import uvicorn
 
         from tako_vm import config as config_module
@@ -681,7 +604,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_allows_non_loopback_host_flag_with_explicit_opt_out(self):
-        """--host 0.0.0.0 is honored under allow_unauthenticated_network_access."""
         import uvicorn
 
         from tako_vm import config as config_module
@@ -716,7 +638,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_host_port_fall_back_to_config(self):
-        """Without --host/--port, config.server_host/server_port are used."""
         import uvicorn
 
         from tako_vm import config as config_module
@@ -752,8 +673,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_workers_passed_through(self, capsys):
-        """--workers is forwarded to uvicorn with the app as an import string,
-        and a multi-worker topology warning is printed to stderr."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -787,8 +706,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_default_single_worker_uses_app_object(self, capsys):
-        """Without --workers/--reload, the app object is passed with workers=1
-        and no multi-worker topology warning is emitted."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -821,7 +738,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_reload_uses_import_string(self):
-        """--reload passes the app as an import string so uvicorn can reload it."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -850,7 +766,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_reload_and_workers_mutually_exclusive(self, capsys):
-        """--reload with --workers > 1 errors out instead of starting."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -880,7 +795,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_invalid_workers_rejected(self, capsys):
-        """--workers < 1 errors out instead of starting."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -910,7 +824,6 @@ class TestRunServerFunction:
         reset_config()
 
     def test_run_server_workers_exports_explicit_config_path(self, tmp_path, monkeypatch):
-        """Multi-worker mode exports --config via TAKO_VM_CONFIG for subprocesses."""
         import uvicorn
 
         from tako_vm.cli import run_server
@@ -941,7 +854,6 @@ class TestRunServerFunction:
             reset_config()
 
     def test_run_server_configuration_error(self):
-        """run_server exits on configuration error."""
         from tako_vm import config as config_module
         from tako_vm.cli import run_server
         from tako_vm.config import ConfigurationError
@@ -960,10 +872,7 @@ class TestRunServerFunction:
 
 
 class TestCLISubprocessExtended:
-    """Extended subprocess tests for CLI edge cases."""
-
     def test_server_help(self):
-        """server --help shows server options."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "server", "--help"],
             capture_output=True,
@@ -975,7 +884,6 @@ class TestCLISubprocessExtended:
         assert "--reload" in result.stdout
 
     def test_status_help(self):
-        """status --help shows status options."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "status", "--help"],
             capture_output=True,
@@ -985,7 +893,6 @@ class TestCLISubprocessExtended:
         assert "--url" in result.stdout
 
     def test_validate_help(self):
-        """validate --help shows validate options."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "validate", "--help"],
             capture_output=True,
@@ -994,7 +901,6 @@ class TestCLISubprocessExtended:
         assert result.returncode == 0
 
     def test_config_help(self):
-        """config --help shows config options."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "config", "--help"],
             capture_output=True,
@@ -1004,7 +910,6 @@ class TestCLISubprocessExtended:
         assert "--json" in result.stdout
 
     def test_dev_help(self):
-        """dev --help shows development subcommands."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "dev", "--help"],
             capture_output=True,
@@ -1016,7 +921,6 @@ class TestCLISubprocessExtended:
         assert "down" in result.stdout
 
     def test_config_shows_all_sections(self):
-        """config command shows all configuration sections."""
         result = subprocess.run(
             [sys.executable, "-m", "tako_vm.cli", "config"],
             capture_output=True,
@@ -1032,7 +936,6 @@ class TestCLISubprocessExtended:
         assert "[Docker]" in result.stdout
 
     def test_validate_yaml_syntax_error(self):
-        """validate command detects YAML syntax errors."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("invalid: yaml: syntax: [\n")
             f.flush()
@@ -1049,7 +952,6 @@ class TestCLISubprocessExtended:
             Path(config_path).unlink()
 
     def test_short_config_flag(self):
-        """-c short flag works for --config."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("max_workers: 4\n")
             f.flush()
@@ -1067,17 +969,8 @@ class TestCLISubprocessExtended:
 
 
 class TestCLIDevHelpers:
-    """Tests for dev helper functionality."""
-
     @pytest.fixture(autouse=True)
     def _isolate_database_url_env(self):
-        """Restore TAKO_VM_DATABASE_URL after each test.
-
-        dev_up() and run_server() mutate os.environ["TAKO_VM_DATABASE_URL"]
-        directly (pointing it at the managed postgres on port 55432). Without
-        restoration that leaks into every later test in the process and caused
-        the entire storage suite to silently skip in CI.
-        """
         original = os.environ.get("TAKO_VM_DATABASE_URL")
         yield
         if original is None:
@@ -1086,7 +979,6 @@ class TestCLIDevHelpers:
             os.environ["TAKO_VM_DATABASE_URL"] = original
 
     def test_dev_up_without_server(self, capsys):
-        """dev_up starts local postgres without launching server."""
         from tako_vm.cli import MANAGED_POSTGRES_URL, dev_up
 
         args = argparse.Namespace(with_server=False, host="0.0.0.0", port=8000, reload=False)
@@ -1100,7 +992,6 @@ class TestCLIDevHelpers:
         assert MANAGED_POSTGRES_URL in captured.out
 
     def test_run_server_auto_starts_local_postgres(self):
-        """run_server auto-starts managed postgres on default URL failure."""
         import uvicorn
 
         from tako_vm import config as config_module
@@ -1111,8 +1002,6 @@ class TestCLIDevHelpers:
         mock_config = TakoVMConfig(database_url=DEFAULT_DATABASE_URL, security_mode="permissive")
 
         args = argparse.Namespace(
-            # Loopback: this test is about postgres auto-start, and a
-            # non-loopback bind with auth off is refused before uvicorn.run.
             host="127.0.0.1",
             port=8000,
             reload=False,
@@ -1132,7 +1021,6 @@ class TestCLIDevHelpers:
         reset_config()
 
     def test_dev_status_running(self, capsys):
-        """dev_status reports running and reachable state."""
         from tako_vm.cli import dev_status
 
         args = argparse.Namespace()
@@ -1144,7 +1032,6 @@ class TestCLIDevHelpers:
         assert "Status: running (reachable)" in captured.out
 
     def test_dev_down_stops_running_container(self, capsys):
-        """dev_down stops container when it is running."""
         from tako_vm.cli import MANAGED_POSTGRES_CONTAINER, dev_down
 
         args = argparse.Namespace()
@@ -1162,7 +1049,6 @@ class TestCLIDevHelpers:
         assert "Local PostgreSQL stopped" in captured.out
 
     def test_dev_down_missing_container(self, capsys):
-        """dev_down handles missing container gracefully."""
         from tako_vm.cli import dev_down
 
         args = argparse.Namespace()
@@ -1173,7 +1059,6 @@ class TestCLIDevHelpers:
         assert "not created" in captured.out
 
     def test_dev_status_reports_docker_unavailable_when_daemon_down(self, capsys):
-        """dev_status surfaces daemon outage as docker unavailable."""
         from tako_vm.cli import dev_status
 
         args = argparse.Namespace()

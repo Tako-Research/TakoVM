@@ -1,10 +1,3 @@
-"""
-FastAPI server for secure code execution.
-
-Provides both legacy synchronous execution and new async job queue execution.
-"""
-
-# Suppress LibreSSL warnings on macOS before any other imports
 import warnings
 
 try:
@@ -48,25 +41,18 @@ from tako_vm.server.limits import ApiProtectionMiddleware
 from tako_vm.server.queue import WorkerPool
 from tako_vm.storage import ExecutionStorage
 
-# Configure logging with correlation ID support
-# Note: Log level will be reconfigured in lifespan() based on config
 logging.basicConfig(level=logging.INFO)
 configure_logging_with_correlation()
 logger = logging.getLogger(__name__)
 
-# Maximum wait timeout to prevent slowloris-style attacks (5 minutes)
 MAX_WAIT_TIMEOUT = 300.0
 
-# Absolute request-schema ceiling. Deployments may set a lower runtime ceiling
-# with TakoVMConfig.max_timeout.
 MAX_EXECUTION_TIMEOUT = 86_400
 
 
 def _configure_log_level(log_level: str) -> None:
-    """Configure logging level from config."""
     level = getattr(logging, log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(level)
-    # Also set for uvicorn loggers
     logging.getLogger("uvicorn").setLevel(level)
     logging.getLogger("uvicorn.access").setLevel(level)
     logging.getLogger("uvicorn.error").setLevel(level)
@@ -80,12 +66,6 @@ def compute_idempotency_fingerprint(
     startup_timeout: Optional[int],
     requirements: Optional[List[str]],
 ) -> str:
-    """
-    Compute fingerprint of request parameters for idempotency validation.
-
-    This fingerprint is used to detect when an idempotency key is reused
-    with different parameters (which should return 409 Conflict).
-    """
     return sha256_json(
         {
             "code_hash": sha256_content(code),
@@ -99,48 +79,24 @@ def compute_idempotency_fingerprint(
 
 
 def _generate_sync_job_id() -> str:
-    """Generate a collision-resistant ID for the legacy sync endpoint."""
     return f"api-{uuid.uuid4()}"
 
 
 def _resolve_under_data_dir(data_dir: Path, storage_key: str) -> Path:
-    """Resolve a stored artifact key under data_dir, rejecting traversal.
-
-    ``storage_key`` is persisted and is not re-validated on read, so a poisoned
-    or legacy record with ``..``, an absolute path, or a symlink must not
-    escape. ``resolve()`` canonicalizes symlinks and ``is_relative_to()`` checks
-    the real target against ``data_dir``. Both the artifact download and the
-    rerun/fork replay path go through this.
-    """
     candidate = (data_dir / storage_key).resolve()
     if not candidate.is_relative_to(data_dir):
         raise HTTPException(status_code=400, detail="Invalid artifact path")
     return candidate
 
 
-# Keyed lock for idempotency (prevents race conditions under concurrent requests)
 class IdempotencyLockManager:
-    """
-    Per-key lock manager for idempotent requests.
-
-    Ensures that concurrent requests with the same idempotency key
-    are serialized to prevent race conditions.
-    """
-
     def __init__(self):
         self._locks: Dict[str, asyncio.Lock] = {}
-        # Number of coroutines currently holding or waiting on each key's lock.
-        # The lock is only evicted when this drops to zero, so a waiter that
-        # already grabbed a reference can never be left contending against a
-        # fresh lock created for the same key (which would break mutual
-        # exclusion).
         self._waiters: Dict[str, int] = {}
         self._global_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def acquire(self, key: str):
-        """Acquire lock for a specific idempotency key."""
-        # Get or create lock for this key and register as a waiter.
         async with self._global_lock:
             lock = self._locks.get(key)
             if lock is None:
@@ -149,13 +105,9 @@ class IdempotencyLockManager:
             self._waiters[key] = self._waiters.get(key, 0) + 1
 
         try:
-            # Acquire the per-key lock
             async with lock:
                 yield
         finally:
-            # Deregister; evict the lock only when no other coroutine still
-            # references it, preventing the unbounded growth of _locks while
-            # keeping concurrent waiters on the same lock object.
             async with self._global_lock:
                 remaining = self._waiters.get(key, 0) - 1
                 if remaining <= 0:
@@ -165,7 +117,6 @@ class IdempotencyLockManager:
                     self._waiters[key] = remaining
 
 
-# Application state (initialized in lifespan)
 class AppState:
     config: TakoVMConfig
     registry: JobTypeRegistry
@@ -182,7 +133,6 @@ state.idempotency_locks = IdempotencyLockManager()
 def _validate_execution_timeout(
     timeout: Optional[int], job_type_name: Optional[str] = None
 ) -> None:
-    """Reject an explicit or resolved timeout above the deployment ceiling."""
     effective_timeout = timeout
     if effective_timeout is None:
         if job_type_name is None:
@@ -205,7 +155,6 @@ def _validate_execution_timeout(
 
 
 def _get_runtime_config() -> TakoVMConfig:
-    """Get active config for middleware checks before/after lifespan startup."""
     if hasattr(state, "config"):
         return state.config
     return get_config()
@@ -218,35 +167,22 @@ async def _periodic_cleanup(
     workspace_max_age_seconds: int,
     dlq_ttl_days: int,
 ):
-    """Background task for periodic database + on-disk cleanup."""
-    cleanup_interval = 3600  # Run every hour
+    cleanup_interval = 3600
     while True:
         try:
             await asyncio.sleep(cleanup_interval)
-            # Clean up old execution records
             records_deleted = await storage.cleanup_old_records(record_ttl_days)
             if records_deleted > 0:
                 logger.info(f"Cleanup: deleted {records_deleted} old execution records")
-            # Clean up old DLQ entries
             dlq_deleted = await storage.cleanup_old_dlq_entries(dlq_ttl_days)
             if dlq_deleted > 0:
                 logger.info(f"Cleanup: deleted {dlq_deleted} old DLQ entries")
-            # Reclaim stranded workspaces and on-disk artifacts past retention
             stale_ws = prune_stale_workspaces(workspace_max_age_seconds)
             if stale_ws > 0:
                 logger.info(f"Cleanup: pruned {stale_ws} stale workspace dir(s)")
             old_runs = prune_old_run_dirs(data_dir, record_ttl_days)
             if old_runs > 0:
                 logger.info(f"Cleanup: pruned {old_runs} expired run artifact dir(s)")
-            # Reap leaked executor containers. Previously the reaper ran only at
-            # startup, so a `docker rm -f` that failed at teardown on a
-            # long-lived server left the container (and, for a network-enabled
-            # job, its live egress) alive until the next process restart. The
-            # age guard is reused from workspace_max_age_seconds: a *running*
-            # labeled container older than that provably cannot belong to a live
-            # job of this server (max lifetime is startup_timeout + timeout +
-            # grace), so reaping it never kills in-flight work. Exited orphans
-            # are removed unconditionally. (issue #96)
             orphaned = DockerCleanup.cleanup_orphaned_containers(workspace_max_age_seconds)
             if orphaned > 0:
                 logger.info(f"Cleanup: reaped {orphaned} orphaned container(s)")
@@ -259,17 +195,13 @@ async def _periodic_cleanup(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler for startup/shutdown."""
-    # Startup
     logger.info("Starting Tako VM API server...")
 
-    # Run startup cleanup (orphaned containers, health check)
     cleanup_results = startup_cleanup()
     logger.info(f"Startup cleanup: {cleanup_results}")
 
     state.config = get_config()
 
-    # Configure log level from config
     _configure_log_level(state.config.log_level)
     state.registry = JobTypeRegistry()
     merged_job_types = merge_config_job_types(state.registry, state.config.job_types)
@@ -279,11 +211,6 @@ async def lifespan(app: FastAPI):
     state.storage = ExecutionStorage(state.config.database_url)
     await state.storage.init()
 
-    # Reconcile records orphaned by a previous crash/restart before workers
-    # start. The job queue is in-memory, so any record still 'queued' or
-    # 'running' at this point can never complete; mark it failed so clients
-    # stop polling into the void. Safe because Tako VM runs as a single
-    # server (no multi-server coordination exists).
     stale_records = await state.storage.reconcile_stale_records()
     if stale_records > 0:
         logger.warning(f"Startup: marked {stale_records} interrupted execution record(s) as failed")
@@ -297,17 +224,11 @@ async def lifespan(app: FastAPI):
     )
     await state.worker_pool.start()
 
-    # A workspace exists only while its run is alive (created right before the
-    # container, removed in the run's finally block); its container budget is at
-    # most max_startup_timeout + max_timeout (+ grace). So a dir whose mtime is
-    # older than that provably cannot belong to a live run and is safe to reclaim
-    # -- never key the sweep on max_timeout alone (it ignores the startup phase).
     workspace_max_age = max(3600, state.config.max_startup_timeout + state.config.max_timeout + 300)
     stranded = prune_stale_workspaces(workspace_max_age)
     if stranded > 0:
         logger.info(f"Startup: pruned {stranded} stale workspace dir(s)")
 
-    # Start periodic cleanup task
     cleanup_task = asyncio.create_task(
         _periodic_cleanup(
             state.storage,
@@ -322,7 +243,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     logger.info("Shutting down Tako VM API server...")
     cleanup_task.cancel()
     try:
@@ -340,17 +260,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add API-layer protection middleware (rate limit + payload size)
 app.add_middleware(ApiProtectionMiddleware, config_getter=_get_runtime_config)
 
-# Add correlation ID middleware (must be added before other middleware)
 app.add_middleware(CorrelationIdMiddleware)
 
 
-# Request/Response Models
 class ExecuteRequest(BaseModel):
-    """Request model for code execution."""
-
     model_config = {"extra": "forbid"}
 
     code: str = Field(
@@ -406,14 +321,12 @@ class ExecuteRequest(BaseModel):
         import json
 
         serialized = json.dumps(v)
-        if len(serialized) > 1_048_576:  # 1MB limit
+        if len(serialized) > 1_048_576:
             raise ValueError("input_data exceeds 1MB limit when serialized")
         return v
 
 
 class ExecuteResponse(BaseModel):
-    """Response model for code execution (legacy)."""
-
     model_config = {"extra": "forbid"}
 
     success: bool
@@ -437,7 +350,6 @@ class ExecuteResponse(BaseModel):
     )
 
 
-# Status type aliases for API type safety
 QueueStatus = Literal[
     "queued", "pending", "running", "succeeded", "failed", "timeout", "oom", "cancelled"
 ]
@@ -446,8 +358,6 @@ RelationshipType = Literal["rerun", "fork"]
 
 
 class AsyncExecuteResponse(BaseModel):
-    """Response model for async execution."""
-
     model_config = {"extra": "forbid"}
 
     job_id: str
@@ -455,8 +365,6 @@ class AsyncExecuteResponse(BaseModel):
 
 
 class JobStatusResponse(BaseModel):
-    """Response model for job status."""
-
     model_config = {"extra": "forbid"}
 
     job_id: str = Field(..., description="Unique job identifier")
@@ -476,29 +384,20 @@ class JobStatusResponse(BaseModel):
 
 
 class ExecutionTimingResponse(BaseModel):
-    """Response model for execution timing breakdown."""
-
     model_config = {"extra": "forbid"}
 
     startup_ms: Optional[int] = None
-    """Time spent in startup phase (container init + dep install)."""
 
     dep_install_ms: Optional[int] = None
-    """Time spent installing dependencies (subset of startup)."""
 
     execution_ms: Optional[int] = None
-    """Time spent executing user code."""
 
     total_ms: Optional[int] = None
-    """Total container runtime."""
 
     phase_at_exit: Optional[str] = None
-    """Which phase the container was in when it exited."""
 
 
 class ExecutionRecordResponse(BaseModel):
-    """Response model for execution record."""
-
     model_config = {"extra": "forbid"}
 
     execution_id: str
@@ -515,12 +414,8 @@ class ExecutionRecordResponse(BaseModel):
     output: Optional[Dict[str, Any]] = None
     error: Optional[Dict[str, Any]] = None
     timing: Optional[ExecutionTimingResponse] = None
-    """Detailed timing breakdown by execution phase."""
 
     runtime: Optional[str] = None
-    """Effective isolation runtime the job ran under: 'runsc' (gVisor) or 'runc'
-    (weaker fallback). None for legacy records predating this field. Lets a
-    caller confirm a job had the gVisor boundary before trusting its output."""
 
     @classmethod
     def from_record(cls, record: ExecutionRecord) -> "ExecutionRecordResponse":
@@ -554,8 +449,6 @@ class ExecutionRecordResponse(BaseModel):
 
 
 class JobTypeResponse(BaseModel):
-    """Response model for job type info."""
-
     model_config = {"extra": "forbid"}
 
     name: str
@@ -571,7 +464,6 @@ class JobTypeResponse(BaseModel):
 
     @classmethod
     def from_job_type(cls, jt, builder) -> "JobTypeResponse":
-        """Build a response from a job type, resolving image availability."""
         return cls(
             name=jt.name,
             requirements=jt.requirements,
@@ -587,8 +479,6 @@ class JobTypeResponse(BaseModel):
 
 
 class CircuitBreakerStatus(BaseModel):
-    """Circuit breaker status for health monitoring."""
-
     model_config = {"extra": "forbid"}
 
     state: Literal["closed", "open", "half_open"] = Field(..., description="Circuit breaker state")
@@ -598,8 +488,6 @@ class CircuitBreakerStatus(BaseModel):
 
 
 class QueueStatsResponse(BaseModel):
-    """Worker pool queue statistics."""
-
     model_config = {"extra": "forbid"}
 
     pending: int = Field(..., description="Number of jobs waiting in queue")
@@ -609,8 +497,6 @@ class QueueStatsResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Response model for health check."""
-
     model_config = {"extra": "forbid"}
 
     status: HealthStatus
@@ -622,14 +508,10 @@ class HealthResponse(BaseModel):
     queue_stats: QueueStatsResponse
 
 
-# /pool/stats and /health.queue_stats return byte-identical shapes, so they
-# share a single model rather than maintaining two copies that can drift.
 PoolStatsResponse = QueueStatsResponse
 
 
 class PaginatedResponse(BaseModel):
-    """Paginated list response with metadata."""
-
     model_config = {"extra": "forbid"}
 
     items: List[Any] = Field(..., description="List of items")
@@ -640,8 +522,6 @@ class PaginatedResponse(BaseModel):
 
 
 class CancelResponse(BaseModel):
-    """Response model for job cancellation."""
-
     model_config = {"extra": "forbid"}
 
     status: Literal["cancelled"] = Field(..., description="Cancellation status")
@@ -649,8 +529,6 @@ class CancelResponse(BaseModel):
 
 
 class DLQStatsResponse(BaseModel):
-    """Response model for DLQ statistics."""
-
     model_config = {"extra": "forbid"}
 
     total: int = Field(..., description="Total number of entries in DLQ")
@@ -658,8 +536,6 @@ class DLQStatsResponse(BaseModel):
 
 
 class BuildResponse(BaseModel):
-    """Response model for job type build."""
-
     model_config = {"extra": "forbid"}
 
     status: Literal["built"] = Field(..., description="Build status")
@@ -670,8 +546,6 @@ class BuildResponse(BaseModel):
 
 
 class DLQRemoveResponse(BaseModel):
-    """Response model for DLQ entry removal."""
-
     model_config = {"extra": "forbid"}
 
     status: Literal["removed"] = Field(..., description="Removal status")
@@ -679,8 +553,6 @@ class DLQRemoveResponse(BaseModel):
 
 
 class RerunRequest(BaseModel):
-    """Request model for rerunning a previous execution."""
-
     model_config = {"extra": "forbid"}
 
     job_type: Optional[str] = Field(
@@ -701,8 +573,6 @@ class RerunRequest(BaseModel):
 
 
 class ForkRequest(BaseModel):
-    """Request model for forking a previous execution with modified code."""
-
     model_config = {"extra": "forbid"}
 
     code: str = Field(
@@ -732,10 +602,7 @@ class ForkRequest(BaseModel):
         return v
 
 
-# Full response models for ?view=full support
 class ArtifactResponse(BaseModel):
-    """Artifact metadata for API responses."""
-
     model_config = {"extra": "forbid"}
 
     name: str = Field(..., description="Artifact filename")
@@ -745,7 +612,6 @@ class ArtifactResponse(BaseModel):
 
     @classmethod
     def from_model(cls, artifact) -> "ArtifactResponse":
-        """Build from an Artifact / InputArtifact model (same field shape)."""
         return cls(
             name=artifact.name,
             size_bytes=artifact.size_bytes,
@@ -755,8 +621,6 @@ class ArtifactResponse(BaseModel):
 
 
 class ResourceUsageResponse(BaseModel):
-    """Resource consumption metrics."""
-
     model_config = {"extra": "forbid"}
 
     max_rss_mb: Optional[float] = Field(default=None, description="Peak RSS in MB")
@@ -765,35 +629,23 @@ class ResourceUsageResponse(BaseModel):
 
 
 class ExecutionRecordFullResponse(ExecutionRecordResponse):
-    """
-    Extended execution record response with full audit trail.
-
-    Use ?view=full query parameter to request this extended response.
-    Includes artifacts, resource usage, content hashes, and lineage info.
-    """
-
-    # Pinned environment (key differentiator for reproducibility)
     job_ref: str = Field(
         ..., description="Full job reference with digest (e.g., 'data-processing@sha256:...')"
     )
 
-    # Artifact metadata
     artifacts: List[ArtifactResponse] = Field(default_factory=list, description="Output artifacts")
     input_artifacts: List[ArtifactResponse] = Field(
         default_factory=list,
         description="Input artifacts (includes internal _code.py, _input.json)",
     )
 
-    # Resource tracking
     resource_usage: Optional[ResourceUsageResponse] = Field(
         default=None, description="Resource consumption metrics"
     )
 
-    # Content hashes (for replay verification)
     code_hash: Optional[str] = Field(default=None, description="SHA256 hash of submitted code")
     input_hash: Optional[str] = Field(default=None, description="SHA256 hash of input_data")
 
-    # Lineage
     parent_execution_id: Optional[str] = Field(
         default=None, description="Parent execution ID (for rerun/fork)"
     )
@@ -801,29 +653,18 @@ class ExecutionRecordFullResponse(ExecutionRecordResponse):
         default=None, description="Relationship to parent: 'rerun' or 'fork'"
     )
 
-    # Truncation flags
     stdout_truncated: bool = Field(default=False, description="Whether stdout was truncated")
     stderr_truncated: bool = Field(default=False, description="Whether stderr was truncated")
 
-    # Idempotency
     idempotency_key: Optional[str] = Field(
         default=None, description="Client-provided idempotency key"
     )
 
     @classmethod
     def from_record(cls, record: ExecutionRecord) -> "ExecutionRecordFullResponse":
-        """Create full response from ExecutionRecord.
-
-        The base fields (including ``timing`` and ``runtime``) are taken from
-        ``ExecutionRecordResponse.from_record`` rather than re-mapped here: when
-        this override hand-copied the base fields it silently dropped ``timing``
-        (and later ``runtime``), so ``?view=full`` returned them as null while
-        the slim view did not. Delegating keeps the two views in lockstep.
-        """
         base = ExecutionRecordResponse.from_record(record).model_dump()
         return cls(
             **base,
-            # Extended fields only
             job_ref=record.job_ref,
             artifacts=[ArtifactResponse.from_model(a) for a in record.artifacts],
             input_artifacts=[ArtifactResponse.from_model(a) for a in record.input_artifacts],
@@ -844,10 +685,8 @@ class ExecutionRecordFullResponse(ExecutionRecordResponse):
         )
 
 
-# Middleware for security headers
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    """Add security headers to all responses."""
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -855,25 +694,13 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-# Routes
 @app.get("/", include_in_schema=False)
 async def root():
-    """Redirect to API documentation."""
     return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """
-    Health check endpoint.
-
-    Returns:
-        Health status including Docker availability, circuit breaker, and queue stats
-    """
-    # /health is exempt from auth and is what load balancers poll during
-    # startup/shutdown. Before lifespan assigns the worker pool (or after
-    # stop()), report a clear 503 "starting" instead of letting the
-    # state.worker_pool access raise an opaque 500.
     if not hasattr(state, "worker_pool"):
         return JSONResponse(
             status_code=503,
@@ -885,7 +712,6 @@ async def health_check():
     gvisor_available = check_gvisor_available()
     cb_status = circuit_breaker.get_status()
 
-    # Determine overall status
     if not docker_available:
         status = "degraded"
     elif cb_status["state"] == "open":
@@ -907,22 +733,6 @@ async def health_check():
 
 @app.post("/execute", response_model=ExecuteResponse)
 async def execute_code(request: ExecuteRequest, http_request: Request):
-    """
-    Execute Python code synchronously (legacy endpoint).
-
-    The code runs in an isolated container with:
-    - No network access by default (configurable via job type)
-    - Read-only filesystem (except /output and /tmp)
-    - Configurable resource limits
-    - Configurable timeout
-
-    Args:
-        request: Execution request with code, input_data, and timeout
-        http_request: Incoming HTTP request (used for client IP auditing)
-
-    Returns:
-        Execution results including output, stdout, stderr, and execution_id
-    """
     _validate_execution_timeout(request.timeout, request.job_type)
     job_id = _generate_sync_job_id()
 
@@ -947,11 +757,6 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
 
         client_ip = http_request.client.host if http_request.client else None
 
-        # Docker execution is fully synchronous (blocking subprocess) and can
-        # take up to startup_timeout + timeout. Run it off the event loop so a
-        # sync request cannot freeze /health, job polling, and the worker pool.
-        # CodeExecutor is already invoked from threads by the async worker pool
-        # (WorkerPool thread_pool), so threaded use is consistent.
         record = await asyncio.to_thread(
             state.executor.execute_job_with_record,
             job_id=job_id,
@@ -960,9 +765,6 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
         )
         execution_time = time.time() - start_time
 
-        # Persist the audit record, best-effort: the code already ran, so a
-        # storage failure must not turn a completed execution into an error.
-        # Log a warning and still return the result to the client.
         try:
             await state.storage.save_record(record)
         except Exception as storage_err:
@@ -990,29 +792,15 @@ async def execute_code(request: ExecuteRequest, http_request: Request):
 
     except Exception as e:
         logger.error("Job %s error: %s", job_id, str(e), exc_info=True)
-        # Sanitize error message to avoid leaking sensitive info
         safe_message = sanitize_error(str(e))
         raise HTTPException(status_code=500, detail=f"Execution error: {safe_message}") from e
 
 
 @app.post("/execute/async", response_model=AsyncExecuteResponse)
 async def execute_code_async(request: ExecuteRequest, http_request: Request):
-    """
-    Submit code for async execution.
-
-    Returns immediately with a job_id that can be used to poll for results.
-    Supports idempotency via idempotency_key parameter.
-
-    Args:
-        request: Execution request with code, input_data, timeout, and optional idempotency_key
-
-    Returns:
-        Job ID and queued status
-    """
     _validate_execution_timeout(request.timeout, request.job_type)
 
     try:
-        # For idempotent requests, use keyed lock to prevent race conditions
         if request.idempotency_key:
             async with state.idempotency_locks.acquire(request.idempotency_key):
                 return await _submit_async_job(request, http_request)
@@ -1022,7 +810,6 @@ async def execute_code_async(request: ExecuteRequest, http_request: Request):
     except HTTPException:
         raise
     except RuntimeError as e:
-        # Queue full should return 503 Service Unavailable
         logger.warning("Async submit rejected: %s", str(e))
         safe_message = sanitize_error(str(e))
         raise HTTPException(status_code=503, detail=safe_message) from e
@@ -1033,16 +820,9 @@ async def execute_code_async(request: ExecuteRequest, http_request: Request):
 
 
 async def _submit_async_job(request: ExecuteRequest, http_request: Request) -> AsyncExecuteResponse:
-    """
-    Internal helper for async job submission.
-
-    Separated to allow idempotency locking around the entire check+submit flow.
-    """
-    # Check idempotency key BEFORE queueing
     if request.idempotency_key:
         existing = await state.storage.get_by_idempotency_key(request.idempotency_key)
         if existing:
-            # Verify fingerprint matches (detect key reuse with different payload)
             expected_fingerprint = compute_idempotency_fingerprint(
                 request.code,
                 request.input_data,
@@ -1060,14 +840,11 @@ async def _submit_async_job(request: ExecuteRequest, http_request: Request) -> A
                     status_code=409, detail="Idempotency key reused with different payload"
                 )
 
-            # Return existing job
             logger.info(f"Idempotency hit: returning existing job {existing.execution_id}")
             return AsyncExecuteResponse(job_id=existing.execution_id, status=existing.status)
 
-    # Include correlation ID in job data for tracing
     correlation_id = get_correlation_id()
 
-    # Compute fingerprint at submission time for storage
     idempotency_fingerprint = None
     if request.idempotency_key:
         idempotency_fingerprint = compute_idempotency_fingerprint(
@@ -1123,15 +900,6 @@ async def _submit_async_job(request: ExecuteRequest, http_request: Request) -> A
 
 @app.get("/jobs/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
-    """
-    Get status of an async job.
-
-    Args:
-        job_id: Job ID returned from /execute/async
-
-    Returns:
-        Job status and metadata
-    """
     status = await state.worker_pool.get_job_status(job_id)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1150,28 +918,14 @@ async def get_job_result(
         default=None, description="Use 'full' for extended response with artifacts, hashes, lineage"
     ),
 ):
-    """
-    Get result of an async job.
-
-    Args:
-        job_id: Job ID
-        wait: If true, wait for job completion
-        timeout: Max time to wait if wait=true
-        view: Use 'full' for extended response with artifacts, resource usage, hashes, and lineage
-
-    Returns:
-        Execution record (slim by default, full with ?view=full)
-    """
     try:
         if wait:
             record = await state.worker_pool.wait_for_result(job_id, timeout=timeout)
         else:
             record = await state.storage.get_record(job_id)
             if not record:
-                # Check if still in queue
                 status = await state.worker_pool.get_job_status(job_id)
                 if status and status.get("status") in ("pending", "running"):
-                    # Return 200 with job status instead of 202
                     return JSONResponse(
                         status_code=200,
                         content={
@@ -1195,15 +949,6 @@ async def get_job_result(
 
 @app.post("/jobs/{job_id}/cancel", response_model=CancelResponse)
 async def cancel_job(job_id: str):
-    """
-    Cancel a queued or running job.
-
-    Args:
-        job_id: Job ID to cancel
-
-    Returns:
-        Cancellation status
-    """
     success = await state.worker_pool.cancel(job_id)
     if not success:
         raise HTTPException(status_code=404, detail="Job not found or already completed")
@@ -1212,23 +957,10 @@ async def cancel_job(job_id: str):
 
 
 def _get_replay_data(record: ExecutionRecord) -> tuple:
-    """
-    Retrieve original code, input_data, and input_artifacts from stored artifacts.
-
-    Args:
-        record: ExecutionRecord to extract replay data from
-
-    Returns:
-        Tuple of (code, input_data, user_input_artifacts)
-
-    Raises:
-        HTTPException: If replay artifacts are not available
-    """
     import json
 
     data_dir = state.config.data_dir.resolve()
 
-    # Find _code.py in input_artifacts
     code_artifact = next((a for a in record.input_artifacts if a.name == "_code.py"), None)
     if not code_artifact:
         raise HTTPException(status_code=400, detail="Original code not available for replay")
@@ -1238,7 +970,6 @@ def _get_replay_data(record: ExecutionRecord) -> tuple:
         raise HTTPException(status_code=400, detail="Original code file not found")
     code = code_path.read_text(encoding="utf-8")
 
-    # Find _input.json in input_artifacts
     input_artifact = next((a for a in record.input_artifacts if a.name == "_input.json"), None)
     if not input_artifact:
         raise HTTPException(status_code=400, detail="Original input not available for replay")
@@ -1248,7 +979,6 @@ def _get_replay_data(record: ExecutionRecord) -> tuple:
         raise HTTPException(status_code=400, detail="Original input file not found")
     input_data = json.loads(input_path.read_text(encoding="utf-8"))
 
-    # Get non-internal input artifacts (user-provided files, exclude _* internal artifacts)
     user_artifacts = [a.model_dump() for a in record.input_artifacts if not a.name.startswith("_")]
 
     return code, input_data, user_artifacts
@@ -1265,11 +995,6 @@ async def _submit_replay(
     timeout: Optional[int],
     http_request: Request,
 ) -> AsyncExecuteResponse:
-    """Build and submit a rerun/fork job that links back to ``parent``.
-
-    Shared by the rerun and fork endpoints, which differ only in which code
-    they replay and the relationship recorded on the new job.
-    """
     resolved_job_type = job_type or parent.job_type
     _validate_execution_timeout(timeout, resolved_job_type)
 
@@ -1297,27 +1022,11 @@ async def _submit_replay(
 
 @app.post("/jobs/{job_id}/rerun", response_model=AsyncExecuteResponse)
 async def rerun_job(job_id: str, request: RerunRequest, http_request: Request):
-    """
-    Rerun a previous execution with the same code and inputs.
-
-    Creates a new job with the same code and input_data as the original,
-    optionally with different job_type or timeout settings. The new job
-    will have a parent_execution_id pointing to the original and
-    relationship='rerun'.
-
-    Args:
-        job_id: ID of the job to rerun
-        request: Optional overrides for job_type and timeout
-
-    Returns:
-        New job ID and status
-    """
     _validate_execution_timeout(request.timeout)
     parent = await state.storage.get_record(job_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Can only rerun completed jobs
     if parent.status not in ("succeeded", "failed", "timeout", "oom", "cancelled"):
         raise HTTPException(status_code=400, detail="Cannot rerun job that hasn't completed")
 
@@ -1343,21 +1052,6 @@ async def rerun_job(job_id: str, request: RerunRequest, http_request: Request):
 
 @app.post("/jobs/{job_id}/fork", response_model=AsyncExecuteResponse)
 async def fork_job(job_id: str, request: ForkRequest, http_request: Request):
-    """
-    Fork a previous execution with new code but same inputs.
-
-    Creates a new job with new code but the same input_data as the original.
-    This is useful for iterating on code while keeping the same test inputs.
-    The new job will have a parent_execution_id pointing to the original
-    and relationship='fork'.
-
-    Args:
-        job_id: ID of the job to fork
-        request: New code and optional overrides
-
-    Returns:
-        New job ID and status
-    """
     _validate_execution_timeout(request.timeout)
     parent = await state.storage.get_record(job_id)
     if not parent:
@@ -1385,26 +1079,14 @@ async def fork_job(job_id: str, request: ForkRequest, http_request: Request):
 
 @app.get("/jobs/{job_id}/artifacts/{artifact_name}")
 async def download_artifact(job_id: str, artifact_name: str):
-    """
-    Download an artifact from a completed job.
-
-    Args:
-        job_id: Job ID
-        artifact_name: Name of the artifact to download
-
-    Returns:
-        Artifact file with appropriate Content-Type and ETag header
-    """
     record = await state.storage.get_record(job_id)
     if not record:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Find artifact by name (must exist in manifest)
     artifact = next((a for a in record.artifacts if a.name == artifact_name), None)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # PATH TRAVERSAL PREVENTION: resolve and verify the path stays under data_dir.
     data_dir = state.config.data_dir.resolve()
     artifact_path = _resolve_under_data_dir(data_dir, artifact.storage_key)
 
@@ -1421,16 +1103,6 @@ async def download_artifact(job_id: str, artifact_name: str):
 
 @app.head("/jobs/{job_id}/artifacts/{artifact_name}")
 async def artifact_metadata(job_id: str, artifact_name: str):
-    """
-    Get artifact metadata without downloading content.
-
-    Args:
-        job_id: Job ID
-        artifact_name: Name of the artifact
-
-    Returns:
-        Response with Content-Length, Content-Type, and ETag headers
-    """
     record = await state.storage.get_record(job_id)
     if not record:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1463,16 +1135,10 @@ async def list_executions(
         default=None, description="Use 'full' for extended response with artifacts, hashes, lineage"
     ),
 ):
-    """
-    List execution records with pagination.
-
-    Returns paginated list of execution records with metadata for efficient client-side pagination.
-    Use ?view=full to include artifacts, resource usage, content hashes, and lineage info.
-    """
     records = await state.storage.list_records(
         status=status,
         job_type=job_type,
-        limit=limit + 1,  # Fetch one extra to check has_more
+        limit=limit + 1,
         offset=offset,
     )
 
@@ -1501,16 +1167,6 @@ async def get_execution(
         default=None, description="Use 'full' for extended response with artifacts, hashes, lineage"
     ),
 ):
-    """
-    Get a specific execution record.
-
-    Args:
-        execution_id: Execution ID
-        view: Use 'full' for extended response with artifacts, resource usage, hashes, and lineage
-
-    Returns:
-        Execution record (slim by default, full with ?view=full)
-    """
     record = await state.storage.get_record(execution_id)
     if not record:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -1520,15 +1176,8 @@ async def get_execution(
     return ExecutionRecordResponse.from_record(record)
 
 
-# Job Type Management Endpoints
 @app.get("/job-types", response_model=List[JobTypeResponse])
 async def list_job_types():
-    """
-    List all registered job types.
-
-    Returns:
-        List of job type configurations with image availability status
-    """
     from tako_vm.execution.builder import ContainerBuilder
 
     builder = ContainerBuilder()
@@ -1538,15 +1187,6 @@ async def list_job_types():
 
 @app.get("/job-types/{name}", response_model=JobTypeResponse)
 async def get_job_type(name: str):
-    """
-    Get a specific job type by name.
-
-    Args:
-        name: Job type name
-
-    Returns:
-        Job type configuration
-    """
     from tako_vm.execution.builder import ContainerBuilder
 
     jt = state.registry.get(name)
@@ -1559,16 +1199,6 @@ async def get_job_type(name: str):
 
 @app.post("/job-types/{name}/build", response_model=BuildResponse)
 async def build_job_type(name: str, version_tag: Optional[str] = None):
-    """
-    Explicitly build a job type container image.
-
-    Args:
-        name: Job type name
-        version_tag: Optional semantic version tag
-
-    Returns:
-        Build status and version info
-    """
     from tako_vm.execution.builder import ContainerBuilder
     from tako_vm.version import VersionManager
 
@@ -1580,7 +1210,6 @@ async def build_job_type(name: str, version_tag: Optional[str] = None):
         builder = ContainerBuilder()
         builder.build(jt, quiet=False)
 
-        # Register version
         version_manager = VersionManager(state.storage)
         version = await version_manager.register_version(
             job_type=jt, image_ref=jt.image_name, version_tag=version_tag, built_by="manual"
@@ -1603,20 +1232,12 @@ async def build_job_type(name: str, version_tag: Optional[str] = None):
 
 @app.get("/pool/stats", response_model=PoolStatsResponse)
 async def get_pool_stats():
-    """Get worker pool statistics."""
     stats = await state.worker_pool.get_stats()
     return PoolStatsResponse(**stats)
 
 
-# Dead Letter Queue Endpoints
 @app.get("/dlq/stats", response_model=DLQStatsResponse)
 async def get_dlq_stats():
-    """
-    Get dead letter queue statistics.
-
-    Returns:
-        DLQ stats including total count and breakdown by error type
-    """
     stats = await state.storage.get_dlq_stats()
     return DLQStatsResponse(**stats)
 
@@ -1631,14 +1252,9 @@ async def list_dlq_entries(
     ),
     offset: int = Query(default=0, ge=0, description="Number of entries to skip for pagination"),
 ):
-    """
-    List dead letter queue entries with pagination.
-
-    Returns paginated list of failed jobs for debugging and reprocessing.
-    """
     entries = await state.storage.list_dlq_entries(
         error_type=error_type,
-        limit=limit + 1,  # Fetch one extra to check has_more
+        limit=limit + 1,
         offset=offset,
     )
 
@@ -1657,26 +1273,14 @@ async def list_dlq_entries(
 
 @app.delete("/dlq/{entry_id}", response_model=DLQRemoveResponse)
 async def remove_dlq_entry(entry_id: int):
-    """
-    Remove an entry from the dead letter queue.
-
-    Args:
-        entry_id: DLQ entry ID
-
-    Returns:
-        Removal status
-    """
     if await state.storage.remove_from_dlq(entry_id):
         return DLQRemoveResponse(status="removed", entry_id=entry_id)
     raise HTTPException(status_code=404, detail="DLQ entry not found")
 
 
-# Error handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle uncaught exceptions with correlation ID for tracing."""
     correlation_id = get_correlation_id()
-    # Sanitize error for logging (full details only in debug logs)
     safe_error = sanitize_error(str(exc))
     logger.error(
         "Unhandled exception (correlation_id=%s): %s", correlation_id, safe_error, exc_info=True
@@ -1693,9 +1297,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with sanitized error messages."""
     correlation_id = get_correlation_id()
-    # Sanitize detail if it contains a string
     detail = exc.detail
     if isinstance(detail, str):
         detail = sanitize_error(detail)

@@ -1,9 +1,3 @@
-"""
-Tests for the ExecutionStorage class (PostgreSQL persistence).
-
-Tests CRUD operations for ExecutionRecords, JobVersions, and DeadLetterQueue.
-"""
-
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
@@ -25,20 +19,15 @@ from tako_vm.storage import ExecutionStorage
 
 @pytest.fixture
 def storage(test_storage):
-    """Reuse shared Postgres-backed storage fixture from conftest."""
     return test_storage
 
 
 class TestExecutionStorageInit:
-    """Tests for storage initialization."""
-
     def test_init_creates_database(self, storage):
-        """Storage init creates tables and accepts connections."""
         records = storage.list_records(limit=1, offset=0)
         assert records == []
 
     def test_init_idempotent(self, storage):
-        """Multiple init calls are safe."""
         db_url = os.environ.get(
             "TAKO_VM_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tako_vm_test"
         )
@@ -51,10 +40,7 @@ class TestExecutionStorageInit:
 
 
 class TestExecutionRecordCRUD:
-    """Tests for ExecutionRecord save/get/list operations."""
-
     def test_save_and_get_record(self, storage):
-        """Can save and retrieve an execution record."""
         record = ExecutionRecord(
             execution_id="test-123",
             status="succeeded",
@@ -76,12 +62,10 @@ class TestExecutionRecordCRUD:
         assert retrieved.exit_code == 0
 
     def test_get_nonexistent_record(self, storage):
-        """Get returns None for nonexistent record."""
         result = storage.get_record("nonexistent")
         assert result is None
 
     def test_save_record_with_all_fields(self, storage):
-        """Can save record with all optional fields populated."""
         now = datetime.now(timezone.utc)
         record = ExecutionRecord(
             execution_id="full-record",
@@ -162,7 +146,6 @@ class TestExecutionRecordCRUD:
         assert retrieved.relationship == "rerun"
 
     def test_update_record(self, storage):
-        """Can update an existing record."""
         record = ExecutionRecord(
             execution_id="update-test",
             status="queued",
@@ -171,7 +154,6 @@ class TestExecutionRecordCRUD:
         )
         storage.save_record(record)
 
-        # Update status
         record.status = "running"
         storage.save_record(record)
 
@@ -179,12 +161,10 @@ class TestExecutionRecordCRUD:
         assert retrieved.status == "running"
 
     def test_list_records_empty(self, storage):
-        """List returns empty list when no records."""
         records = storage.list_records()
         assert records == []
 
     def test_list_records_pagination(self, storage):
-        """List supports pagination."""
         for i in range(10):
             storage.save_record(
                 ExecutionRecord(
@@ -195,21 +175,17 @@ class TestExecutionRecordCRUD:
                 )
             )
 
-        # Get first page
         page1 = storage.list_records(limit=3, offset=0)
         assert len(page1) == 3
 
-        # Get second page
         page2 = storage.list_records(limit=3, offset=3)
         assert len(page2) == 3
 
-        # Verify different records
         ids1 = {r.execution_id for r in page1}
         ids2 = {r.execution_id for r in page2}
         assert ids1.isdisjoint(ids2)
 
     def test_list_records_filter_by_status(self, storage):
-        """List can filter by status."""
         storage.save_record(
             ExecutionRecord(
                 execution_id="rec-1", status="succeeded", code_hash="a" * 64, input_hash="b" * 64
@@ -231,7 +207,6 @@ class TestExecutionRecordCRUD:
         assert all(r.status == "succeeded" for r in succeeded)
 
     def test_list_records_filter_by_job_type(self, storage):
-        """List can filter by job type."""
         storage.save_record(
             ExecutionRecord(
                 execution_id="rec-1",
@@ -256,7 +231,6 @@ class TestExecutionRecordCRUD:
         assert type_a[0].job_type == "type-a"
 
     def test_get_by_idempotency_key(self, storage):
-        """Can retrieve record by idempotency key."""
         storage.save_record(
             ExecutionRecord(
                 execution_id="idem-test",
@@ -272,16 +246,12 @@ class TestExecutionRecordCRUD:
         assert retrieved.execution_id == "idem-test"
 
     def test_get_by_idempotency_key_not_found(self, storage):
-        """Returns None for nonexistent idempotency key."""
         result = storage.get_by_idempotency_key("nonexistent")
         assert result is None
 
 
 class TestCleanup:
-    """Tests for cleanup operations."""
-
     def test_cleanup_old_records(self, storage):
-        """Cleanup deletes records older than TTL."""
         old_time = datetime.now(timezone.utc) - timedelta(days=10)
         recent_time = datetime.now(timezone.utc)
 
@@ -312,10 +282,7 @@ class TestCleanup:
 
 
 class TestJobVersions:
-    """Tests for JobVersion operations."""
-
     def test_save_and_get_version(self, storage):
-        """Can save and retrieve a job version."""
         version = JobVersion(
             digest="a" * 64,
             job_type_name="test-job",
@@ -335,7 +302,6 @@ class TestJobVersions:
         assert retrieved.version_tag == "v1.0.0"
 
     def test_get_version_by_short_digest(self, storage):
-        """Can retrieve version with short digest prefix."""
         version = JobVersion(
             digest="abcdef1234567890" + "0" * 48,
             job_type_name="test-job",
@@ -351,7 +317,6 @@ class TestJobVersions:
         assert retrieved.version_tag == "v1.0.0"
 
     def test_get_version_by_tag(self, storage):
-        """Can retrieve version by tag."""
         version = JobVersion(
             digest="a" * 64,
             job_type_name="test-job",
@@ -367,7 +332,6 @@ class TestJobVersions:
         assert retrieved.digest == "a" * 64
 
     def test_get_latest_version(self, storage):
-        """Get latest version returns most recent."""
         old_time = datetime.now(timezone.utc) - timedelta(days=1)
         new_time = datetime.now(timezone.utc)
 
@@ -399,7 +363,6 @@ class TestJobVersions:
         assert latest.version_tag == "v2.0.0"
 
     def test_list_versions(self, storage):
-        """Can list all versions for a job type."""
         for i in range(3):
             storage.save_version(
                 JobVersion(
@@ -417,10 +380,7 @@ class TestJobVersions:
 
 
 class TestDeadLetterQueue:
-    """Tests for Dead Letter Queue operations."""
-
     def test_add_and_get_dlq_entry(self, storage):
-        """Can add and retrieve DLQ entry."""
         entry = DeadLetterEntry(
             job_id="failed-job-123",
             job_data={"code": "print('fail')", "input_data": {}},
@@ -442,7 +402,6 @@ class TestDeadLetterQueue:
         assert retrieved.retry_count == 2
 
     def test_list_dlq_entries(self, storage):
-        """Can list DLQ entries with pagination."""
         for i in range(5):
             storage.add_to_dlq(
                 DeadLetterEntry(
@@ -460,7 +419,6 @@ class TestDeadLetterQueue:
         assert len(page) == 2
 
     def test_list_dlq_filter_by_error_type(self, storage):
-        """Can filter DLQ by error type."""
         storage.add_to_dlq(
             DeadLetterEntry(job_id="job-1", job_data={}, error_type="timeout", error_message="Err")
         )
@@ -476,7 +434,6 @@ class TestDeadLetterQueue:
         assert all(e.error_type == "timeout" for e in timeout_entries)
 
     def test_remove_from_dlq(self, storage):
-        """Can remove entry from DLQ."""
         entry_id = storage.add_to_dlq(
             DeadLetterEntry(job_id="job-1", job_data={}, error_type="timeout", error_message="Err")
         )
@@ -484,16 +441,13 @@ class TestDeadLetterQueue:
         removed = storage.remove_from_dlq(entry_id)
         assert removed is True
 
-        # Verify removed
         assert storage.get_dlq_entry(entry_id) is None
 
     def test_remove_nonexistent_dlq_entry(self, storage):
-        """Remove returns False for nonexistent entry."""
         removed = storage.remove_from_dlq(99999)
         assert removed is False
 
     def test_dlq_stats(self, storage):
-        """Can get DLQ statistics."""
         storage.add_to_dlq(
             DeadLetterEntry(job_id="job-1", job_data={}, error_type="timeout", error_message="Err")
         )
@@ -510,7 +464,6 @@ class TestDeadLetterQueue:
         assert stats["by_error_type"]["oom"] == 1
 
     def test_cleanup_old_dlq_entries(self, storage):
-        """Cleanup deletes old DLQ entries."""
         old_entry = DeadLetterEntry(
             job_id="old-job",
             job_data={},
@@ -538,8 +491,6 @@ class TestDeadLetterQueue:
 
 
 class TestReconcileStaleRecords:
-    """Tests for startup reconciliation of stale queued/running records."""
-
     @staticmethod
     def _make_record(execution_id: str, status: str, **kwargs) -> ExecutionRecord:
         return ExecutionRecord(
@@ -551,7 +502,6 @@ class TestReconcileStaleRecords:
         )
 
     def test_reconcile_marks_queued_and_running_as_failed(self, storage):
-        """Stale queued/running records become failed with an interrupted error."""
         storage.save_record(self._make_record("stale-queued", "queued"))
         storage.save_record(self._make_record("stale-running", "running"))
 
@@ -568,7 +518,6 @@ class TestReconcileStaleRecords:
             assert "interrupted by server restart" in record.error.message
 
     def test_reconcile_leaves_terminal_records_untouched(self, storage):
-        """Records already in a terminal state are not modified."""
         storage.save_record(self._make_record("done-ok", "succeeded", exit_code=0, stdout="ok"))
         storage.save_record(
             self._make_record(
@@ -591,16 +540,12 @@ class TestReconcileStaleRecords:
         assert cancelled.error.type == "cancelled"
 
     def test_reconcile_with_no_stale_records(self, storage):
-        """Reconcile returns 0 when nothing is stale."""
         storage.save_record(self._make_record("done", "succeeded", exit_code=0))
         assert storage.reconcile_stale_records() == 0
 
 
 class TestMarkRecordRunning:
-    """Tests for persisting the queued -> running transition."""
-
     def test_mark_running_updates_queued_record(self, storage):
-        """A queued record transitions to running with dequeued_at/worker_id set."""
         record = ExecutionRecord(
             execution_id="run-me",
             status="queued",
@@ -618,7 +563,6 @@ class TestMarkRecordRunning:
         assert retrieved.worker_id == "worker-3"
 
     def test_mark_running_skips_non_queued_records(self, storage):
-        """Terminal records are never moved back to running."""
         record = ExecutionRecord(
             execution_id="already-done",
             status="succeeded",
@@ -633,15 +577,11 @@ class TestMarkRecordRunning:
         assert storage.get_record("already-done").status == "succeeded"
 
     def test_mark_running_missing_record(self, storage):
-        """Marking a nonexistent record returns False."""
         assert storage.mark_record_running("nope") is False
 
 
 class TestRecordHydrationRobustness:
-    """Tests for robust hydration of stored execution records."""
-
     def test_resource_usage_round_trip_with_only_max_rss(self, storage):
-        """ResourceUsage survives a round-trip when only max_rss_mb is set."""
         record = ExecutionRecord(
             execution_id="rss-only",
             status="succeeded",
@@ -660,7 +600,6 @@ class TestRecordHydrationRobustness:
         assert retrieved.resource_usage.wall_time_ms is None
 
     def test_resource_usage_absent_stays_none(self, storage):
-        """A record saved without resource usage still loads with None."""
         record = ExecutionRecord(
             execution_id="no-usage",
             status="succeeded",
@@ -675,8 +614,6 @@ class TestRecordHydrationRobustness:
         assert retrieved.resource_usage is None
 
     def test_corrupted_error_json_loads_with_fallback(self, storage):
-        """A record whose stored error payload no longer parses still loads,
-        with a loud internal_error fallback instead of a silent None."""
         from psycopg.types.json import Jsonb
 
         record = ExecutionRecord(
@@ -700,15 +637,13 @@ class TestRecordHydrationRobustness:
         storage._run(_corrupt())
 
         retrieved = storage.get_record("corrupt-error")
-        assert retrieved is not None  # record must still load
+        assert retrieved is not None
         assert retrieved.error is not None
         assert retrieved.error.type == "internal_error"
         assert "stored error payload could not be decoded" in retrieved.error.message
 
 
 class TestDigestResolutionStrictness:
-    """Tests for strict digest prefix resolution in get_version_by_digest."""
-
     @staticmethod
     def _make_version(digest: str, tag: str, built_at=None) -> JobVersion:
         kwargs = {"built_at": built_at} if built_at is not None else {}
@@ -723,25 +658,20 @@ class TestDigestResolutionStrictness:
         )
 
     def test_empty_digest_rejected(self, storage):
-        """An empty digest raises instead of matching every version."""
         storage.save_version(self._make_version("a" * 64, "v1"))
 
         with pytest.raises(ValueError, match="Invalid digest"):
             storage.get_version_by_digest("digest-job", "")
 
     def test_short_prefix_rejected(self, storage):
-        """Prefixes shorter than 12 hex chars are rejected."""
         storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
 
         with pytest.raises(ValueError, match="Invalid digest"):
-            storage.get_version_by_digest("digest-job", "abcdef12345")  # 11 chars
+            storage.get_version_by_digest("digest-job", "abcdef12345")
 
     def test_non_hex_digest_rejected(self, storage):
-        """Non-hex digests (including SQL LIKE wildcards) are rejected, so a
-        wildcard never matches everything."""
         storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
 
-        # '%' would previously act as an unescaped LIKE wildcard.
         with pytest.raises(ValueError, match="Invalid digest"):
             storage.get_version_by_digest("digest-job", "abc%def12345")
 
@@ -749,7 +679,6 @@ class TestDigestResolutionStrictness:
             storage.get_version_by_digest("digest-job", "abcdef_2345678")
 
     def test_valid_prefix_resolves(self, storage):
-        """A 12+ hex char unique prefix resolves to the matching version."""
         storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
 
         retrieved = storage.get_version_by_digest("digest-job", "abcdef123456")
@@ -757,14 +686,11 @@ class TestDigestResolutionStrictness:
         assert retrieved.version_tag == "v1"
 
     def test_unmatched_prefix_returns_none(self, storage):
-        """A valid prefix that matches nothing returns None."""
         storage.save_version(self._make_version("abcdef1234567890" + "0" * 48, "v1"))
 
         assert storage.get_version_by_digest("digest-job", "f" * 12) is None
 
     def test_ambiguous_prefix_raises(self, storage):
-        """A prefix matching multiple versions raises instead of silently
-        resolving to the newest one."""
         old_time = datetime.now(timezone.utc) - timedelta(days=1)
         new_time = datetime.now(timezone.utc)
         shared_prefix = "deadbeef0123"
@@ -774,15 +700,12 @@ class TestDigestResolutionStrictness:
         with pytest.raises(ValueError, match="Ambiguous digest prefix"):
             storage.get_version_by_digest("digest-job", shared_prefix)
 
-        # Full digests still resolve unambiguously.
         retrieved = storage.get_version_by_digest("digest-job", shared_prefix + "a" * 52)
         assert retrieved is not None
         assert retrieved.version_tag == "v1"
 
 
 class TestSaveRecordUpsertIntegrity:
-    """save_record upsert must preserve submission fields and terminal status."""
-
     @staticmethod
     def _make_record(execution_id: str, status: str, **kwargs) -> ExecutionRecord:
         kwargs.setdefault("code_hash", "a" * 64)
@@ -790,8 +713,6 @@ class TestSaveRecordUpsertIntegrity:
         return ExecutionRecord(execution_id=execution_id, status=status, **kwargs)
 
     def test_resave_preserves_submission_fields(self, storage):
-        """A later save with fresh timestamps/hashes keeps the original
-        submission-identity fields while still updating outcome fields."""
         original_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         storage.save_record(
             self._make_record(
@@ -806,8 +727,6 @@ class TestSaveRecordUpsertIntegrity:
             )
         )
 
-        # Simulates the executor rebuilding a record at execution start with
-        # now() timestamps and freshly computed hashes.
         storage.save_record(
             self._make_record(
                 "upsert-submission",
@@ -822,11 +741,9 @@ class TestSaveRecordUpsertIntegrity:
         )
 
         retrieved = storage.get_record("upsert-submission")
-        # Outcome fields updated
         assert retrieved.status == "succeeded"
         assert retrieved.stdout == "done"
         assert retrieved.exit_code == 0
-        # Submission-identity fields preserved from the original row
         assert retrieved.created_at == original_time
         assert retrieved.queued_at == original_time
         assert retrieved.code_hash == "a" * 64
@@ -837,8 +754,6 @@ class TestSaveRecordUpsertIntegrity:
         assert retrieved.parent_execution_id == "parent-1"
 
     def test_dequeued_at_and_worker_id_survive_final_save(self, storage):
-        """dequeued_at/worker_id written by mark_record_running survive the
-        executor's final save, which does not know them."""
         storage.save_record(self._make_record("upsert-dequeue", "queued"))
         assert storage.mark_record_running("upsert-dequeue", worker_id="worker-7")
         intermediate = storage.get_record("upsert-dequeue")
@@ -853,8 +768,6 @@ class TestSaveRecordUpsertIntegrity:
         assert retrieved.worker_id == "worker-7"
 
     def test_terminal_record_not_overwritten(self, storage, caplog):
-        """A terminal (succeeded) record is not regressed by a stale write
-        (e.g. a cancel/complete race); save_record logs and returns."""
         import logging
 
         storage.save_record(self._make_record("upsert-terminal", "succeeded", stdout="ok"))
@@ -868,7 +781,6 @@ class TestSaveRecordUpsertIntegrity:
         assert any("Refused to overwrite terminal" in m for m in caplog.messages)
 
     def test_non_terminal_to_terminal_transition_allowed(self, storage):
-        """queued/running records can still transition to a terminal status."""
         storage.save_record(self._make_record("upsert-transition", "queued"))
         storage.save_record(self._make_record("upsert-transition", "running"))
         storage.save_record(self._make_record("upsert-transition", "failed", stderr="boom"))
@@ -879,11 +791,8 @@ class TestSaveRecordUpsertIntegrity:
 
 
 class TestSaveRecordRetry:
-    """save_record retries transient connection errors with backoff."""
-
     @staticmethod
     def _fake_pool(attempts: dict, failures: int, exc_factory):
-        """Pool whose connection() raises for the first `failures` attempts."""
 
         class FakeCursor:
             rowcount = 1
@@ -918,7 +827,6 @@ class TestSaveRecordRetry:
         )
 
     def test_transient_error_retried_then_succeeds(self, monkeypatch, caplog):
-        """Two OperationalErrors then success: record saved, two warnings."""
         import logging
 
         import psycopg
@@ -944,7 +852,6 @@ class TestSaveRecordRetry:
         assert len(retry_warnings) == 2
 
     def test_persistent_transient_error_raises(self, monkeypatch):
-        """OperationalError on every attempt eventually propagates."""
         import psycopg
 
         from tako_vm import storage as storage_module
@@ -966,7 +873,6 @@ class TestSaveRecordRetry:
         assert attempts["n"] == len(storage_module._SAVE_RECORD_RETRY_DELAYS) + 1
 
     def test_non_transient_error_not_retried(self, monkeypatch):
-        """IntegrityError (non-connection) propagates immediately, no retry."""
         import psycopg
 
         store = ExecutionStorage("postgresql://unused")
@@ -984,10 +890,7 @@ class TestSaveRecordRetry:
 
 
 class TestCorrelationIdPersistence:
-    """correlation_id round-trips through save/load and survives upserts (F11)."""
-
     def test_correlation_id_round_trip(self, storage):
-        """correlation_id persists through save and load."""
         record = ExecutionRecord(
             execution_id="corr-round-trip",
             status="succeeded",
@@ -1003,7 +906,6 @@ class TestCorrelationIdPersistence:
         assert retrieved.correlation_id == "req-abc-123"
 
     def test_correlation_id_defaults_to_none(self, storage):
-        """Records saved without a correlation_id hydrate with None."""
         record = ExecutionRecord(
             execution_id="corr-none",
             status="succeeded",
@@ -1018,9 +920,6 @@ class TestCorrelationIdPersistence:
         assert retrieved.correlation_id is None
 
     def test_correlation_id_survives_executor_rewrite(self, storage):
-        """Submission-identity policy: the executor's later write (which does
-        not know the correlation_id) must not erase the value persisted by the
-        preliminary queued record."""
         queued = ExecutionRecord(
             execution_id="corr-upsert",
             status="queued",
@@ -1047,10 +946,7 @@ class TestCorrelationIdPersistence:
 
 
 class TestRedactDLQMigration:
-    """Migration 0003 scrubs raw payloads from pre-redaction DLQ rows."""
-
     def test_migration_0003_redacts_legacy_dlq_rows(self, storage):
-        """Legacy rows lose code/input_data/idempotency keys and gain a marker."""
         from tako_vm.storage import MIGRATIONS
 
         legacy = DeadLetterEntry(
@@ -1076,9 +972,6 @@ class TestRedactDLQMigration:
         )
         clean_id = storage.add_to_dlq(clean)
 
-        # The fixture's init() already recorded 0003 in schema_migrations
-        # before these rows existed, so run the registered SQL directly --
-        # this exercises the exact statement shipped in MIGRATIONS.
         migration_sql = dict(MIGRATIONS)["0003_redact_dlq_job_data"]
 
         async def apply_migration():
@@ -1093,12 +986,10 @@ class TestRedactDLQMigration:
         for key in ("code", "input_data", "idempotency_key", "idempotency_fingerprint"):
             assert key not in redacted.job_data
         assert redacted.job_data["redacted_by_migration"] is True
-        # Non-sensitive diagnostic metadata is preserved.
         assert redacted.job_data["job_type"] == "data-processing"
         assert redacted.job_data["timeout"] == 30
         assert redacted.error_type == "internal_error"
 
-        # Rows without raw fields are left untouched (no spurious marker).
         untouched = storage.get_dlq_entry(clean_id)
         assert untouched is not None
         assert "redacted_by_migration" not in untouched.job_data

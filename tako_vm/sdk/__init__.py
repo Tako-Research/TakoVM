@@ -1,9 +1,3 @@
-"""
-Tako VM SDK - Python client for typed function execution.
-
-Provides a typed interface for executing functions in isolated containers.
-"""
-
 from tako_vm.sdk.client import (
     APIError,
     ClientError,
@@ -38,11 +32,9 @@ from tako_vm.sdk.client import (
 )
 
 __all__ = [
-    # Typed function execution
     "send",
     "send_raw",
     "configure",
-    # Async job lifecycle
     "submit",
     "submit_code",
     "get_status",
@@ -51,7 +43,6 @@ __all__ = [
     "rerun",
     "fork",
     "download_artifact",
-    # History & metadata
     "list_executions",
     "get_execution",
     "pool_stats",
@@ -60,10 +51,8 @@ __all__ = [
     "list_job_types",
     "get_job_type",
     "build_job_type",
-    # Classes
     "TakoVM",
     "ExecutionResult",
-    # Exceptions
     "TakoVMError",
     "TransportError",
     "APIError",

@@ -1,5 +1,3 @@
-"""Tests for job type schema and merge behavior."""
-
 import json
 import tempfile
 from pathlib import Path
@@ -13,7 +11,6 @@ from tako_vm.job_types import JobType, JobTypeRegistry, merge_config_job_types
 
 
 def test_job_type_from_dict_reads_nested_gpu_config():
-    """from_dict supports nested gpu object in JSON config."""
     job_type = JobType.from_dict(
         {
             "name": "gpu-job",
@@ -35,7 +32,6 @@ def test_job_type_from_dict_reads_nested_gpu_config():
 
 
 def test_job_type_from_dict_supports_legacy_gpu_top_level_fields():
-    """Top-level gpu_* fields remain supported for compatibility."""
     job_type = JobType.from_dict(
         {
             "name": "legacy-gpu",
@@ -51,7 +47,6 @@ def test_job_type_from_dict_supports_legacy_gpu_top_level_fields():
 
 
 def test_job_type_config_roundtrip_preserves_gpu_and_session_fields():
-    """Dataclass <-> pydantic conversion preserves new fields."""
     original = JobType(
         name="roundtrip",
         session_enabled=True,
@@ -72,7 +67,6 @@ def test_job_type_config_roundtrip_preserves_gpu_and_session_fields():
 
 
 def test_merge_config_job_types_overrides_in_memory_without_persistence():
-    """Config merge updates runtime registry without rewriting job_types.json."""
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = Path(tmpdir) / "job_types.json"
         config_path.write_text(
@@ -119,12 +113,10 @@ def test_merge_config_job_types_overrides_in_memory_without_persistence():
         assert merged.gpu_enabled is True
         assert merged.gpu_vendor == "nvidia"
 
-        # Persist=False means disk config should be untouched.
         assert config_path.read_text(encoding="utf-8") == original_on_disk
 
 
 def test_default_registry_path_is_under_data_dir(tmp_path, monkeypatch):
-    """Default registry lives in the data dir, never in site-packages."""
     monkeypatch.setenv("TAKO_VM_DATA_DIR", str(tmp_path))
 
     registry = JobTypeRegistry()
@@ -134,7 +126,6 @@ def test_default_registry_path_is_under_data_dir(tmp_path, monkeypatch):
     registry.register(JobType(name="persisted"))
 
     assert (tmp_path / "job_types.json").exists()
-    # Saving never touches the legacy site-packages location.
     legacy_path = job_types_module._legacy_registry_path()
     if legacy_path is not None and legacy_path.exists():
         legacy_data = json.loads(legacy_path.read_text(encoding="utf-8"))
@@ -142,7 +133,6 @@ def test_default_registry_path_is_under_data_dir(tmp_path, monkeypatch):
 
 
 def test_default_registry_migrates_from_legacy_site_packages_file(tmp_path, monkeypatch):
-    """If only the legacy site-packages file exists, it is read (not written)."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     legacy_path = tmp_path / "legacy" / "job_types.json"
@@ -162,12 +152,10 @@ def test_default_registry_migrates_from_legacy_site_packages_file(tmp_path, monk
     assert migrated is not None
     assert migrated.timeout == 42
 
-    # Persisting writes to the data dir; the legacy file is left untouched.
     registry.register(JobType(name="new-entry"))
     assert (data_dir / "job_types.json").exists()
     assert legacy_path.read_text(encoding="utf-8") == original_legacy_content
 
-    # Once the data-dir file exists, the legacy file is no longer consulted.
     legacy_path.write_text(
         json.dumps({"job_types": [{"name": "should-not-load"}]}), encoding="utf-8"
     )
@@ -177,7 +165,6 @@ def test_default_registry_migrates_from_legacy_site_packages_file(tmp_path, monk
 
 
 def test_save_is_atomic_and_leaves_valid_json(tmp_path):
-    """_save writes via temp file + os.replace, leaving valid JSON and no temp litter."""
     config_path = tmp_path / "job_types.json"
     registry = JobTypeRegistry(config_path=config_path)
 
@@ -192,7 +179,6 @@ def test_save_is_atomic_and_leaves_valid_json(tmp_path):
 
 
 def test_load_skips_invalid_entries(tmp_path, caplog):
-    """Tampered entries with out-of-bounds limits are rejected, valid ones kept."""
     config_path = tmp_path / "job_types.json"
     config_path.write_text(
         json.dumps(
@@ -219,7 +205,6 @@ def test_load_skips_invalid_entries(tmp_path, caplog):
 
 
 def test_from_dict_rejects_out_of_bounds_values():
-    """from_dict enforces the same bounds as the YAML JobTypeConfig path."""
     with pytest.raises(ValidationError):
         JobType.from_dict({"name": "bad", "cpu_limit": 999})
 

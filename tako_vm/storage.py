@@ -1,9 +1,3 @@
-"""
-PostgreSQL storage for Tako VM execution records.
-
-Provides async CRUD operations for ExecutionRecords and JobVersions.
-"""
-
 import asyncio
 import logging
 import re
@@ -33,29 +27,14 @@ logger = logging.getLogger(__name__)
 MIGRATION_LOCK_ID = 94857231
 RowMapping = Mapping[str, Any]
 
-# Statuses from which an execution record must never transition away. Once a
-# record is terminal, later writes (e.g. a stale executor result racing a
-# cancellation, or vice versa) are refused by the save_record upsert guard.
 TERMINAL_STATUSES = ("succeeded", "failed", "timeout", "oom", "cancelled")
 
-# Terminal session statuses. A session in one of these states has been reaped or
-# torn down and will never run again. Defined alongside the execution
-# TERMINAL_STATUSES so the sessions feature mirrors the same lifecycle guarantee
-# when later phases add transition guards; the schema (0005_sessions) already
-# pins the full status vocabulary via a CHECK constraint.
 SESSION_TERMINAL_STATUSES = ("terminated", "failed", "expired")
 
-# Backoff schedule (seconds) for retrying save_record on transient connection
-# errors. Tests may monkeypatch this to avoid real sleeps.
 _SAVE_RECORD_RETRY_DELAYS = (0.2, 0.8, 2.0)
 
-# Minimum digest prefix length accepted by get_version_by_digest. Shorter
-# prefixes are too ambiguous to resolve safely (and an empty prefix would
-# match every stored version).
 MIN_DIGEST_PREFIX_LEN = 12
 
-# Full digests and digest prefixes must be lowercase hex (sha256 hexdigest).
-# This also guarantees the value cannot contain SQL LIKE wildcards ('%'/'_').
 _DIGEST_RE = re.compile(rf"^[0-9a-f]{{{MIN_DIGEST_PREFIX_LEN},64}}$")
 
 
@@ -167,10 +146,6 @@ MIGRATIONS: list[tuple[str, str]] = [
         """,
     ),
     (
-        # DLQ rows written before DeadLetterEntry.build_job_summary existed
-        # retain raw code/input_data/idempotency material in job_data_json.
-        # Strip those keys in place and mark the rows so operators can tell
-        # redaction happened after the fact.
         "0003_redact_dlq_job_data",
         """
         UPDATE dead_letter_queue
@@ -185,20 +160,12 @@ MIGRATIONS: list[tuple[str, str]] = [
         """,
     ),
     (
-        # Effective isolation runtime ('runsc'/'runc') the job ran under, so the
-        # gVisor-vs-runc decision is auditable per job (issue #99). Nullable:
-        # legacy rows predate the column.
         "0004_runtime",
         """
         ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS runtime TEXT
         """,
     ),
     (
-        # Persistence scaffolding for long-running sessions (feature-flagged off
-        # via config.sessions_enabled; no execution path reads or writes these
-        # tables yet). The status CHECK pins the full SessionStatus vocabulary,
-        # INCLUDING the not-yet-used 'suspended'/'idle' states, so the constraint
-        # never has to be widened (and re-validated) in a later phase.
         "0005_sessions",
         """
         CREATE TABLE IF NOT EXISTS sessions (
@@ -247,9 +214,6 @@ MIGRATIONS: list[tuple[str, str]] = [
         """,
     ),
     (
-        # Nullable FK linking an execution to the session it ran in, for audit.
-        # Legacy rows (and all standalone, non-session executions) predate it and
-        # leave it NULL. Mirrors the 0004_runtime additive-column pattern.
         "0006_execution_session_fk",
         """
         ALTER TABLE execution_records ADD COLUMN IF NOT EXISTS session_id TEXT;
@@ -261,23 +225,11 @@ MIGRATIONS: list[tuple[str, str]] = [
 ]
 
 
-# --- execution_records upsert: single source of truth for the column set ------
-#
-# The INSERT column list, the `%s` placeholder run, the value tuple, AND the
-# ON CONFLICT ... DO UPDATE SET clause are ALL generated from _EXECUTION_COLUMNS
-# below, so adding a column is one row here instead of four hand-synced edits in
-# one statement (the exact drift hazard the `runtime`/`correlation_id`
-# migrations hit), and a placeholder miscount can no longer silently shift
-# every column. `_row_to_record` stays hand-written: it carries per-field decode
-# and corruption-fallback logic that resists tabulation.
-#
-# Each column carries its ON CONFLICT update policy as data, which documents WHY
-# each field updates the way it does instead of burying it in prose:
-_SET_EXCLUDED = "excluded"  # outcome fields: a later write knows more
-_SET_KEEP_EXISTING = "keep_existing"  # created_at: first write wins
-_SET_COALESCE_EXISTING = "coalesce_existing"  # submission identity: keep first non-null
-_SET_COALESCE_EXCLUDED = "coalesce_excluded"  # prefer a writer that knows the value
-_SET_KEY = "key"  # the ON CONFLICT key itself; no SET line
+_SET_EXCLUDED = "excluded"
+_SET_KEEP_EXISTING = "keep_existing"
+_SET_COALESCE_EXISTING = "coalesce_existing"
+_SET_COALESCE_EXCLUDED = "coalesce_excluded"
+_SET_KEY = "key"
 
 
 def _set_clause_for(name: str, policy: str) -> str:
@@ -292,8 +244,6 @@ def _set_clause_for(name: str, policy: str) -> str:
     raise ValueError(f"unknown conflict policy {policy!r} for column {name!r}")
 
 
-# (column_name, conflict_policy, value_extractor(record, blobs)). Order is the
-# physical column order used by the INSERT and the value tuple.
 _EXECUTION_COLUMNS: list = [
     ("execution_id", _SET_KEY, lambda r, b: r.execution_id),
     ("status", _SET_EXCLUDED, lambda r, b: r.status),
@@ -356,8 +306,6 @@ _EXECUTION_COLUMNS: list = [
     ("parent_execution_id", _SET_COALESCE_EXISTING, lambda r, b: r.parent_execution_id),
     ("relationship", _SET_COALESCE_EXISTING, lambda r, b: r.relationship),
     ("runtime", _SET_COALESCE_EXCLUDED, lambda r, b: r.runtime),
-    # Session linkage is fixed at submission and never reassigned, so keep the
-    # first non-null value (like the other submission-identity fields).
     ("session_id", _SET_COALESCE_EXISTING, lambda r, b: r.session_id),
 ]
 
@@ -368,14 +316,6 @@ _UPDATE_SET_SQL = ",\n                    ".join(
 )
 
 
-# --- job_versions upsert: single source of truth for the column set -----------
-#
-# Same pattern as _EXECUTION_COLUMNS above: the INSERT column list, placeholder
-# run, value tuple, and ON CONFLICT ... SET clause are all derived from this one
-# list, so adding/removing a column is a single edit instead of four hand-synced
-# ones. (digest, value_extractor(version)). digest is the ON CONFLICT key and
-# carries no SET line; every other column takes EXCLUDED (a re-save replaces the
-# stored metadata).
 _VERSION_KEY_COLUMN = "digest"
 _VERSION_COLUMNS: list = [
     ("digest", lambda v: v.digest),
@@ -396,8 +336,6 @@ _VERSION_UPDATE_SET_SQL = ",\n                    ".join(
 
 
 class ExecutionStorage:
-    """PostgreSQL storage for execution records."""
-
     def __init__(self, database_url: str, min_pool_size: int = 1, max_pool_size: int = 10):
         self.database_url = database_url
         self.min_pool_size = min_pool_size
@@ -405,7 +343,6 @@ class ExecutionStorage:
         self._pool: Optional[AsyncConnectionPool] = None
 
     async def init(self) -> None:
-        """Initialize connection pool and run schema migrations."""
         if self._pool is not None:
             return
 
@@ -426,7 +363,6 @@ class ExecutionStorage:
         self._pool = pool
 
     async def close(self) -> None:
-        """Close connection pool."""
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
@@ -483,27 +419,12 @@ class ExecutionStorage:
                 await conn.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
 
     async def save_record(self, record: ExecutionRecord) -> None:
-        """
-        Insert or update execution record.
-
-        Durability behavior:
-        - Transient connection errors (psycopg.OperationalError, which includes
-          psycopg_pool.PoolTimeout) are retried with backoff so a brief DB blip
-          cannot lose the record of code that already ran. Non-transient errors
-          (e.g. IntegrityError) are raised immediately.
-        - The upsert refuses to modify a record that is already in a terminal
-          status (see TERMINAL_STATUSES); such writes are logged and dropped.
-        """
         attempts = len(_SAVE_RECORD_RETRY_DELAYS) + 1
         for attempt in range(attempts):
             try:
                 rowcount = await self._save_record_once(record)
                 break
             except psycopg.OperationalError as e:
-                # Connection-level failure (includes psycopg_pool.PoolTimeout,
-                # which subclasses OperationalError). Retry with backoff;
-                # IntegrityError and friends derive from DatabaseError instead
-                # and propagate immediately.
                 if attempt >= attempts - 1:
                     raise
                 delay = _SAVE_RECORD_RETRY_DELAYS[attempt]
@@ -519,9 +440,6 @@ class ExecutionStorage:
                 await asyncio.sleep(delay)
 
         if rowcount == 0:
-            # The ON CONFLICT ... WHERE guard skipped the update: the existing
-            # row is already terminal and must not be regressed (e.g. a
-            # cancel/complete race).
             logger.warning(
                 "Refused to overwrite terminal execution record %s with status %s",
                 record.execution_id,
@@ -529,10 +447,6 @@ class ExecutionStorage:
             )
 
     async def _save_record_once(self, record: ExecutionRecord) -> int:
-        """Execute the upsert once; return affected rowcount (0 = guard skip)."""
-        # Pre-serialized JSON payloads the column extractors wrap in Jsonb().
-        # Passed as `blobs` so the _EXECUTION_COLUMNS value lambdas stay pure
-        # (record + blobs in, value out) and the column set is single-source.
         blobs = {
             "artifacts_json": [a.model_dump() for a in record.artifacts],
             "input_artifacts_json": [a.model_dump() for a in record.input_artifacts],
@@ -541,33 +455,8 @@ class ExecutionStorage:
             "timing_json": record.timing.model_dump() if record.timing else None,
         }
 
-        # Bound placeholders for the terminal-status guard, so the status
-        # literals are passed as parameters (no string interpolation into SQL).
         terminal_placeholders = ", ".join(["%s"] * len(TERMINAL_STATUSES))
 
-        # Upsert column policy:
-        # - Submission-identity fields (created_at, queued_at, code_hash,
-        #   input_hash, params_hash, input_artifacts_hash, client_ip,
-        #   correlation_id, idempotency_key, idempotency_fingerprint,
-        #   parent_execution_id, relationship) describe WHEN/HOW the job was
-        #   submitted. They are
-        #   written by queue.submit() and must survive later writes from the
-        #   executor, which rebuilds its record at execution start and does not
-        #   know the true submission timestamps. We keep the existing row's
-        #   value (COALESCE(existing, new) for nullables; plain existing for
-        #   NOT NULL created_at/queued_at, where COALESCE degenerates to the
-        #   existing value anyway).
-        # - dequeued_at is set once by mark_record_running(); COALESCE keeps it.
-        # - worker_id is also set by mark_record_running(); prefer the new
-        #   value when the writer knows it, otherwise keep the existing one.
-        # - Execution-outcome fields (status, started_at, ended_at,
-        #   duration_ms, attempt, exit_code, stdout/stderr, result/timing/
-        #   artifacts/error JSON, resource usage) take EXCLUDED: later writes
-        #   know more about the outcome. input_artifacts_json also takes
-        #   EXCLUDED because the executor enriches it with replay artifacts
-        #   that the preliminary queued record does not have.
-        # - The WHERE guard makes the whole update a no-op when the existing
-        #   row is already terminal, so terminal status can never regress.
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -589,7 +478,6 @@ class ExecutionStorage:
             return cursor.rowcount
 
     async def get_record(self, execution_id: str) -> Optional[ExecutionRecord]:
-        """Retrieve execution record by ID."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -602,7 +490,6 @@ class ExecutionStorage:
         return self._row_to_record(cast(RowMapping, row))
 
     async def get_by_idempotency_key(self, key: str) -> Optional[ExecutionRecord]:
-        """Retrieve execution record by idempotency key."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -621,7 +508,6 @@ class ExecutionStorage:
         limit: int = 100,
         offset: int = 0,
     ) -> List[ExecutionRecord]:
-        """List execution records with optional filters."""
         query = "SELECT * FROM execution_records WHERE 1=1"
         params: List[Any] = []
 
@@ -644,28 +530,6 @@ class ExecutionStorage:
         return [self._row_to_record(cast(RowMapping, row)) for row in rows]
 
     async def reconcile_stale_records(self) -> int:
-        """
-        Mark stale 'queued'/'running' records as failed after a restart.
-
-        The job queue is in-memory (asyncio.Queue), so it does not survive a
-        process restart: any record still marked 'queued' or 'running' when the
-        server starts belongs to a job that was lost in a crash or shutdown and
-        will never complete. Without this reconciliation, clients poll those
-        records forever.
-
-        NOTE: This assumes a single-server deployment (the only supported
-        topology). There is no multi-server coordination anywhere in Tako VM,
-        so no other live server process can legitimately own in-flight records
-        when this runs at startup.
-
-        The generic 'interrupted' error is only applied where error_json is
-        still NULL (COALESCE keeps any existing value), so a crashing worker
-        that already persisted the real error before exit is not overwritten by
-        this coarser reconciliation message.
-
-        Returns:
-            Number of records transitioned to 'failed'.
-        """
         now = datetime.now(timezone.utc)
         error_json = ExecutionError(
             type="interrupted",
@@ -687,16 +551,6 @@ class ExecutionStorage:
             return cursor.rowcount
 
     async def mark_record_running(self, execution_id: str, worker_id: Optional[str] = None) -> bool:
-        """
-        Persist the queued -> running transition for an execution record.
-
-        Targeted UPDATE so the in-flight state is visible in the database
-        during execution (and reconcilable after a crash) without rewriting
-        the whole row.
-
-        Returns:
-            True if a queued record was transitioned to running.
-        """
         now = datetime.now(timezone.utc)
         pool = self._get_pool()
         async with pool.connection() as conn:
@@ -713,7 +567,6 @@ class ExecutionStorage:
             return cursor.rowcount > 0
 
     async def cleanup_old_records(self, ttl_days: int) -> int:
-        """Delete records older than TTL."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
 
         pool = self._get_pool()
@@ -724,10 +577,6 @@ class ExecutionStorage:
             return cursor.rowcount
 
     def _row_to_record(self, row: RowMapping) -> ExecutionRecord:
-        """Convert database row to ExecutionRecord."""
-        # All ResourceUsage fields are independently nullable, so rebuild the
-        # model if ANY metric column was stored; gating on wall_time_ms alone
-        # would silently drop records saved with only max_rss_mb/cpu_time_ms.
         resource_usage = None
         if any(
             row.get(column) is not None for column in ("max_rss_mb", "cpu_time_ms", "wall_time_ms")
@@ -776,9 +625,6 @@ class ExecutionStorage:
                     row["execution_id"],
                     e,
                 )
-                # Surface the corruption loudly rather than presenting the
-                # record as error-free: a stored error payload existed but no
-                # longer matches the ExecutionError model.
                 error = ExecutionError(
                     type="internal_error",
                     message="stored error payload could not be decoded",
@@ -837,15 +683,7 @@ class ExecutionStorage:
             session_id=row.get("session_id"),
         )
 
-    # --- Sessions ----------------------------------------------------------
-    #
-    # Persistence scaffolding for long-running sessions. These methods mirror
-    # the save/get/list patterns used for execution records and job versions.
-    # They are not wired into any execution path yet (sessions are gated behind
-    # config.sessions_enabled, default False).
-
     async def save_session(self, session: SessionRecord) -> None:
-        """Insert or update a session record (full-row upsert keyed on session_id)."""
         metadata_json = Jsonb(session.metadata) if session.metadata is not None else None
 
         pool = self._get_pool()
@@ -901,7 +739,6 @@ class ExecutionStorage:
             )
 
     async def get_session(self, session_id: str) -> Optional[SessionRecord]:
-        """Retrieve a session by ID."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -919,7 +756,6 @@ class ExecutionStorage:
         limit: int = 100,
         offset: int = 0,
     ) -> List[SessionRecord]:
-        """List sessions with an optional status filter, newest first."""
         query = "SELECT * FROM sessions WHERE 1=1"
         params: List[Any] = []
 
@@ -938,10 +774,6 @@ class ExecutionStorage:
         return [self._row_to_session(cast(RowMapping, row)) for row in rows]
 
     async def touch_session(self, session_id: str, touched_at: Optional[datetime] = None) -> bool:
-        """Update a session's last_activity_at timestamp.
-
-        Returns True if a session row was updated.
-        """
         now = touched_at or datetime.now(timezone.utc)
         pool = self._get_pool()
         async with pool.connection() as conn:
@@ -952,7 +784,6 @@ class ExecutionStorage:
             return cursor.rowcount > 0
 
     async def save_session_event(self, event: SessionEvent) -> SessionEvent:
-        """Insert a session event and return it with its assigned database ID."""
         payload_json = Jsonb(event.payload) if event.payload is not None else None
 
         pool = self._get_pool()
@@ -982,7 +813,6 @@ class ExecutionStorage:
         after_id: int = 0,
         limit: int = 100,
     ) -> List[SessionEvent]:
-        """List a session's events after a cursor ID, in insertion order."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -999,7 +829,6 @@ class ExecutionStorage:
         return [self._row_to_session_event(cast(RowMapping, row)) for row in rows]
 
     def _row_to_session(self, row: RowMapping) -> SessionRecord:
-        """Convert a database row to a SessionRecord."""
         metadata = row.get("metadata_json") or {}
         return SessionRecord(
             session_id=row["session_id"],
@@ -1020,7 +849,6 @@ class ExecutionStorage:
         )
 
     def _row_to_session_event(self, row: RowMapping) -> SessionEvent:
-        """Convert a database row to a SessionEvent."""
         return SessionEvent(
             id=row["id"],
             session_id=row["session_id"],
@@ -1031,7 +859,6 @@ class ExecutionStorage:
         )
 
     async def save_version(self, version: JobVersion) -> None:
-        """Save job version record."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             await conn.execute(
@@ -1048,23 +875,6 @@ class ExecutionStorage:
             )
 
     async def get_version_by_digest(self, job_type_name: str, digest: str) -> Optional[JobVersion]:
-        """
-        Get version by full digest or an unambiguous digest prefix.
-
-        Args:
-            job_type_name: Job type name.
-            digest: Full 64-character hex digest, or a prefix of at least
-                MIN_DIGEST_PREFIX_LEN hex characters.
-
-        Returns:
-            Matching JobVersion, or None if no version matches.
-
-        Raises:
-            ValueError: If the digest is empty, shorter than
-                MIN_DIGEST_PREFIX_LEN, not lowercase hex (which also rejects
-                SQL LIKE wildcards), or if a prefix matches more than one
-                stored version.
-        """
         if not _DIGEST_RE.fullmatch(digest):
             raise ValueError(
                 f"Invalid digest {digest!r}: must be {MIN_DIGEST_PREFIX_LEN}-64 "
@@ -1074,8 +884,6 @@ class ExecutionStorage:
         pool = self._get_pool()
         async with pool.connection() as conn:
             if len(digest) < 64:
-                # The digest is validated as hex above, so it cannot contain
-                # LIKE wildcards ('%'/'_'); the prefix match is literal.
                 cursor = await conn.execute(
                     """
                     SELECT * FROM job_versions
@@ -1106,7 +914,6 @@ class ExecutionStorage:
     async def get_version_by_tag(
         self, job_type_name: str, version_tag: str
     ) -> Optional[JobVersion]:
-        """Get version by tag."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1120,7 +927,6 @@ class ExecutionStorage:
         return self._row_to_version(cast(RowMapping, row))
 
     async def get_latest_version(self, job_type_name: str) -> Optional[JobVersion]:
-        """Get most recent version for job type."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1139,7 +945,6 @@ class ExecutionStorage:
         return self._row_to_version(cast(RowMapping, row))
 
     async def list_versions(self, job_type_name: str) -> List[JobVersion]:
-        """List all versions for job type."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1155,7 +960,6 @@ class ExecutionStorage:
         return [self._row_to_version(cast(RowMapping, row)) for row in rows]
 
     def _row_to_version(self, row: RowMapping) -> JobVersion:
-        """Convert database row to JobVersion."""
         return JobVersion(
             digest=row["digest"],
             job_type_name=row["job_type_name"],
@@ -1168,12 +972,6 @@ class ExecutionStorage:
         )
 
     async def add_to_dlq(self, entry: DeadLetterEntry) -> int:
-        """Add a failed job to the dead letter queue.
-
-        ``entry.job_data`` is persisted verbatim as JSONB, so callers must
-        pass a redacted forensic summary (DeadLetterEntry.build_job_summary),
-        never raw code/input_data/idempotency keys.
-        """
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1200,7 +998,6 @@ class ExecutionStorage:
             return int(row_map["id"]) if row_map else 0
 
     async def get_dlq_entry(self, entry_id: int) -> Optional[DeadLetterEntry]:
-        """Get a DLQ entry by ID."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1215,7 +1012,6 @@ class ExecutionStorage:
     async def list_dlq_entries(
         self, error_type: Optional[str] = None, limit: int = 100, offset: int = 0
     ) -> List[DeadLetterEntry]:
-        """List dead letter queue entries."""
         query = "SELECT * FROM dead_letter_queue WHERE 1=1"
         params: List[Any] = []
 
@@ -1234,7 +1030,6 @@ class ExecutionStorage:
         return [self._row_to_dlq_entry(cast(RowMapping, row)) for row in rows]
 
     async def remove_from_dlq(self, entry_id: int) -> bool:
-        """Remove an entry from the dead letter queue."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             cursor = await conn.execute(
@@ -1244,7 +1039,6 @@ class ExecutionStorage:
             return row is not None
 
     async def get_dlq_stats(self) -> dict:
-        """Get statistics about the dead letter queue."""
         pool = self._get_pool()
         async with pool.connection() as conn:
             total_cursor = await conn.execute("SELECT COUNT(*) AS count FROM dead_letter_queue")
@@ -1271,7 +1065,6 @@ class ExecutionStorage:
         }
 
     async def cleanup_old_dlq_entries(self, ttl_days: int) -> int:
-        """Delete DLQ entries older than TTL."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=ttl_days)
 
         pool = self._get_pool()
@@ -1282,7 +1075,6 @@ class ExecutionStorage:
             return cursor.rowcount
 
     def _row_to_dlq_entry(self, row: RowMapping) -> DeadLetterEntry:
-        """Convert database row to DeadLetterEntry."""
         job_data = row.get("job_data_json") or {}
         return DeadLetterEntry(
             id=row["id"],

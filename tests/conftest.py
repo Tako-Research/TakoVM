@@ -1,7 +1,3 @@
-"""
-Pytest configuration for Tako VM tests.
-"""
-
 import inspect
 import os
 import subprocess
@@ -14,7 +10,6 @@ import psycopg
 import pytest
 from psycopg import sql
 
-# Suppress urllib3 LibreSSL warning on macOS (harmless)
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="urllib3")
 try:
     from urllib3.exceptions import NotOpenSSLWarning
@@ -25,7 +20,6 @@ except ImportError:
 
 
 def is_docker_available() -> bool:
-    """Check if Docker is available and running."""
     try:
         result = subprocess.run(
             ["docker", "info"],
@@ -39,7 +33,6 @@ def is_docker_available() -> bool:
 
 
 def is_executor_image_available() -> bool:
-    """Check if the executor Docker image exists."""
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", "code-executor:latest"],
@@ -53,23 +46,12 @@ def is_executor_image_available() -> bool:
 
 
 def is_running_in_vm() -> bool:
-    """
-    Detect if tests are running in an environment where host mounts don't work.
-
-    This includes VM environments (e.g., Lima on macOS) and CI environments
-    where temp directory mounts may not work correctly with Docker.
-    """
-    # Check for CI environment (GitHub Actions, GitLab CI, etc.)
     if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
         return True
 
-    # Check for Lima environment
     if os.path.exists("/Users") and os.path.exists("/home"):
-        # We're in Lima (macOS paths mounted + Linux home exists)
         return True
 
-    # Check if temp dir is accessible from Docker
-    # This catches cases where Docker is remote or in a VM
     try:
         temp_dir = tempfile.gettempdir()
         result = subprocess.run(
@@ -78,7 +60,6 @@ def is_running_in_vm() -> bool:
             timeout=30,
             check=False,
         )
-        # If mount fails or is empty when it shouldn't be, we're in a VM
         if result.returncode != 0:
             return True
     except Exception:
@@ -88,7 +69,6 @@ def is_running_in_vm() -> bool:
 
 
 def is_gvisor_available() -> bool:
-    """Check if gVisor runtime is available."""
     try:
         result = subprocess.run(
             ["docker", "info", "--format", "{{.Runtimes}}"],
@@ -102,30 +82,21 @@ def is_gvisor_available() -> bool:
         return False
 
 
-# Capture the test database URL once at import time, BEFORE any test runs.
-# Some tests exercise code that mutates os.environ["TAKO_VM_DATABASE_URL"]
-# directly (e.g. the CLI dev helpers point it at the managed postgres on
-# port 55432). Reading the env lazily inside fixtures let that pollution
-# redirect every later storage test at a dead DSN, silently skipping the
-# whole storage suite in CI.
 TEST_DATABASE_URL = os.environ.get(
     "TAKO_VM_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tako_vm_test"
 )
 
 
 def is_running_in_ci() -> bool:
-    """Detect CI environments (GitHub Actions sets both of these)."""
     return bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
 
 
-# Check Docker availability once at module load
 DOCKER_AVAILABLE = is_docker_available()
 EXECUTOR_IMAGE_AVAILABLE = is_executor_image_available()
 RUNNING_IN_VM = is_running_in_vm() if DOCKER_AVAILABLE else False
 GVISOR_AVAILABLE = is_gvisor_available() if DOCKER_AVAILABLE else False
 
 
-# Skip markers for tests that require Docker
 requires_docker = pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker is not available")
 
 requires_executor_image = pytest.mark.skipif(
@@ -134,7 +105,6 @@ requires_executor_image = pytest.mark.skipif(
 
 
 def pytest_configure(config):
-    """Add custom markers."""
     config.addinivalue_line("markers", "requires_docker: mark test as requiring Docker")
     config.addinivalue_line(
         "markers", "requires_executor_image: mark test as requiring the executor image"
@@ -146,9 +116,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Auto-apply skip markers based on Docker availability."""
     for item in items:
-        # Auto-skip sandbox tests if Docker/executor image not available
         if "test_sandbox" in item.nodeid:
             if not DOCKER_AVAILABLE:
                 item.add_marker(pytest.mark.skip(reason="Docker not available"))
@@ -159,12 +127,10 @@ def pytest_collection_modifyitems(config, items):
                     )
                 )
 
-        # Auto-skip API tests if Docker not available
         if "test_api" in item.nodeid and "TestHealthEndpoint" not in item.nodeid:
             if not DOCKER_AVAILABLE:
                 item.add_marker(pytest.mark.skip(reason="Docker not available"))
 
-        # Auto-skip proc exposure tests if Docker/executor image not available
         if "test_proc_exposure" in item.nodeid:
             if not DOCKER_AVAILABLE:
                 item.add_marker(pytest.mark.skip(reason="Docker not available"))
@@ -175,7 +141,6 @@ def pytest_collection_modifyitems(config, items):
                     )
                 )
 
-        # Skip tests that require host mounts when running in a VM
         if item.get_closest_marker("requires_host_mounts"):
             if RUNNING_IN_VM:
                 item.add_marker(
@@ -184,7 +149,6 @@ def pytest_collection_modifyitems(config, items):
                     )
                 )
 
-        # Skip tests that require gVisor when it's not available
         if item.get_closest_marker("requires_gvisor"):
             if not GVISOR_AVAILABLE:
                 item.add_marker(pytest.mark.skip(reason="gVisor runtime not available"))
@@ -192,36 +156,26 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session")
 def docker_available():
-    """Fixture to check if Docker is available."""
     return DOCKER_AVAILABLE
 
 
 @pytest.fixture(scope="session")
 def executor_image_available():
-    """Fixture to check if executor image is available."""
     return EXECUTOR_IMAGE_AVAILABLE
 
 
 @pytest.fixture(scope="session")
 def gvisor_available():
-    """Fixture to check if gVisor is available."""
     return GVISOR_AVAILABLE
 
 
 @pytest.fixture(scope="session")
 def running_in_vm():
-    """Fixture to check if running in a VM environment."""
     return RUNNING_IN_VM
 
 
 @pytest.fixture
 def temp_data_dir():
-    """
-    Create a temporary data directory for isolated tests.
-
-    Resets config and sets environment variables to use a temp directory,
-    ensuring test isolation from user data.
-    """
     from tako_vm.config import reset_config
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -299,11 +253,6 @@ def temp_data_dir():
 
 @pytest.fixture
 def test_storage(temp_data_dir):
-    """
-    Create an ExecutionStorage instance for testing.
-
-    Uses the temp_data_dir fixture for isolation.
-    """
     import asyncio
 
     from tako_vm.storage import ExecutionStorage

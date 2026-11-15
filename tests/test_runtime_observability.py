@@ -1,15 +1,3 @@
-"""
-Tests for per-job runtime (gVisor vs runc) observability (issue #99).
-
-The effective isolation runtime each job ran under must be recorded on the
-ExecutionRecord and surfaced in the API responses, so a caller can prove after
-the fact whether a job had the gVisor boundary before trusting its output.
-
-These are pure unit tests: the worker stamping is exercised via the
-job-type-not-found early return (no container launch), and the response mapping
-is a pure function. The storage round-trip is covered in test_storage.py (CI).
-"""
-
 from types import SimpleNamespace
 
 import pytest
@@ -23,7 +11,6 @@ from tako_vm.server.app import ExecuteResponse, ExecutionRecordResponse
 
 @pytest.fixture
 def gvisor_executor(tmp_path, monkeypatch):
-    """A CodeExecutor that resolves to the gVisor (runsc) runtime."""
     monkeypatch.setattr(worker_module, "_gvisor_available", True)
     monkeypatch.setattr(
         worker_module,
@@ -44,9 +31,6 @@ def gvisor_executor(tmp_path, monkeypatch):
 
 class TestWorkerStampsRuntime:
     def test_record_carries_effective_runtime(self, gvisor_executor):
-        # production_mode + an unknown job type returns the record early (no
-        # container launch), but the runtime is stamped at record construction,
-        # so it is present on that early-return record.
         record = gvisor_executor.execute_job_with_record(
             "job-runtime-1",
             {"code": "print(1)", "job_type": "does-not-exist"},
@@ -54,12 +38,9 @@ class TestWorkerStampsRuntime:
 
         assert gvisor_executor._runtime == "runsc"
         assert record.runtime == "runsc"
-        # Sanity: this is the early-return failure path, not a real run.
         assert record.status == "failed"
 
     def test_runtime_matches_executor_resolution(self, gvisor_executor):
-        # The recorded value must be exactly the runtime the container would use,
-        # so the record can never disagree with what actually ran.
         record = gvisor_executor.execute_job_with_record(
             "job-runtime-2",
             {"code": "print(1)", "job_type": "does-not-exist"},
@@ -83,7 +64,6 @@ class TestResponsesSurfaceRuntime:
         assert resp.runtime == "runsc"
 
     def test_execution_record_response_runtime_defaults_none(self):
-        # Legacy records (no runtime) surface as None, not an error.
         resp = ExecutionRecordResponse.from_record(self._record(None))
         assert resp.runtime is None
 

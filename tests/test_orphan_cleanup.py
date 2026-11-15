@@ -1,19 +1,3 @@
-"""
-Tests for orphaned-container cleanup and the executor container label.
-
-DockerCleanup.cleanup_orphaned_containers matches containers by the
-``tako-vm-executor`` label, so these tests verify both halves of the
-contract:
-
-1. Every launch path (CodeExecutor and the library Sandbox) actually applies
-   the label at ``docker run`` time via ``base_isolation_args``.
-2. Cleanup filters by the label only (no name-pattern matching), honors the
-   ``max_age_seconds`` guard for running containers, and removes exactly the
-   matched container IDs.
-
-All tests mock subprocess.run: no Docker required.
-"""
-
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -30,13 +14,11 @@ from tako_vm.sandbox import Sandbox
 
 
 def _created_at(age_seconds: float) -> str:
-    """Render a docker ps {{.CreatedAt}} value for a container of given age."""
     dt = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
     return dt.strftime("%Y-%m-%d %H:%M:%S %z") + " UTC"
 
 
 def _patch_health_subprocess(monkeypatch, ps_stdout="", ps_returncode=0):
-    """Replace subprocess.run in the health module; returns recorded argv lists."""
     calls = []
 
     def fake_run(cmd, **kwargs):
@@ -50,15 +32,11 @@ def _patch_health_subprocess(monkeypatch, ps_stdout="", ps_returncode=0):
 
 
 def _removed_ids(calls):
-    """Extract container IDs from recorded `docker rm -f <id>` calls."""
     return [cmd[3] for cmd in calls if cmd[:3] == ["docker", "rm", "-f"]]
 
 
 class TestCleanupOrphanedContainers:
-    """Tests for DockerCleanup.cleanup_orphaned_containers."""
-
     def test_filters_by_executor_label_only(self, monkeypatch):
-        """Cleanup lists containers by label; no name-pattern filter is used."""
         calls = _patch_health_subprocess(monkeypatch, ps_stdout="")
 
         DockerCleanup.cleanup_orphaned_containers()
@@ -67,15 +45,12 @@ class TestCleanupOrphanedContainers:
         assert len(ps_calls) == 1
         assert "--filter" in ps_calls[0]
         assert f"label={CONTAINER_LABEL}" in ps_calls[0]
-        # The old substring name filter matched unrelated user containers.
         assert not any("name=job-" in arg for cmd in calls for arg in cmd)
 
     def test_label_constant_matches_launch_paths(self):
-        """health.py and docker.py must agree on the label or cleanup is a no-op."""
         assert DockerCleanup.CONTAINER_LABEL == CONTAINER_LABEL
 
     def test_removes_exited_and_dead_containers(self, monkeypatch):
-        """Non-running labeled containers are removed regardless of age."""
         stdout = "\n".join(
             [
                 f"aaa111\t{_created_at(5)}\texited",
@@ -91,7 +66,6 @@ class TestCleanupOrphanedContainers:
         assert sorted(_removed_ids(calls)) == ["aaa111", "bbb222", "ccc333"]
 
     def test_running_container_younger_than_max_age_is_kept(self, monkeypatch):
-        """Running containers within the age guard are never force-removed."""
         stdout = f"aaa111\t{_created_at(60)}\trunning"
         calls = _patch_health_subprocess(monkeypatch, ps_stdout=stdout)
 
@@ -101,7 +75,6 @@ class TestCleanupOrphanedContainers:
         assert _removed_ids(calls) == []
 
     def test_running_container_older_than_max_age_is_removed(self, monkeypatch):
-        """Running containers past max_age_seconds are treated as orphans."""
         stdout = f"aaa111\t{_created_at(7200)}\trunning"
         calls = _patch_health_subprocess(monkeypatch, ps_stdout=stdout)
 
@@ -111,7 +84,6 @@ class TestCleanupOrphanedContainers:
         assert _removed_ids(calls) == ["aaa111"]
 
     def test_mixed_states_only_old_running_removed(self, monkeypatch):
-        """Exited always removed; running removed only past the age guard."""
         stdout = "\n".join(
             [
                 f"old-run\t{_created_at(7200)}\trunning",
@@ -128,7 +100,6 @@ class TestCleanupOrphanedContainers:
         assert sorted(_removed_ids(calls)) == ["new-exit", "old-exit", "old-run"]
 
     def test_unparseable_created_at_skips_running_container(self, monkeypatch):
-        """Fail safe: never kill a running container whose age is unknown."""
         stdout = "\n".join(
             [
                 "aaa111\tgarbage timestamp\trunning",
@@ -139,12 +110,10 @@ class TestCleanupOrphanedContainers:
 
         removed = DockerCleanup.cleanup_orphaned_containers(max_age_seconds=3600)
 
-        # Running with unknown age: skipped. Exited: removed regardless.
         assert removed == 1
         assert _removed_ids(calls) == ["bbb222"]
 
     def test_ps_failure_returns_zero(self, monkeypatch):
-        """A failed docker ps aborts cleanup without removing anything."""
         calls = _patch_health_subprocess(monkeypatch, ps_stdout="", ps_returncode=1)
 
         assert DockerCleanup.cleanup_orphaned_containers() == 0
@@ -152,19 +121,10 @@ class TestCleanupOrphanedContainers:
 
 
 class TestPeriodicCleanupReapsOrphans:
-    """The hourly cleanup loop must reap leaked containers, not only startup.
-
-    Regression guard for issue #96: the reaper used to run only at startup, so a
-    teardown `docker rm -f` failure on a long-lived server left the container
-    (and any network-enabled job's live egress) alive until the next restart.
-    """
-
     @pytest.mark.asyncio
     async def test_loop_calls_reaper_with_workspace_age_guard(self, monkeypatch):
         import importlib
 
-        # The submodule `tako_vm.server.app` is shadowed by the package's `app`
-        # FastAPI attribute, so import the real module object explicitly.
         app_module = importlib.import_module("tako_vm.server.app")
 
         recorded = {}
@@ -173,14 +133,10 @@ class TestPeriodicCleanupReapsOrphans:
             recorded["age"] = max_age_seconds
             return 2
 
-        # The reaper must be force-removing *running* containers only past the
-        # same age a live job could possibly run, so it can never kill in-flight
-        # work. Assert the loop passes that guard through.
         monkeypatch.setattr(DockerCleanup, "cleanup_orphaned_containers", staticmethod(fake_reaper))
         monkeypatch.setattr(app_module, "prune_stale_workspaces", lambda *a, **k: 0)
         monkeypatch.setattr(app_module, "prune_old_run_dirs", lambda *a, **k: 0)
 
-        # Run exactly one iteration: first sleep proceeds, second cancels the loop.
         sleeps = {"n": 0}
 
         async def fake_sleep(_seconds):
@@ -211,22 +167,17 @@ class TestPeriodicCleanupReapsOrphans:
 
 
 class TestParseCreatedAt:
-    """Tests for DockerCleanup._parse_created_at."""
-
     def test_parses_docker_format(self):
-        """Parses the `docker ps {{.CreatedAt}}` format (offset + zone name)."""
         ts = DockerCleanup._parse_created_at("2024-01-15 10:30:00 +0000 UTC")
         expected = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc).timestamp()
         assert ts == expected
 
     def test_honors_non_utc_offset(self):
-        """The numeric offset is respected even with an unknown zone name."""
         ts = DockerCleanup._parse_created_at("2024-01-15 19:30:00 +0900 JST")
         expected = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc).timestamp()
         assert ts == expected
 
     def test_invalid_returns_none(self):
-        """Garbage input returns None instead of raising."""
         assert DockerCleanup._parse_created_at("not a timestamp") is None
         assert DockerCleanup._parse_created_at("") is None
 
@@ -258,8 +209,6 @@ def io_dirs(tmp_path):
 
 
 class TestWorkerAppliesLabels:
-    """CodeExecutor must label containers so startup cleanup can find them."""
-
     def test_run_container_command_includes_labels(self, executor, io_dirs, monkeypatch):
         captured = []
 
@@ -288,8 +237,6 @@ class TestWorkerAppliesLabels:
 
 
 class TestSandboxAppliesLabels:
-    """Library-mode Sandbox must label containers identically."""
-
     def test_build_docker_command_includes_labels(self, tmp_path, monkeypatch):
         monkeypatch.setattr(worker_module, "_gvisor_available", True)
 
@@ -308,5 +255,4 @@ class TestSandboxAppliesLabels:
         )
 
         assert f"--label={CONTAINER_LABEL}" in cmd
-        # No ExecutionRecord in library mode; the container name is the trace ID.
         assert f"--label={EXECUTION_ID_LABEL}={container_name}" in cmd

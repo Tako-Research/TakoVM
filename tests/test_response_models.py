@@ -1,12 +1,3 @@
-"""
-Tests for API response-model construction in tako_vm.server.app.
-
-Guards the consolidation of ExecutionRecordFullResponse.from_record onto the
-base ExecutionRecordResponse.from_record: the previous hand-copied override
-silently dropped `timing` (and later `runtime`) from the ?view=full payload
-while the slim view kept them. These assert the two views stay in lockstep.
-"""
-
 from tako_vm.models import Artifact, ExecutionRecord, ExecutionTiming, ResourceUsage
 from tako_vm.server.app import (
     ArtifactResponse,
@@ -39,14 +30,11 @@ def _record_with_detail():
 
 class TestFullViewMatchesSlimView:
     def test_full_view_includes_timing(self):
-        # Regression: full view used to return timing=null even when slim did not.
         full = ExecutionRecordFullResponse.from_record(_record_with_detail())
         assert full.timing is not None
         assert full.timing.execution_ms == 200
 
     def test_full_view_includes_runtime(self):
-        # Regression: the runtime field (issue #99) was also dropped by the
-        # hand-copied override.
         full = ExecutionRecordFullResponse.from_record(_record_with_detail())
         assert full.runtime == "runsc"
 

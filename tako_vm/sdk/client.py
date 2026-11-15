@@ -1,56 +1,3 @@
-"""
-tako_vm - Typed function execution SDK for the secure code executor.
-
-Provides a typed interface for executing functions in isolated containers:
-
-    from dataclasses import dataclass
-    import tako_vm
-
-    @dataclass
-    class InputStruct:
-        args1: int
-        args2: int
-
-    @dataclass
-    class OutputStruct:
-        return1: int
-
-    def my_func(input: InputStruct) -> OutputStruct:
-        return OutputStruct(return1=input.args1 + input.args2)
-
-    result = tako_vm.send(my_func, InputStruct(1, 2))
-    print(result.return1)  # 3
-
-Authentication is handled by the *caller*, not the SDK: pass whatever headers
-your deployment requires and they are forwarded verbatim on every request. The
-SDK never interprets credentials.
-
-    client = TakoVM("https://tako.internal", headers={"X-API-Key": KEY})
-
-A preconfigured ``requests.Session`` may be supplied for retries, mTLS, proxies,
-connection pooling, etc.:
-
-    client = TakoVM("https://tako.internal", session=my_session)
-
-Reliability notes:
-
-- When no session is supplied, the SDK builds a pooled ``requests.Session``
-  that transparently retries idempotent GETs (status/result polling, job
-  types, health) on 502/503/504. POSTs are never retried at the transport
-  layer because the sync ``/execute`` endpoint is not idempotent (a blind
-  retry could re-execute the code).
-- For retry-safe submission use ``submit()``/``submit_code()``, which go
-  through the async API with an auto-generated idempotency key so a retried
-  POST returns the existing job instead of double-executing.
-- Every request carries an ``X-Correlation-ID`` header; the id is exposed on
-  results and exceptions for end-to-end tracing.
-- HTTP failures raise a structured taxonomy: ``TransportError`` for
-  connection/timeout failures, ``ServerError`` (with ``retryable``) for 5xx,
-  and ``ClientError`` for 4xx, all carrying the server's ``detail`` and
-  correlation id. The sync ``send()``/``send_raw()`` path keeps its legacy
-  contract and reports these as a failed ``ExecutionResult`` instead.
-"""
-
 import inspect
 import json
 import logging
@@ -66,31 +13,20 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-# Server-side cap on /jobs/{id}/result?wait=true long-polling
-# (MAX_WAIT_TIMEOUT in tako_vm/server/app.py).
 _MAX_RESULT_WAIT_SECONDS = 300
 
-# Type variables for generic typing
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
-# Header used by the server's CorrelationIdMiddleware
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
-# Connect timeout: establishing a TCP connection should be fast.
 DEFAULT_CONNECT_TIMEOUT = 10.0
 
-# Server-side caps (see ExecuteRequest in tako_vm/server/app.py):
-# execution timeout <= 300s, startup timeout <= 600s. When we cannot determine
-# the effective execution timeout, the HTTP read timeout must cover the worst
-# case so the client never kills a job that the server would still complete.
 MAX_SERVER_EXEC_TIMEOUT = 300.0
 MAX_SERVER_STARTUP_TIMEOUT = 600.0
 HTTP_TIMEOUT_BUFFER = 30.0
 FALLBACK_READ_TIMEOUT = MAX_SERVER_EXEC_TIMEOUT + MAX_SERVER_STARTUP_TIMEOUT + HTTP_TIMEOUT_BUFFER
 
-# Async submission: retries are safe because every submission carries an
-# idempotency key, so a retried POST returns the existing job.
 SUBMIT_MAX_ATTEMPTS = 3
 SUBMIT_BACKOFF_INITIAL = 0.5
 SUBMIT_BACKOFF_CAP = 8.0
@@ -98,8 +34,6 @@ SUBMIT_BACKOFF_CAP = 8.0
 
 @dataclass
 class ExecutionResult:
-    """Result of a function execution."""
-
     success: bool
     output: Any
     execution_time: float
@@ -110,35 +44,21 @@ class ExecutionResult:
     exit_code: Optional[int] = None
     correlation_id: Optional[str] = None
     job_id: Optional[str] = None
-    # Effective isolation runtime the job ran under: 'runsc' (gVisor) or 'runc'
-    # (weaker fallback). Lets a caller confirm the gVisor boundary was in effect
-    # before trusting the output. None if the server predates this field.
     runtime: Optional[str] = None
-    # Set when the run succeeded but the output dict could not be coerced into
-    # the expected dataclass (output stays a raw dict). Lets callers detect the
-    # mismatch programmatically instead of scraping logs.
     deserialization_error: Optional[str] = None
 
 
 class TakoVMError(Exception):
-    """Base exception for tako_vm errors."""
+    pass
 
 
 class TransportError(TakoVMError):
-    """Raised when the HTTP request itself fails (connection, DNS, timeout).
-
-    The request may or may not have reached the server, so the SDK never
-    retries non-idempotent POSTs after this error.
-    """
-
     def __init__(self, message: str, correlation_id: Optional[str] = None):
         super().__init__(message)
         self.correlation_id = correlation_id
 
 
 class APIError(TakoVMError):
-    """Base for HTTP error responses from the server (4xx/5xx)."""
-
     def __init__(
         self,
         message: str,
@@ -153,8 +73,6 @@ class APIError(TakoVMError):
 
 
 class ServerError(APIError):
-    """Raised on 5xx responses. ``retryable`` is True for 502/503/504."""
-
     def __init__(
         self,
         message: str,
@@ -168,12 +86,10 @@ class ServerError(APIError):
 
 
 class ClientError(APIError):
-    """Raised on 4xx responses (invalid request, not found, conflict, ...)."""
+    pass
 
 
 class SDKExecutionError(TakoVMError):
-    """Raised when code execution fails via the SDK."""
-
     def __init__(
         self,
         message: str,
@@ -189,27 +105,20 @@ class SDKExecutionError(TakoVMError):
         self.correlation_id = correlation_id
 
 
-# Backward compatibility alias
 ExecutionError = SDKExecutionError
 
 
 class MalformedResponseError(TakoVMError):
-    """Raised when the server returns 2xx but the body violates the expected
-    schema (missing/renamed fields). Surfaces a contract mismatch loudly
-    instead of letting a naked KeyError escape with no correlation context."""
-
     def __init__(self, message: str, correlation_id: Optional[str] = None):
         super().__init__(message)
         self.correlation_id = correlation_id
 
 
 class ValidationError(TakoVMError):
-    """Raised when input/output validation fails."""
+    pass
 
 
 def _require_job_id(data: Any, correlation_id: Optional[str]) -> str:
-    """Extract ``job_id`` from a server response, raising a structured,
-    correlated error if the body is malformed instead of a naked KeyError."""
     if not isinstance(data, dict) or not data.get("job_id"):
         keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
         logger.error(
@@ -225,13 +134,6 @@ def _require_job_id(data: Any, correlation_id: Optional[str]) -> str:
 
 
 def _build_session(pool_size: int = 10) -> requests.Session:
-    """Build a pooled session that retries idempotent GETs only.
-
-    POSTs are deliberately excluded from transport-level retries: the sync
-    ``/execute`` endpoint is not idempotent, so a blind retry could execute
-    the submitted code twice. Retry-safe submission is provided by
-    ``TakoVM.submit()``/``submit_code()`` via the async API's idempotency keys.
-    """
     session = requests.Session()
     retry = Retry(
         total=3,
@@ -249,18 +151,6 @@ def _build_session(pool_size: int = 10) -> requests.Session:
 
 
 class TakoVM:
-    """
-    Client for the secure code executor.
-
-    Covers typed-function execution (``send``), the async job lifecycle
-    (``submit``/``get_status``/``get_result``/``cancel``/``rerun``/``fork``),
-    artifact download, execution history, and metadata.
-
-    Example:
-        client = TakoVM("http://localhost:8000")
-        result = client.send(my_func, InputStruct(1, 2))
-    """
-
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
@@ -270,42 +160,19 @@ class TakoVM:
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         correlation_id: Optional[str] = None,
     ):
-        """
-        Initialize the TakoVM client.
-
-        Args:
-            base_url: URL of the code executor API.
-            timeout: Default execution timeout in seconds.
-            headers: Headers forwarded on every request. Use this to
-                authenticate (e.g. ``{"X-API-Key": ...}`` or
-                ``{"Authorization": "Bearer ..."}``); the SDK does not
-                interpret them.
-            session: Optional preconfigured ``requests.Session`` (retries,
-                mTLS, proxies, pooling). When omitted, a pooled session with
-                a GET-only retry adapter is created.
-            connect_timeout: HTTP connect timeout in seconds (kept short).
-            correlation_id: Fixed correlation id to send on every request.
-                If not set, a fresh id is generated per request.
-        """
         self.base_url = base_url.rstrip("/")
         self.default_timeout = timeout
         self.connect_timeout = connect_timeout
         self.correlation_id = correlation_id
         self._headers = dict(headers) if headers else {}
         self._session = session or _build_session()
-        # Cache of job type name -> effective execution timeout (or None).
         self._job_type_timeouts: Dict[str, Optional[int]] = {}
-
-    # ------------------------------------------------------------------ #
-    # HTTP plumbing
-    # ------------------------------------------------------------------ #
 
     def _resolve_correlation_id(self, correlation_id: Optional[str]) -> str:
         return correlation_id or self.correlation_id or str(uuid.uuid4())
 
     @staticmethod
     def _parse_error_body(response: requests.Response) -> Tuple[str, Optional[str]]:
-        """Extract (detail, correlation_id) from a FastAPI JSON error body."""
         detail: Optional[str] = None
         correlation_id: Optional[str] = None
         try:
@@ -317,7 +184,6 @@ class TakoVM:
             if isinstance(raw_detail, str):
                 detail = raw_detail
             elif raw_detail is not None:
-                # 422 validation errors are a list of dicts
                 detail = json.dumps(raw_detail)
             raw_cid = body.get("correlation_id")
             if isinstance(raw_cid, str):
@@ -337,17 +203,6 @@ class TakoVM:
         correlation_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Any:
-        """Issue a request, forwarding the caller-supplied auth headers.
-
-        Every request carries an ``X-Correlation-ID`` header (caller-supplied
-        headers win on conflict). Failures are translated into the SDK error
-        taxonomy.
-
-        Raises:
-            TransportError: connection/DNS/timeout failures
-            ServerError: 5xx responses (``retryable`` set for 502/503/504)
-            ClientError: 4xx responses
-        """
         cid = self._resolve_correlation_id(correlation_id)
         merged = {CORRELATION_ID_HEADER: cid, **self._headers, **kwargs.pop("headers", {})}
         read_timeout = http_timeout if http_timeout is not None else self.default_timeout + 10
@@ -391,11 +246,6 @@ class TakoVM:
         return response.json() if expect_json else response
 
     def _job_type_timeout(self, job_type: Optional[str]) -> Optional[int]:
-        """Best-effort lookup of a job type's effective execution timeout.
-
-        Results (including lookup failures) are cached per client to keep
-        this cheap; it is only consulted when the caller omits ``timeout``.
-        """
         name = (job_type or "default").split("@")[0]
         if name in self._job_type_timeouts:
             return self._job_type_timeouts[name]
@@ -405,10 +255,6 @@ class TakoVM:
             value = info.get("timeout") if isinstance(info, dict) else None
             if isinstance(value, int):
                 resolved = value
-            # Only a definitive answer (success, whether or not a timeout was
-            # defined) is cached. A transient lookup failure below is NOT
-            # cached, so the client re-probes once the server recovers instead
-            # of pinning the conservative fallback for its whole lifetime.
             self._job_type_timeouts[name] = resolved
         except TakoVMError as e:
             logger.warning(
@@ -427,13 +273,6 @@ class TakoVM:
         startup_timeout: Optional[int],
         job_type: Optional[str],
     ) -> float:
-        """Pick an HTTP read timeout that always outlives the server-side job.
-
-        The server resolves an omitted ``timeout`` to the job type's default
-        and additionally allows a startup phase (dependency install), so a
-        naive ``default_timeout + 10`` read timeout would kill long jobs
-        client-side while they succeed server-side.
-        """
         exec_t: Optional[float] = float(timeout) if timeout is not None else None
         if exec_t is None:
             jt = self._job_type_timeout(job_type)
@@ -446,10 +285,6 @@ class TakoVM:
             return FALLBACK_READ_TIMEOUT
         return exec_t + startup_t + HTTP_TIMEOUT_BUFFER
 
-    # ------------------------------------------------------------------ #
-    # Typed function execution (synchronous)
-    # ------------------------------------------------------------------ #
-
     def send(
         self,
         func: Callable[[InputT], OutputT],
@@ -461,27 +296,6 @@ class TakoVM:
         idempotency_key: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> OutputT:
-        """
-        Execute a typed function in an isolated container and return its output.
-
-        Args:
-            func: Function to execute. Must have type hints for input and output.
-            input_data: Input dataclass instance.
-            timeout: Execution timeout in seconds (uses job type default if not set).
-            job_type: Job type name (uses "default" if not set).
-            requirements: Python packages to install at runtime, e.g.
-                ``["pandas", "numpy>=1.20"]`` (requires the server to allow it).
-            startup_timeout: Timeout for the startup phase (container + deps).
-            idempotency_key: Client key for idempotent submission.
-            correlation_id: Correlation id for tracing (auto-generated if omitted).
-
-        Returns:
-            Output dataclass instance.
-
-        Raises:
-            ValidationError: If input/output types are invalid.
-            ExecutionError: If execution fails.
-        """
         input_cls, output_cls = self._resolve_io_types(func, input_data)
         code = self._generate_code(func, input_cls, output_cls)
         result = self._execute(
@@ -522,12 +336,6 @@ class TakoVM:
         idempotency_key: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> ExecutionResult:
-        """
-        Execute a typed function and return the raw result.
-
-        Same as send() but returns ExecutionResult instead of raising on failure.
-        Useful when you want to handle errors yourself or inspect stdout/stderr.
-        """
         input_cls, output_cls = self._resolve_io_types(func, input_data)
         code = self._generate_code(func, input_cls, output_cls)
         result = self._execute(
@@ -545,7 +353,6 @@ class TakoVM:
             try:
                 result.output = output_cls(**cast(Dict[str, Any], result.output))
             except (TypeError, ValueError, KeyError) as e:
-                # Keep as dict if deserialization fails (type mismatch, missing fields, etc.).
                 result.deserialization_error = (
                     f"Could not deserialize output to {output_cls.__name__}: {e}"
                 )
@@ -560,7 +367,6 @@ class TakoVM:
         return result
 
     def _resolve_io_types(self, func: Callable[..., Any], input_data: Any) -> Tuple[type, type]:
-        """Validate a typed function and return its (input_cls, output_cls)."""
         if not is_dataclass(input_data):
             raise ValidationError(
                 f"input_data must be a dataclass instance, got {type(input_data)}"
@@ -596,14 +402,6 @@ class TakoVM:
         idempotency_key: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> ExecutionResult:
-        """Execute code synchronously via POST /execute.
-
-        This POST is intentionally never retried: ``/execute`` is not
-        idempotent, so a retry after an ambiguous transport failure could run
-        the code twice. Use submit()/submit_code() for retry-safe submission.
-        Transport and HTTP errors are reported as a failed ExecutionResult
-        (legacy contract) carrying the correlation id.
-        """
         payload = self._execute_payload(
             code,
             input_data,
@@ -667,9 +465,6 @@ class TakoVM:
                 correlation_id=result_cid,
             )
         if not isinstance(data, dict) or "success" not in data:
-            # Valid JSON, but not the execution-result shape we expect. Surface
-            # the contract mismatch instead of coercing it to a vague
-            # "Execution failed" with no diagnostic.
             keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
             logger.error(
                 "Execution response missing 'success' field (correlation_id=%s, keys=%s)",
@@ -710,7 +505,6 @@ class TakoVM:
         startup_timeout: Optional[int],
         idempotency_key: Optional[str],
     ) -> Dict[str, Any]:
-        """Build a /execute(/async) request body, omitting unset optionals."""
         payload: Dict[str, Any] = {"code": code, "input_data": input_data}
         if timeout is not None:
             payload["timeout"] = timeout
@@ -724,24 +518,16 @@ class TakoVM:
             payload["idempotency_key"] = idempotency_key
         return payload
 
-    # ------------------------------------------------------------------ #
-    # Code generation (sandbox wrapper)
-    # ------------------------------------------------------------------ #
-
     def _generate_code(
         self, func: Callable[..., Any], input_type: type[Any], output_type: type[Any]
     ) -> str:
-        """Generate wrapper code for execution in the sandbox."""
 
-        # Get function source
         func_source = inspect.getsource(func)
         func_source = textwrap.dedent(func_source)
 
-        # Get dataclass definitions
         input_source = self._get_dataclass_source(input_type)
         output_source = self._get_dataclass_source(output_type)
 
-        # Build the wrapper code
         code = f"""
 from dataclasses import dataclass, asdict
 import json
@@ -779,16 +565,13 @@ _execute()
         return code.strip()
 
     def _get_dataclass_source(self, cls: type[Any]) -> str:
-        """Get the source code for a dataclass."""
         try:
             source = inspect.getsource(cls)
             return textwrap.dedent(source)
         except (OSError, TypeError):
-            # If we can't get source, generate it from fields
             return self._generate_dataclass_source(cls)
 
     def _generate_dataclass_source(self, cls: type[Any]) -> str:
-        """Generate dataclass source code from its fields."""
         lines = ["@dataclass", f"class {cls.__name__}:"]
 
         for field in fields(cast(Any, cls)):
@@ -804,14 +587,9 @@ _execute()
         return "\n".join(lines)
 
     def _get_type_name(self, t: object) -> str:
-        """Get a string representation of a type."""
         if hasattr(t, "__name__"):
             return cast(Any, t).__name__
         return str(t)
-
-    # ------------------------------------------------------------------ #
-    # Async job lifecycle
-    # ------------------------------------------------------------------ #
 
     def submit_code(
         self,
@@ -825,13 +603,6 @@ _execute()
         idempotency_key: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> str:
-        """Submit raw code for asynchronous execution; returns the job id.
-
-        An idempotency key is auto-generated when not supplied, which makes
-        submission retry-safe: transient failures (transport errors,
-        502/503/504) are retried with backoff using the *same* key, so the
-        server returns the existing job instead of executing the code twice.
-        """
         key = idempotency_key or f"sdk-{uuid.uuid4().hex}"
         cid = self._resolve_correlation_id(correlation_id)
         payload = self._execute_payload(
@@ -887,7 +658,6 @@ _execute()
         idempotency_key: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> str:
-        """Submit a typed function for asynchronous execution; returns the job id."""
         input_cls, output_cls = self._resolve_io_types(func, input_data)
         code = self._generate_code(func, input_cls, output_cls)
         return self.submit_code(
@@ -902,22 +672,13 @@ _execute()
         )
 
     def get_status(self, job_id: str) -> dict:
-        """Get an async job's status (GET /jobs/{job_id})."""
         return self._request("GET", f"/jobs/{job_id}")
 
     def get_result(
         self, job_id: str, *, timeout: Optional[int] = None, view: Optional[str] = None
     ) -> dict:
-        """
-        Get an async job's result, waiting up to ``timeout`` seconds for it
-        (GET /jobs/{job_id}/result?wait=true). Without ``timeout``, returns
-        the current record immediately (which may still be queued/running).
-        Pass ``view="full"`` for artifacts, resource usage, hashes, and lineage.
-        """
         params: Dict[str, Any] = {}
         if timeout:
-            # The server only honors ``timeout`` when ``wait`` is set, and caps
-            # the long-poll at MAX_WAIT_TIMEOUT (300s). Clamp rather than 422.
             wait_timeout = min(timeout, _MAX_RESULT_WAIT_SECONDS)
             if wait_timeout != timeout:
                 logger.warning(
@@ -931,12 +692,6 @@ _execute()
             params["timeout"] = wait_timeout
         if view:
             params["view"] = view
-        # The server long-poll is capped at _MAX_RESULT_WAIT_SECONDS, so a wait
-        # never blocks longer than that regardless of the requested timeout. Clamp
-        # the requested wait to the same cap before adding the buffer margin, so
-        # the HTTP read timeout always outlives the server's poll plus a little
-        # slack (HTTP_TIMEOUT_BUFFER) for response transmission, without inflating
-        # the socket timeout past what the server can actually take.
         wait_seconds = min(timeout, _MAX_RESULT_WAIT_SECONDS) if timeout else self.default_timeout
         return self._request(
             "GET",
@@ -946,13 +701,11 @@ _execute()
         )
 
     def cancel(self, job_id: str) -> dict:
-        """Cancel a queued or running job (POST /jobs/{job_id}/cancel)."""
         return self._request("POST", f"/jobs/{job_id}/cancel")
 
     def rerun(
         self, job_id: str, *, job_type: Optional[str] = None, timeout: Optional[int] = None
     ) -> str:
-        """Re-run a previous job with the same code/input; returns the new job id."""
         body: Dict[str, Any] = {}
         if job_type is not None:
             body["job_type"] = job_type
@@ -969,7 +722,6 @@ _execute()
         job_type: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> str:
-        """Re-run a previous job's input with new code; returns the new job id."""
         body: Dict[str, Any] = {"code": code}
         if job_type is not None:
             body["job_type"] = job_type
@@ -979,15 +731,10 @@ _execute()
         return _require_job_id(data, None)
 
     def download_artifact(self, job_id: str, artifact_name: str) -> bytes:
-        """Download a job artifact's bytes (GET /jobs/{job_id}/artifacts/{name})."""
         response = self._request(
             "GET", f"/jobs/{job_id}/artifacts/{artifact_name}", expect_json=False
         )
         return response.content
-
-    # ------------------------------------------------------------------ #
-    # Execution history & metadata
-    # ------------------------------------------------------------------ #
 
     def list_executions(
         self,
@@ -998,7 +745,6 @@ _execute()
         offset: int = 0,
         view: Optional[str] = None,
     ) -> dict:
-        """List execution records (GET /executions); returns a paginated response."""
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
             params["status"] = status
@@ -1009,36 +755,28 @@ _execute()
         return self._request("GET", "/executions", params=params)
 
     def get_execution(self, execution_id: str, *, view: Optional[str] = None) -> dict:
-        """Get a single execution record (GET /executions/{execution_id})."""
         params = {"view": view} if view else {}
         return self._request("GET", f"/executions/{execution_id}", params=params)
 
     def pool_stats(self) -> dict:
-        """Worker pool statistics (GET /pool/stats)."""
         return self._request("GET", "/pool/stats", http_timeout=10)
 
     def dlq_stats(self) -> dict:
-        """Dead-letter-queue statistics (GET /dlq/stats)."""
         return self._request("GET", "/dlq/stats", http_timeout=10)
 
     def health(self) -> dict:
-        """Check API health status."""
         return self._request("GET", "/health", http_timeout=10)
 
     def list_job_types(self) -> list:
-        """List available job types."""
         return self._request("GET", "/job-types", http_timeout=10)
 
     def get_job_type(self, name: str) -> dict:
-        """Get a specific job type by name."""
         return self._request("GET", f"/job-types/{name}", http_timeout=10)
 
     def build_job_type(self, name: str) -> dict:
-        """Build the image for a job type (POST /job-types/{name}/build)."""
         return self._request("POST", f"/job-types/{name}/build")
 
 
-# Default client instance
 _default_client: Optional[TakoVM] = None
 
 
@@ -1050,22 +788,6 @@ def configure(
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
     correlation_id: Optional[str] = None,
 ) -> None:
-    """
-    Configure the default tako_vm client used by the module-level helpers.
-
-    Accepts the same arguments as :class:`TakoVM`. Call this once at startup
-    and every module-level helper (``send``, ``submit``, ``get_result``, ...)
-    delegates to the configured client.
-
-    Args:
-        base_url: URL of the code executor API.
-        timeout: Default execution timeout in seconds.
-        headers: Headers forwarded on every request (e.g. for authentication).
-        session: Optional preconfigured ``requests.Session`` (retries, mTLS,
-            proxies, pooling). When omitted, a pooled GET-retry session is built.
-        connect_timeout: HTTP connect timeout in seconds.
-        correlation_id: Fixed correlation id to send on every request.
-    """
     global _default_client
     _default_client = TakoVM(
         base_url=base_url,
@@ -1078,20 +800,10 @@ def configure(
 
 
 def _get_client() -> TakoVM:
-    """Get the default client, creating one if necessary."""
     global _default_client
     if _default_client is None:
         _default_client = TakoVM()
     return _default_client
-
-
-# --------------------------------------------------------------------------- #
-# Module-level convenience helpers
-#
-# Each delegates to the default client (configured via ``configure()``) and
-# mirrors the signature of the corresponding ``TakoVM`` method, so the flat
-# ``tako_vm.<fn>`` API stays at full parity with the class.
-# --------------------------------------------------------------------------- #
 
 
 def send(
@@ -1105,25 +817,6 @@ def send(
     idempotency_key: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> OutputT:
-    """
-    Execute a typed function in an isolated container (default client).
-
-    Example:
-        @dataclass
-        class Input:
-            x: int
-            y: int
-
-        @dataclass
-        class Output:
-            result: int
-
-        def add(input: Input) -> Output:
-            return Output(result=input.x + input.y)
-
-        result = tako_vm.send(add, Input(1, 2))
-        print(result.result)  # 3
-    """
     return _get_client().send(
         func,
         input_data,
@@ -1147,11 +840,6 @@ def send_raw(
     idempotency_key: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> ExecutionResult:
-    """
-    Execute a typed function and return the raw result (default client).
-
-    Same as send() but returns ExecutionResult instead of raising on failure.
-    """
     return _get_client().send_raw(
         func,
         input_data,
@@ -1162,9 +850,6 @@ def send_raw(
         idempotency_key=idempotency_key,
         correlation_id=correlation_id,
     )
-
-
-# --- Async job lifecycle ---------------------------------------------------- #
 
 
 def submit(
@@ -1178,7 +863,6 @@ def submit(
     idempotency_key: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> str:
-    """Submit a typed function for asynchronous execution (default client); returns the job id."""
     return _get_client().submit(
         func,
         input_data,
@@ -1202,7 +886,6 @@ def submit_code(
     idempotency_key: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> str:
-    """Submit raw code for asynchronous execution (default client); returns the job id."""
     return _get_client().submit_code(
         code,
         input_data,
@@ -1216,22 +899,18 @@ def submit_code(
 
 
 def get_status(job_id: str) -> dict:
-    """Get an async job's status (default client)."""
     return _get_client().get_status(job_id)
 
 
 def get_result(job_id: str, *, timeout: Optional[int] = None, view: Optional[str] = None) -> dict:
-    """Get an async job's result, waiting up to ``timeout`` seconds (default client)."""
     return _get_client().get_result(job_id, timeout=timeout, view=view)
 
 
 def cancel(job_id: str) -> dict:
-    """Cancel a queued or running job (default client)."""
     return _get_client().cancel(job_id)
 
 
 def rerun(job_id: str, *, job_type: Optional[str] = None, timeout: Optional[int] = None) -> str:
-    """Re-run a previous job with the same code/input (default client); returns the new job id."""
     return _get_client().rerun(job_id, job_type=job_type, timeout=timeout)
 
 
@@ -1242,16 +921,11 @@ def fork(
     job_type: Optional[str] = None,
     timeout: Optional[int] = None,
 ) -> str:
-    """Re-run a previous job's input with new code (default client); returns the new job id."""
     return _get_client().fork(job_id, code, job_type=job_type, timeout=timeout)
 
 
 def download_artifact(job_id: str, artifact_name: str) -> bytes:
-    """Download a job artifact's bytes (default client)."""
     return _get_client().download_artifact(job_id, artifact_name)
-
-
-# --- Execution history & metadata ------------------------------------------- #
 
 
 def list_executions(
@@ -1262,42 +936,34 @@ def list_executions(
     offset: int = 0,
     view: Optional[str] = None,
 ) -> dict:
-    """List execution records (default client); returns a paginated response."""
     return _get_client().list_executions(
         status=status, job_type=job_type, limit=limit, offset=offset, view=view
     )
 
 
 def get_execution(execution_id: str, *, view: Optional[str] = None) -> dict:
-    """Get a single execution record (default client)."""
     return _get_client().get_execution(execution_id, view=view)
 
 
 def pool_stats() -> dict:
-    """Worker pool statistics (default client)."""
     return _get_client().pool_stats()
 
 
 def dlq_stats() -> dict:
-    """Dead-letter-queue statistics (default client)."""
     return _get_client().dlq_stats()
 
 
 def health() -> dict:
-    """Check API health status (default client)."""
     return _get_client().health()
 
 
 def list_job_types() -> list:
-    """List available job types (default client)."""
     return _get_client().list_job_types()
 
 
 def get_job_type(name: str) -> dict:
-    """Get a specific job type by name (default client)."""
     return _get_client().get_job_type(name)
 
 
 def build_job_type(name: str) -> dict:
-    """Build the image for a job type (default client)."""
     return _get_client().build_job_type(name)
