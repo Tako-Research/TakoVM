@@ -5,7 +5,15 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-11-15
+
+A fix release. Upgrade if you serve artifacts: on a current Starlette (which is
+what a fresh install resolves on Python 3.11 and later), a single artifact
+download hangs the API server. See Fixed.
+
+The session change under Changed is marked breaking but ships in a patch
+release on purpose: the session builders are unreleased scaffolding that
+nothing calls, so no deployment can be using the old signature.
 
 ### Security
 
