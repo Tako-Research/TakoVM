@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
     
     
       
@@ -31,10 +31,10 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
       
       
 
@@ -1678,6 +1678,34 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-09-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.3.0] - 2026-09-02
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.3.0] - 2026-09-02">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#security" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1728,7 +1756,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1828,7 +1856,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1931,6 +1959,34 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-09-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.3.0] - 2026-09-02
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.3.0] - 2026-09-02">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#security" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1981,7 +2037,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2081,7 +2137,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -2207,6 +2263,31 @@
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>An artifact download could hang the whole API server.</strong> The request
+  protection middleware buffers the request body and replays it to the app.
+  Once the replay was exhausted its <code>receive()</code> returned an empty
+  <code>http.request</code> immediately, forever, instead of blocking until the client
+  disconnects. Starlette's <code>FileResponse</code> now waits for a disconnect in a
+  <code>while True: await receive()</code> loop on ASGI spec versions below 2.4 (which is
+  what uvicorn advertises), so that loop never yielded: the file was never
+  sent, the event loop spun at 100% CPU, and every later request, including
+  <code>/health</code>, went unanswered. One <code>GET /jobs/{id}/artifacts/{name}</code> was
+  enough. Affects any install that resolves a recent Starlette (Python 3.11
+  and later); the middleware now hands over to the server's own <code>receive()</code>.</li>
+<li>The CI test job has a 20-minute limit. The bug above made the Python 3.11
+  and 3.12 jobs hang for GitHub's six-hour default on every run.</li>
+</ul>
+<h2 id="030-2026-09-02">[0.3.0] - 2026-09-02<a class="headerlink" href="#030-2026-09-02" title="Permanent link">&para;</a></h2>
+<p>A security release, and the one that closes the hole the quickstart itself
+published: <code>docker compose up</code> served an unauthenticated <code>POST /execute</code> on
+every interface, plus PostgreSQL on <code>5432</code> with <code>postgres</code>/<code>postgres</code>. Anyone
+who followed the README was running remote code execution open to their
+network. Upgrade before anything else.</p>
+<p>The minor bump is the <code>max_timeout</code> ceiling below, not the security fixes: a
+deployment whose <code>job_types</code> declare a timeout above <code>max_timeout</code> is now
+refused at startup instead of quietly exceeding its own limit.</p>
 <h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>--host</code> can no longer bypass the fail-closed bind guard.</strong> The config
@@ -2291,7 +2372,7 @@ under Changed.</p>
 <li>Dependency installation runs as the unprivileged sandbox user (#116).</li>
 <li>Worker ulimits are mirrored onto the library <code>Sandbox</code> path (#113).</li>
 </ul>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>The default posture now works and now enforces</strong> (#153). Four defects, all
   hidden by CI running a configuration nobody ships:</li>
@@ -2384,7 +2465,7 @@ end-to-end for durability, traceability, and security.</p>
 <li>README and docs overhauled for the PyPI-published package, server-mode-first
   onboarding, and a Japanese translation.</li>
 </ul>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Idempotent retries use a unique container per attempt with clean output
   isolation (#82); the idempotency key is no longer burned when the queue is
@@ -2560,10 +2641,10 @@ queue, PostgreSQL persistence, and the initial library-mode <code>Sandbox</code>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.tracking", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.select", "content.code.annotate", "content.action.edit", "content.tabs.link", "toc.follow", "announce.dismiss"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
       
         <script src="../js/timeago.min.js"></script>
       
