@@ -46,6 +46,10 @@ dependencies = [
     "psycopg[binary]>=3.2.0",
     "psycopg-pool>=3.2.0",
     "pyyaml>=6.0",
+    # Security floors for packages pulled in by requests. Listed here so an
+    # upgrade of tako-vm also moves an existing install off the affected versions.
+    "urllib3>=2.8.0",  # GHSA-8988-9cw3-xx77, GHSA-vxq7-64xx-v4gw, GHSA-gh4c-6fx4-qh6g
+    "certifi>=2026.10.18",  # GHSA-6q48-6c7w-9gw2
 ]
 
 [project.optional-dependencies]
@@ -53,11 +57,13 @@ dependencies = [
 server = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
+    "anyio>=4.14.2",  # security floor (GHSA-82r6-8w77-94w6); pulled in by starlette
 ]
 # All dependencies
 all = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
+    "anyio>=4.14.2",  # security floor (GHSA-82r6-8w77-94w6); pulled in by starlette
 ]
 # Development dependencies
 dev = [
@@ -70,8 +76,9 @@ dev = [
 # Documentation
 docs = [
     "mkdocs>=1.5.0",
-    "mkdocs-material[imaging]>=9.0.0",  # [imaging] pulls cairosvg+pillow for social cards
+    "mkdocs-material[imaging]>=9.7.7",  # [imaging] pulls cairosvg+pillow for social cards
     "mkdocs-git-revision-date-localized-plugin>=1.2.0",
+    "GitPython>=3.2.1",  # security floor; pulled in by the git-revision-date plugin
 ]
 
 [project.urls]
@@ -121,3 +128,11 @@ tools = [
     "pre-commit>=4.3.0",
     "pyright>=1.1.408",
 ]
+
+[tool.uv]
+# uv.lock is the development lockfile (CI, the server image and `pip install`
+# resolve from the ranges above instead). Python 3.10 reached end of life in
+# October 2026 and several dev and docs dependencies (Pillow, filelock) have
+# no patched release that still supports it, so the lock is resolved for
+# Python 3.11 and later only. The package itself still installs on 3.10.
+environments = ["python_version >= '3.11'"]
