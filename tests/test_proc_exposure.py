@@ -1,12 +1,3 @@
-"""
-Test /proc filesystem exposure vulnerability.
-
-These tests demonstrate the security vulnerability described in:
-https://equixly.com/blog/2025/11/04/path-traversal-ai-containers/
-
-WARNING: These are intentionally vulnerable scenarios to document the risk.
-"""
-
 import pytest
 
 from tako_vm.config import TakoVMConfig
@@ -15,7 +6,6 @@ from tako_vm.execution.worker import CodeExecutor
 
 @pytest.fixture
 def executor():
-    """Create a CodeExecutor for testing."""
     return CodeExecutor(
         config=TakoVMConfig(
             allow_runtime_requirements=True,
@@ -27,16 +17,7 @@ def executor():
 
 
 class TestProcExposure:
-    """Test cases demonstrating /proc filesystem exposure."""
-
     def test_environment_variable_leakage(self, executor):
-        """
-        Demonstrate that user code can read /proc/self/environ.
-
-        VULNERABILITY: User code can access all environment variables including:
-        - dependency specifications if they are passed through environment variables
-        - Custom job_type.environment variables
-        """
         code = """
 import json
 
@@ -76,18 +57,15 @@ with open('/output/result.json', 'w') as f:
 
         result = executor.execute_job(job)
 
-        # /proc environment access remains possible, but dependency specs should not leak.
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
         output = result["output"]
 
-        # Verify environment variable leakage
         assert output["total_vars"] > 0
         assert output["has_path"] is True
         assert output["has_home"] is True
 
-        # Dependency requirements are passed via /input/_requirements.txt, not env.
         assert "TAKO_REQUIREMENTS" not in output["tako_vars"]
 
         print("\n/proc environment exposure observed:")
@@ -96,14 +74,6 @@ with open('/output/result.json', 'w') as f:
         print("   - Requirements leaked: no")
 
     def test_binary_extraction_via_proc_exe(self, executor):
-        """
-        Demonstrate that user code can extract the Python binary via /proc/self/exe.
-
-        VULNERABILITY: Attackers can reverse engineer the Python runtime to find:
-        - Python version and patchlevel
-        - Compiled C extensions
-        - Potential vulnerabilities
-        """
         code = """
 import os
 import json
@@ -141,7 +111,6 @@ except Exception as e:
 
         result = executor.execute_job(job)
 
-        # This test PASSES, demonstrating the vulnerability
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
@@ -157,15 +126,6 @@ except Exception as e:
         print("   - Full binary extraction is possible")
 
     def test_file_descriptor_enumeration(self, executor):
-        """
-        Demonstrate that user code can enumerate open file descriptors.
-
-        VULNERABILITY: Reveals:
-        - Open configuration files
-        - Database connections
-        - Unix sockets
-        - Log files
-        """
         code = """
 import os
 import json
@@ -195,7 +155,6 @@ with open('/output/result.json', 'w') as f:
 
         result = executor.execute_job(job)
 
-        # This test PASSES, demonstrating the vulnerability
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
@@ -208,11 +167,6 @@ with open('/output/result.json', 'w') as f:
         print(f"   - File descriptors: {output['file_descriptors']}")
 
     def test_process_enumeration(self, executor):
-        """
-        Demonstrate that user code can enumerate processes via /proc/[PID]/cmdline.
-
-        VULNERABILITY: Reveals running processes and their command arguments.
-        """
         code = """
 import os
 import json
@@ -244,13 +198,11 @@ with open('/output/result.json', 'w') as f:
 
         result = executor.execute_job(job)
 
-        # This test PASSES (at least own process visible)
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
         output = result["output"]
 
-        # In a container, at minimum the running process itself is visible
         assert output["process_count"] >= 1
 
         print("\n⚠️  VULNERABILITY CONFIRMED:")
@@ -258,11 +210,6 @@ with open('/output/result.json', 'w') as f:
         print(f"   - Process details: {output['processes']}")
 
     def test_custom_env_variable_leakage(self, executor):
-        """
-        Demonstrate leakage of custom environment variables from job_type.environment.
-
-        This is particularly dangerous if job types include API keys or secrets.
-        """
         code = """
 import os
 import json
@@ -279,7 +226,6 @@ with open('/output/result.json', 'w') as f:
     }, f)
 """
 
-        # Simulate a job type with custom environment variables
         from tako_vm.job_types import JobType
 
         job_type = JobType(
@@ -305,13 +251,11 @@ with open('/output/result.json', 'w') as f:
 
         result = executor.execute_job(job)
 
-        # This test PASSES, demonstrating secret leakage
         assert result["success"], (
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
         output = result["output"]
 
-        # CRITICAL: Secrets are exposed
         assert output["api_key"] == "sk-secret-api-key-12345"
         assert "password" in output["database_url"]
 
@@ -323,14 +267,7 @@ with open('/output/result.json', 'w') as f:
 
 @pytest.mark.skip(reason="Demonstrates vulnerability - do not run in CI")
 class TestMitigations:
-    """Test potential mitigations (not yet implemented)."""
-
     def test_proc_environ_should_be_blocked(self, executor):
-        """
-        FUTURE: Test that /proc/self/environ access should be blocked.
-
-        This test should FAIL until proper mitigations are implemented.
-        """
         code = """
 try:
     with open('/proc/self/environ', 'rb') as f:
@@ -357,14 +294,10 @@ with open('/output/result.json', 'w') as f:
             f"Execution failed: stderr={result.get('stderr')}, error={result.get('error')}"
         )
 
-        # This assertion WILL FAIL until mitigations are implemented
-        # Currently /proc/self/environ is "accessible"
-        # After mitigations, it should be "blocked" or "not_found"
         assert result["output"]["status"] in ("blocked", "not_found"), (
             "/proc/self/environ should not be accessible"
         )
 
 
 if __name__ == "__main__":
-    # Run tests with verbose output
     pytest.main([__file__, "-v", "-s"])

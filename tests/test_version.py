@@ -1,5 +1,3 @@
-"""Tests for job type digest computation."""
-
 from dataclasses import replace
 
 from tako_vm.job_types import JobType
@@ -7,12 +5,10 @@ from tako_vm.version import VersionManager
 
 
 def _version_manager() -> VersionManager:
-    # compute_digest() is pure and does not access storage.
     return VersionManager(storage=None)  # type: ignore[arg-type]
 
 
 def test_compute_digest_changes_when_session_or_gpu_settings_change():
-    """Digest includes session and GPU fields."""
     manager = _version_manager()
     base = JobType(name="model-job")
 
@@ -28,7 +24,6 @@ def test_compute_digest_changes_when_session_or_gpu_settings_change():
 
 
 def test_compute_digest_is_stable_for_reordered_gpu_device_ids():
-    """Device IDs are normalized for deterministic hashes."""
     manager = _version_manager()
 
     a = JobType(

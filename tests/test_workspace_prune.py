@@ -1,12 +1,3 @@
-"""
-Disk-hygiene sweeps: stranded workspace dirs and on-disk run artifacts past TTL.
-
-Run temp dirs (job-*/sandbox-*) are normally removed in a finally block, but a
-crash leaks them with no other reaper; and the DB record cleanup never deletes
-the on-disk runs/<id> artifacts. These pure filesystem sweeps reclaim both.
-No Docker required.
-"""
-
 import os
 import time
 
@@ -29,25 +20,24 @@ class TestPruneStaleWorkspaces:
         old_sandbox.mkdir()
         _age(old_sandbox, 10_000)
         fresh = tmp_path / "job-fresh"
-        fresh.mkdir()  # mtime ~ now
+        fresh.mkdir()
         unrelated = tmp_path / "data"
         unrelated.mkdir()
-        _age(unrelated, 10_000)  # old but not a job-/sandbox- dir
+        _age(unrelated, 10_000)
 
         removed = prune_stale_workspaces(max_age_seconds=3600)
 
         assert removed == 2
         assert not old_job.exists()
         assert not old_sandbox.exists()
-        assert fresh.exists()  # too new
-        assert unrelated.exists()  # wrong prefix, untouched
+        assert fresh.exists()
+        assert unrelated.exists()
 
     def test_missing_workspace_dir_is_noop(self, tmp_path, monkeypatch):
         monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path / "nope"))
         assert prune_stale_workspaces(max_age_seconds=1) == 0
 
     def test_symlinked_entry_is_skipped(self, tmp_path, monkeypatch):
-        # A workspace-named symlink must never be followed/removed by the sweep.
         monkeypatch.setenv("TAKO_VM_WORKSPACE", str(tmp_path))
         target = tmp_path / "target_dir"
         target.mkdir()
@@ -58,8 +48,8 @@ class TestPruneStaleWorkspaces:
         removed = prune_stale_workspaces(max_age_seconds=1)
 
         assert removed == 0
-        assert link.is_symlink()  # the symlink itself untouched
-        assert (target / "keep").exists()  # and its target not deleted
+        assert link.is_symlink()
+        assert (target / "keep").exists()
 
 
 class TestPruneOldRunDirs:

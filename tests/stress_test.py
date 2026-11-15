@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""
-Stress test for Tako VM API.
-
-Tests concurrent requests, queue capacity, idempotency under load,
-and measures throughput/latency.
-
-Enterprise tests include:
-- Soak testing for memory leaks and degradation
-- Baseline throughput measurement
-- Backpressure tracking (503s reported separately)
-"""
 
 import argparse
 import asyncio
@@ -25,8 +14,6 @@ BASE_URL = "http://localhost:8000"
 
 @dataclass
 class StressTestResult:
-    """Results from a stress test run."""
-
     test_name: str
     total_requests: int
     successful: int
@@ -34,11 +21,10 @@ class StressTestResult:
     duration_sec: float
     latencies_ms: List[float] = field(default_factory=list)
     errors: Dict[str, int] = field(default_factory=dict)
-    # Enterprise metrics
-    backpressure_count: int = 0  # 503 responses (queue full)
-    jobs_accepted: int = 0  # Successfully queued jobs
+    backpressure_count: int = 0
+    jobs_accepted: int = 0
     memory_samples_mb: List[float] = field(default_factory=list)
-    throughput_samples: List[float] = field(default_factory=list)  # req/s over time
+    throughput_samples: List[float] = field(default_factory=list)
 
     @property
     def success_rate(self) -> float:
@@ -46,7 +32,6 @@ class StressTestResult:
 
     @property
     def acceptance_rate(self) -> float:
-        """Rate of jobs actually accepted (excluding backpressure)."""
         total_submissions = self.jobs_accepted + self.backpressure_count
         return (self.jobs_accepted / total_submissions * 100) if total_submissions > 0 else 100
 
@@ -80,7 +65,6 @@ class StressTestResult:
 
     @property
     def memory_growth_pct(self) -> float:
-        """Memory growth from start to end of test."""
         if len(self.memory_samples_mb) < 2:
             return 0
         start = self.memory_samples_mb[0]
@@ -89,7 +73,6 @@ class StressTestResult:
 
     @property
     def throughput_stability(self) -> float:
-        """Coefficient of variation for throughput (lower = more stable)."""
         if len(self.throughput_samples) < 2:
             return 0
         mean = statistics.mean(self.throughput_samples)
@@ -113,7 +96,6 @@ class StressTestResult:
         print(f"P95 Latency:       {self.p95_latency_ms:.1f}ms")
         print(f"P99 Latency:       {self.p99_latency_ms:.1f}ms")
 
-        # Enterprise metrics
         if self.backpressure_count > 0 or self.jobs_accepted > 0:
             print("\n--- Capacity Metrics ---")
             print(f"Jobs Accepted:     {self.jobs_accepted}")
@@ -144,9 +126,6 @@ async def make_request(
     url: str,
     json_data: Optional[Dict[str, Any]] = None,
 ) -> tuple[bool, float, str]:
-    """
-    Make an HTTP request and return (success, latency_ms, error).
-    """
     start = time.perf_counter()
     try:
         if method == "GET":
@@ -176,9 +155,6 @@ async def stress_test_health(
     num_requests: int = 1000,
     concurrency: int = 50,
 ) -> StressTestResult:
-    """
-    Stress test the health endpoint (lightweight, no Docker).
-    """
     result = StressTestResult(
         test_name=f"Health Check ({num_requests} requests, {concurrency} concurrent)",
         total_requests=num_requests,
@@ -224,9 +200,6 @@ async def stress_test_sync_execution(
     num_requests: int = 50,
     concurrency: int = 10,
 ) -> StressTestResult:
-    """
-    Stress test synchronous execution (heavyweight, uses Docker).
-    """
     result = StressTestResult(
         test_name=f"Sync Execution ({num_requests} requests, {concurrency} concurrent)",
         total_requests=num_requests,
@@ -244,7 +217,7 @@ async def stress_test_sync_execution(
             )
 
     limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
-    timeout = httpx.Timeout(120.0)  # Longer timeout for Docker
+    timeout = httpx.Timeout(120.0)
 
     start = time.perf_counter()
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
@@ -274,9 +247,6 @@ async def stress_test_async_execution(
     num_requests: int = 100,
     concurrency: int = 20,
 ) -> StressTestResult:
-    """
-    Stress test async job submission (fast submission, queued execution).
-    """
     result = StressTestResult(
         test_name=f"Async Submission ({num_requests} requests, {concurrency} concurrent)",
         total_requests=num_requests,
@@ -339,9 +309,6 @@ async def stress_test_queue_flood(
     num_requests: int = 200,
     concurrency: int = 50,
 ) -> StressTestResult:
-    """
-    Flood the queue beyond max capacity to test backpressure.
-    """
     result = StressTestResult(
         test_name=f"Queue Flood ({num_requests} requests, {concurrency} concurrent)",
         total_requests=num_requests,
@@ -408,9 +375,6 @@ async def stress_test_idempotency(
     num_duplicate_requests: int = 50,
     concurrency: int = 10,
 ) -> StressTestResult:
-    """
-    Test idempotency under concurrent duplicate requests.
-    """
     result = StressTestResult(
         test_name=f"Idempotency ({num_duplicate_requests} duplicate requests, {concurrency} concurrent)",
         total_requests=num_duplicate_requests,
@@ -480,10 +444,6 @@ async def stress_test_mixed_workload(
     duration_sec: int = 30,
     concurrency: int = 20,
 ) -> StressTestResult:
-    """
-    Mixed workload: health checks + async submissions + status polling.
-    Tracks backpressure (503s) separately from failures.
-    """
     result = StressTestResult(
         test_name=f"Mixed Workload ({duration_sec}s, {concurrency} concurrent)",
         total_requests=0,
@@ -530,8 +490,6 @@ async def stress_test_mixed_workload(
                             data = resp.json()
                             job_ids.append(data.get("job_id"))
                         elif resp.status_code == 503:
-                            # 503 = queue full, expected backpressure
-                            # Count as successful response, but track separately
                             result.successful += 1
                             result.backpressure_count += 1
                         else:
@@ -551,7 +509,7 @@ async def stress_test_mixed_workload(
     async def poll_worker(client):
         while not stop_event.is_set():
             if job_ids:
-                job_id = job_ids[-1]  # Poll latest job
+                job_id = job_ids[-1]
                 async with semaphore:
                     success, latency_ms, error = await make_request(
                         client, "GET", f"{BASE_URL}/jobs/{job_id}"
@@ -570,7 +528,6 @@ async def stress_test_mixed_workload(
     timeout = httpx.Timeout(30.0)
 
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
-        # Start workers
         workers = [
             asyncio.create_task(health_worker(client)),
             asyncio.create_task(health_worker(client)),
@@ -580,11 +537,9 @@ async def stress_test_mixed_workload(
             asyncio.create_task(poll_worker(client)),
         ]
 
-        # Run for duration
         await asyncio.sleep(duration_sec)
         stop_event.set()
 
-        # Wait for workers to finish
         await asyncio.gather(*workers, return_exceptions=True)
 
     return result
@@ -593,10 +548,6 @@ async def stress_test_mixed_workload(
 async def stress_test_baseline(
     num_requests: int = 100,
 ) -> StressTestResult:
-    """
-    Baseline test: sequential requests with single connection.
-    Establishes baseline throughput without concurrency overhead.
-    """
     result = StressTestResult(
         test_name=f"Baseline (Sequential, {num_requests} requests)",
         total_requests=num_requests,
@@ -639,13 +590,11 @@ async def stress_test_baseline(
 
 
 async def get_server_memory_mb() -> Optional[float]:
-    """Get server memory usage via health endpoint (if available)."""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{BASE_URL}/health", timeout=5.0)
             if resp.status_code == 200:
                 data = resp.json()
-                # If server exposes memory stats
                 if "memory_mb" in data:
                     return data["memory_mb"]
     except Exception:
@@ -654,19 +603,10 @@ async def get_server_memory_mb() -> Optional[float]:
 
 
 async def stress_test_soak(
-    duration_sec: int = 300,  # 5 minutes default
+    duration_sec: int = 300,
     concurrency: int = 10,
     sample_interval_sec: int = 10,
 ) -> StressTestResult:
-    """
-    Soak test: sustained load over time to detect memory leaks and degradation.
-
-    Enterprise test that:
-    - Runs for extended duration (default 5 min, recommend 30 min for production)
-    - Samples throughput at regular intervals
-    - Tracks memory growth (if exposed by server)
-    - Detects performance degradation over time
-    """
     result = StressTestResult(
         test_name=f"Soak Test ({duration_sec}s, {concurrency} concurrent)",
         total_requests=0,
@@ -679,7 +619,6 @@ async def stress_test_soak(
     stop_event = asyncio.Event()
     lock = asyncio.Lock()
 
-    # Tracking for time-series data
     interval_requests = 0
     interval_start = time.perf_counter()
 
@@ -716,7 +655,7 @@ async def stress_test_soak(
                         error = str(type(e).__name__)
                         result.errors[error] = result.errors.get(error, 0) + 1
             i += 1
-            await asyncio.sleep(0.05)  # ~20 req/s per worker max
+            await asyncio.sleep(0.05)
 
     async def sampler():
         nonlocal interval_requests, interval_start
@@ -726,22 +665,18 @@ async def stress_test_soak(
                 break
 
             async with lock:
-                # Calculate throughput for this interval
                 elapsed = time.perf_counter() - interval_start
                 if elapsed > 0:
                     throughput = interval_requests / elapsed
                     result.throughput_samples.append(throughput)
 
-                # Reset for next interval
                 interval_requests = 0
                 interval_start = time.perf_counter()
 
-            # Sample memory if available
             mem = await get_server_memory_mb()
             if mem is not None:
                 result.memory_samples_mb.append(mem)
 
-            # Print progress
             elapsed_total = len(result.throughput_samples) * sample_interval_sec
             print(
                 f"  [{elapsed_total}s] Throughput: {result.throughput_samples[-1]:.1f} req/s, "
@@ -751,7 +686,6 @@ async def stress_test_soak(
     limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
     timeout = httpx.Timeout(30.0)
 
-    # Initial memory sample
     mem = await get_server_memory_mb()
     if mem is not None:
         result.memory_samples_mb.append(mem)
@@ -759,18 +693,12 @@ async def stress_test_soak(
     print(f"  Starting soak test ({duration_sec}s)...")
 
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
-        # Start workers
-        workers = [
-            asyncio.create_task(submit_worker(client))
-            for _ in range(concurrency // 2 + 1)  # Half concurrency as workers
-        ]
+        workers = [asyncio.create_task(submit_worker(client)) for _ in range(concurrency // 2 + 1)]
         workers.append(asyncio.create_task(sampler()))
 
-        # Run for duration
         await asyncio.sleep(duration_sec)
         stop_event.set()
 
-        # Wait for workers to finish
         await asyncio.gather(*workers, return_exceptions=True)
 
     return result
@@ -780,11 +708,6 @@ async def stress_test_capacity(
     target_rate: int = 50,
     duration_sec: int = 60,
 ) -> StressTestResult:
-    """
-    Capacity test: find the sustainable throughput limit.
-
-    Submits at a target rate and measures how many are accepted vs rejected.
-    """
     result = StressTestResult(
         test_name=f"Capacity Test ({target_rate} req/s target, {duration_sec}s)",
         total_requests=0,
@@ -795,7 +718,7 @@ async def stress_test_capacity(
 
     stop_event = asyncio.Event()
     lock = asyncio.Lock()
-    delay = 1.0 / target_rate  # Delay between requests to achieve target rate
+    delay = 1.0 / target_rate
 
     async def rate_limited_submit(client):
         i = 0
@@ -826,7 +749,6 @@ async def stress_test_capacity(
                     result.errors[error] = result.errors.get(error, 0) + 1
 
             i += 1
-            # Rate limiting
             elapsed = time.perf_counter() - start
             sleep_time = max(0, delay - elapsed)
             await asyncio.sleep(sleep_time)
@@ -839,7 +761,7 @@ async def stress_test_capacity(
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
         workers = [
             asyncio.create_task(rate_limited_submit(client))
-            for _ in range(min(target_rate // 10 + 1, 10))  # Scale workers with rate
+            for _ in range(min(target_rate // 10 + 1, 10))
         ]
 
         await asyncio.sleep(duration_sec)
@@ -850,7 +772,6 @@ async def stress_test_capacity(
 
 
 async def check_server_health():
-    """Check if server is running before tests."""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{BASE_URL}/health", timeout=5.0)
@@ -897,7 +818,6 @@ async def main():
     results = []
 
     if args.test:
-        # Run specific test
         test_map = {
             "health": lambda: stress_test_health(1000, 50),
             "sync": lambda: stress_test_sync_execution(20, 5),
@@ -918,13 +838,11 @@ async def main():
             print(f"Available: {', '.join(test_map.keys())}")
             return
     elif args.quick:
-        # Quick test suite
         print("Running quick test suite...")
         results.append(await stress_test_health(500, 25))
         results.append(await stress_test_async_execution(50, 10))
         results.append(await stress_test_idempotency(20, 10))
     elif args.full:
-        # Full test suite
         print("Running full test suite...")
         results.append(await stress_test_health(2000, 100))
         results.append(await stress_test_sync_execution(50, 10))
@@ -933,7 +851,6 @@ async def main():
         results.append(await stress_test_idempotency(100, 30))
         results.append(await stress_test_mixed_workload(60, 30))
     elif args.enterprise:
-        # Enterprise test suite
         print("Running enterprise test suite...")
         print("\n[1/4] Baseline throughput (single connection)...")
         results.append(await stress_test_baseline(100))
@@ -944,18 +861,15 @@ async def main():
         print(f"\n[4/4] Soak test ({args.soak_duration}s)...")
         results.append(await stress_test_soak(args.soak_duration, 10))
     else:
-        # Default: moderate test suite
         print("Running default test suite...")
         results.append(await stress_test_health(1000, 50))
         results.append(await stress_test_async_execution(100, 20))
         results.append(await stress_test_idempotency(50, 20))
         results.append(await stress_test_mixed_workload(30, 20))
 
-    # Print all results
     for result in results:
         result.print_summary()
 
-    # Overall summary
     print("\n" + "=" * 60)
     print("OVERALL SUMMARY")
     print("=" * 60)
@@ -978,7 +892,6 @@ async def main():
         sorted_all = sorted(all_latencies)
         print(f"Overall P95 Lat:   {sorted_all[int(len(sorted_all) * 0.95)]:.1f}ms")
 
-    # Check for critical issues
     critical_issues = []
     warnings = []
     for r in results:
@@ -987,7 +900,6 @@ async def main():
         if "idempotency_violation" in r.errors:
             critical_issues.append(f"{r.test_name}: Idempotency violations detected")
 
-        # Enterprise checks
         if r.acceptance_rate < 95 and r.backpressure_count > 0:
             warnings.append(
                 f"{r.test_name}: High backpressure - only {r.acceptance_rate:.1f}% jobs accepted"

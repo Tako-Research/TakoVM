@@ -1,20 +1,3 @@
-"""
-Container Builder - Build Docker images for job types.
-
-This module handles building pre-configured Docker containers
-for each job type with their required dependencies.
-
-Example:
-    from container_builder import ContainerBuilder
-    from job_types import JobType
-
-    builder = ContainerBuilder()
-    builder.build(JobType(
-        name="data-processing",
-        requirements=["pandas", "numpy"],
-    ))
-"""
-
 import logging
 import shutil
 import subprocess
@@ -42,60 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 class BuildError(Exception):
-    """Raised when container build fails."""
+    pass
 
 
 class ContainerBuilder:
-    """
-    Builds Docker images for job types.
-    """
-
     def __init__(self, custom_libs_path: Optional[Path] = None):
-        """
-        Initialize the builder.
-
-        Args:
-            custom_libs_path: Path to custom libraries directory
-        """
         self.custom_libs_path = custom_libs_path or Path("custom_libs")
 
     def generate_dockerfile(self, job_type: JobType) -> str:
-        """
-        Generate Dockerfile content for a job type.
-
-        The generated image derives from the executor base image (or an
-        executor-derived ``base_image``) so it keeps the executor entrypoint
-        contract (``ENTRYPOINT ["/entrypoint.sh"]``): the entrypoint enforces
-        the in-container startup/execution timeouts, installs any per-job
-        extra requirements, writes the phase/timing file, and runs
-        ``/code/main.py`` itself as the sandbox user via gosu. The worker
-        (``CodeExecutor._resolve_image``) refuses to run images that lack
-        this contract, because docker would otherwise execute the image's
-        default CMD instead of the user's code.
-
-        Note: ``python_version`` no longer selects the default base image.
-        The executor base image pins the Python version. To use a different
-        Python, point ``base_image`` at a custom executor-derived image.
-
-        Args:
-            job_type: Job type configuration
-
-        Returns:
-            Dockerfile content as string
-
-        Raises:
-            BuildError: If job type has invalid configuration
-        """
-        # Validate python_version before using in base image
         if not validate_python_version(job_type.python_version):
             raise BuildError(
                 f"Invalid python_version '{job_type.python_version}' for job type {job_type.name}"
             )
 
-        # Determine and validate base image. The default is the executor base
-        # image so the built image inherits /entrypoint.sh; a custom
-        # base_image must itself be executor-derived or the worker will refuse
-        # the built image at run time.
         if job_type.base_image:
             if not validate_docker_image(job_type.base_image):
                 raise BuildError(
@@ -105,7 +47,6 @@ class ContainerBuilder:
         else:
             base_image = DEFAULT_EXECUTOR_IMAGE
 
-        # Build requirements install command with validation
         requirements_cmd = ""
         if job_type.requirements:
             validated_reqs = []
@@ -123,18 +64,15 @@ class ContainerBuilder:
                 req_list = " ".join(f'"{r}"' for r in validated_reqs)
                 requirements_cmd = f"RUN uv pip install --system --no-cache {req_list}"
 
-        # Build environment variables (with validation and escaping)
         env_lines = ""
         if job_type.environment:
             for key, value in job_type.environment.items():
-                # Validate key and value to prevent injection
                 if not validate_env_key(key):
                     logger.warning("Skipping invalid env key in Dockerfile: %s", key)
                     continue
                 if not validate_env_value(value):
                     logger.warning("Skipping env with unsafe value in Dockerfile: %s", key)
                     continue
-                # Escape quotes and backslashes in value for Dockerfile
                 escaped_value = value.replace("\\", "\\\\").replace('"', '\\"')
                 env_lines += f'ENV {key}="{escaped_value}"\n'
 
@@ -190,37 +128,16 @@ WORKDIR /app
         return dockerfile
 
     def build(self, job_type: JobType, no_cache: bool = False, quiet: bool = False) -> bool:
-        """
-        Build Docker image for a job type.
-
-        Args:
-            job_type: Job type configuration
-            no_cache: If True, build without Docker cache
-            quiet: If True, suppress build output
-
-        Returns:
-            True if build succeeded
-
-        Raises:
-            BuildError: If build fails
-        """
         logger.info(f"Building container for job type: {job_type.name}")
 
-        # Create temporary build context
         with tempfile.TemporaryDirectory() as build_dir:
             build_path = Path(build_dir)
 
-            # Write Dockerfile
             dockerfile_content = self.generate_dockerfile(job_type)
             dockerfile_path = build_path / "Dockerfile"
             dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
 
-            # Prepare the build context (copy custom_libs / shared_code). Wrap
-            # the filesystem work so an OSError here surfaces as a BuildError,
-            # letting build_all record a single failure for this job type
-            # instead of aborting the whole batch.
             try:
-                # Copy custom_libs
                 custom_libs_dest = build_path / "custom_libs"
                 custom_libs_dest.mkdir()
                 if self.custom_libs_path.exists():
@@ -228,14 +145,11 @@ WORKDIR /app
                         if item.is_file():
                             shutil.copy2(item, custom_libs_dest)
 
-                # Copy shared code with path validation
                 shared_code_dest = build_path / "shared_code"
                 shared_code_dest.mkdir()
-                # Get current working directory as the allowed base for shared_code
                 allowed_base = Path.cwd().resolve()
                 for code_path in job_type.shared_code:
                     src = Path(code_path).resolve()
-                    # Security: Ensure shared_code paths don't escape the allowed directory
                     try:
                         src.relative_to(allowed_base)
                     except ValueError:
@@ -253,23 +167,15 @@ WORKDIR /app
                 logger.error("Failed to prepare build context for %s: %s", job_type.name, e)
                 raise BuildError(f"Failed to prepare build context for {job_type.name}: {e}") from e
 
-            # Build the image
             cmd = ["docker", "build", "-t", job_type.image_name]
             if no_cache:
                 cmd.append("--no-cache")
             cmd.append(str(build_path))
 
             try:
-                # Generous timeout: image builds can install many deps, but an
-                # unbounded subprocess.run could hang the caller forever.
                 subprocess.run(cmd, capture_output=not quiet, text=True, check=True, timeout=1800)
                 logger.info("Successfully built image: %s", job_type.image_name)
-                # The tag now points at new content: drop any cached inspect
-                # results so the worker re-verifies the rebuilt image.
                 reset_image_caches()
-                # Verify the executor entrypoint contract survived the build.
-                # This only fails for a custom non-executor base_image; warn
-                # loudly because the worker will refuse to run such an image.
                 if image_has_executor_entrypoint(job_type.image_name) is not True:
                     logger.warning(
                         "Built image %s does NOT carry the executor entrypoint contract "
@@ -299,21 +205,6 @@ WORKDIR /app
         quiet: bool = False,
         skip_existing: bool = False,
     ) -> dict[str, bool]:
-        """
-        Build images for all registered job types.
-
-        Args:
-            registry: Job type registry
-            no_cache: If True, build without Docker cache
-            quiet: If True, suppress build output
-            skip_existing: If True, skip job types whose image already exists
-                on the Docker daemon instead of rebuilding it. Useful for
-                long-running callers that pre-build images at startup and only
-                want to build what is missing.
-
-        Returns:
-            Dict mapping job type name to build success
-        """
         results = {}
         for job_type in registry.list():
             if skip_existing and self.image_exists(job_type):
@@ -329,30 +220,9 @@ WORKDIR /app
         return results
 
     def image_exists(self, job_type: JobType) -> bool:
-        """
-        Check if image for job type exists.
-
-        Args:
-            job_type: Job type configuration
-
-        Returns:
-            True if image exists
-        """
-        # Delegate to the shared, timeout-bounded, cached existence check so the
-        # builder, worker, and sandbox all probe the daemon identically (the
-        # bare subprocess version here had no timeout and could hang).
         return docker_image_exists(job_type.image_name)
 
     def remove_image(self, job_type: JobType) -> bool:
-        """
-        Remove image for job type.
-
-        Args:
-            job_type: Job type configuration
-
-        Returns:
-            True if removed successfully
-        """
         try:
             subprocess.run(["docker", "rmi", job_type.image_name], capture_output=True, check=True)
             return True
@@ -362,7 +232,6 @@ WORKDIR /app
 
 
 def build_job_type_cli():
-    """Command-line interface for building job types."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Build job type containers")

@@ -1,40 +1,13 @@
-# Tako VM API Server Container
-#
-# Build:
-#   docker build -f Dockerfile.server -t tako-vm-server .
-#
-# Run:
-#   The CMD binds 0.0.0.0 (a container has to, to be reachable). Tako VM refuses
-#   that while api_auth_enabled is false, so the mounted config must enable
-#   api_auth_enabled + api_keys, or set allow_unauthenticated_network_access
-#   (env: TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS=true) when something in
-#   front does the authenticating. Scope -p to 127.0.0.1 if nothing does.
-#
-#   docker run -d \
-#     -p 127.0.0.1:8000:8000 \
-#     -v /var/run/docker.sock:/var/run/docker.sock \
-#     -v $(pwd)/tako_vm.yaml:/app/tako_vm.yaml:ro \
-#     tako-vm-server
-#
-# Note: Docker socket access gives container root-equivalent access to host.
-# This is necessary for spawning executor containers.
 
-# Base image pinned by digest (not just the mutable :3.11-slim tag) so a
-# repointed upstream tag can't silently change what we ship.
 FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 WORKDIR /app
 
-# Install curl for health checks and Docker CLI for spawning containers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the Docker CLI from the official static binaries, pinned by version
-# and verified against a known SHA256 before extraction. The tarball is fetched
-# over HTTPS with no signature, so without this check a compromised mirror or
-# MITM could swap the binary the server uses to launch every sandbox container.
 ARG DOCKER_VERSION=27.5.1
 RUN set -eux; \
     arch="$(uname -m)"; \
@@ -49,28 +22,20 @@ RUN set -eux; \
     chmod +x /usr/local/bin/docker; \
     rm -f /tmp/docker.tgz
 
-# Install uv for fast dependency installation (digest-pinned, see above)
 COPY --from=ghcr.io/astral-sh/uv:0.5.14@sha256:f0786ad49e2e684c18d38697facb229f538a6f5e374c56f54125aabe7d14b3f7 /uv /usr/local/bin/uv
 
-# Copy package files
 COPY pyproject.toml README.md LICENSE ./
 COPY tako_vm/ ./tako_vm/
 
-# Install Tako VM with server dependencies
 RUN uv pip install --system --no-cache ".[server]"
 
-# Copy default config
 COPY tako_vm.yaml.example ./tako_vm.yaml
 
-# Create data directory
 RUN mkdir -p /root/.tako_vm
 
-# Expose API port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run server via CLI
 CMD ["tako-vm", "server", "--host", "0.0.0.0", "--port", "8000"]

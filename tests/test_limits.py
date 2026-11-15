@@ -1,5 +1,3 @@
-"""Tests for API-layer request protection middleware."""
-
 from contextlib import contextmanager
 
 from fastapi import FastAPI, Request
@@ -19,7 +17,6 @@ def create_client(
     api_rate_limit_requests: int = 2,
     api_rate_limit_window_seconds: int = 60,
 ) -> TestClient:
-    """Create a minimal app client with API protection middleware."""
     config = TakoVMConfig(
         api_max_payload_bytes=api_max_payload_bytes,
         api_auth_enabled=api_auth_enabled,
@@ -51,7 +48,6 @@ def create_client(
 
 @contextmanager
 def create_server_app_client(config: TakoVMConfig):
-    """Create client against the real server app with injected config."""
     from tako_vm.server.app import app as server_app
     from tako_vm.server.app import state as server_state
 
@@ -71,10 +67,7 @@ def create_server_app_client(config: TakoVMConfig):
 
 
 class TestApiRateLimiting:
-    """Rate limiting behavior."""
-
     def test_rate_limit_enforced(self):
-        """Requests over the configured threshold return 429."""
         with create_client(api_rate_limit_requests=2, api_rate_limit_window_seconds=60) as client:
             assert client.get("/limited").status_code == 200
             assert client.get("/limited").status_code == 200
@@ -90,24 +83,20 @@ class TestApiRateLimiting:
             assert payload["correlation_id"]
 
     def test_docs_endpoints_are_exempt(self):
-        """Docs and schema endpoints bypass rate limiting."""
         with create_client(api_rate_limit_requests=1, api_rate_limit_window_seconds=60) as client:
             for _ in range(3):
                 assert client.get("/docs").status_code == 200
                 assert client.get("/openapi.json").status_code == 200
 
-            # Exempt endpoints do not consume the normal quota.
             assert client.get("/limited").status_code == 200
             assert client.get("/limited").status_code == 429
 
     def test_rate_limit_can_be_disabled(self):
-        """Disabling rate limiting allows repeated requests."""
         with create_client(api_rate_limit_enabled=False, api_rate_limit_requests=1) as client:
             for _ in range(5):
                 assert client.get("/limited").status_code == 200
 
     def test_rate_limit_uses_api_key_identity_when_authenticated(self):
-        """Authenticated clients have independent rate-limit buckets per API key."""
         keys = ["a" * 16, "b" * 16]
         with create_client(
             api_auth_enabled=True,
@@ -120,12 +109,6 @@ class TestApiRateLimiting:
             assert client.get("/limited", headers={"X-API-Key": keys[1]}).status_code == 200
 
     def test_failed_auth_is_rate_limited(self):
-        """Failed authentication consumes the rate-limit budget.
-
-        The 401 used to be returned before the limiter ran, so API-key brute
-        force was unmetered and the DoS control was inert against exactly the
-        unauthenticated callers it exists to stop.
-        """
         with create_client(
             api_auth_enabled=True,
             api_keys=["a" * 16],
@@ -141,7 +124,6 @@ class TestApiRateLimiting:
         assert response.headers["Retry-After"]
 
     def test_unauthenticated_flood_cannot_exhaust_via_401(self):
-        """A caller sending no key at all is limited the same way."""
         with create_client(
             api_auth_enabled=True,
             api_keys=["a" * 16],
@@ -153,15 +135,11 @@ class TestApiRateLimiting:
 
 
 class TestApiAuthentication:
-    """API key authentication behavior."""
-
     def test_auth_disabled_by_default(self):
-        """Existing deployments remain unauthenticated unless auth is enabled."""
         with create_client(api_auth_enabled=False) as client:
             assert client.get("/limited").status_code == 200
 
     def test_missing_api_key_rejected_when_auth_enabled(self):
-        """Protected routes reject unauthenticated requests."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get("/limited")
 
@@ -172,36 +150,24 @@ class TestApiAuthentication:
         assert payload["correlation_id"]
 
     def test_invalid_api_key_rejected(self):
-        """Protected routes reject invalid API keys."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get("/limited", headers={"X-API-Key": "b" * 16})
 
         assert response.status_code == 401
 
     def test_configured_header_api_key_allowed(self):
-        """The configured API key header authenticates requests."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get("/limited", headers={"X-API-Key": "a" * 16})
 
         assert response.status_code == 200
 
     def test_authorization_bearer_api_key_allowed(self):
-        """Bearer tokens are accepted for clients that prefer Authorization."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get("/limited", headers={"Authorization": f"Bearer {'a' * 16}"})
 
         assert response.status_code == 200
 
     def test_non_ascii_api_key_header_is_rejected_not_crashed(self):
-        """A non-ASCII key header must 401, not 500.
-
-        hmac.compare_digest raises TypeError on non-ASCII str operands. That
-        propagated to the middleware's catch-all, which logged a full
-        traceback at ERROR and returned 500 - an unauthenticated log-flood
-        amplifier reachable by anyone who can reach the port.
-        """
-        # Sent as raw UTF-8 bytes so the header survives httpx's latin-1
-        # encoding and reaches the comparison as a non-ASCII str.
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get(
                 "/limited", headers={"X-API-Key": ("\u00e9" * 16).encode("utf-8")}
@@ -210,7 +176,6 @@ class TestApiAuthentication:
         assert response.status_code == 401
 
     def test_non_ascii_bearer_token_is_rejected_not_crashed(self):
-        """Same for the Authorization bearer path."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             response = client.get(
                 "/limited",
@@ -220,7 +185,6 @@ class TestApiAuthentication:
         assert response.status_code == 401
 
     def test_non_ascii_configured_key_still_matches(self):
-        """A configured key containing non-ASCII still authenticates."""
         key = "\u00e9" * 20
         with create_client(api_auth_enabled=True, api_keys=[key]) as client:
             response = client.get("/limited", headers={"X-API-Key": key.encode("utf-8")})
@@ -228,17 +192,13 @@ class TestApiAuthentication:
         assert response.status_code == 200
 
     def test_docs_and_health_are_auth_exempt(self):
-        """Operational/docs endpoints remain available without API keys."""
         with create_client(api_auth_enabled=True, api_keys=["a" * 16]) as client:
             assert client.get("/docs").status_code == 200
             assert client.get("/openapi.json").status_code == 200
 
 
 class TestApiPayloadLimit:
-    """Payload size enforcement behavior."""
-
     def test_oversized_payload_rejected(self):
-        """Payloads above configured max bytes return 413."""
         with create_client(api_max_payload_bytes=1024) as client:
             response = client.post(
                 "/echo",
@@ -254,7 +214,6 @@ class TestApiPayloadLimit:
             assert payload["correlation_id"]
 
     def test_payload_at_limit_allowed(self):
-        """Payloads at configured max bytes are accepted."""
         with create_client(api_max_payload_bytes=1024) as client:
             response = client.post(
                 "/echo",
@@ -266,7 +225,6 @@ class TestApiPayloadLimit:
             assert response.json()["size"] == 1024
 
     def test_oversized_chunked_payload_rejected_when_body_ignored(self):
-        """Chunked oversized payloads are rejected even if route does not read body."""
         with create_client(api_max_payload_bytes=1024) as client:
             response = client.request(
                 "GET", "/ignore-body", content=(b"x" * 1500 for _ in range(1))
@@ -280,10 +238,7 @@ class TestApiPayloadLimit:
 
 
 class TestApiProtectionAppIntegration:
-    """Integration checks against the real server app wiring."""
-
     def test_real_app_docs_exempt_and_non_exempt_limited(self):
-        """Docs routes stay exempt while normal routes are rate-limited."""
         config = TakoVMConfig(
             api_rate_limit_enabled=True,
             api_rate_limit_requests=1,
@@ -303,17 +258,6 @@ class TestApiProtectionAppIntegration:
 
 
 class TestReceiveAfterBufferedBody:
-    """The middleware buffers the request body and replays it downstream.
-
-    Once the replay is exhausted, ``receive()`` must behave like the server's
-    own: block until the client disconnects. It used to return an empty
-    ``http.request`` immediately, forever. Streaming responses wait for a
-    disconnect in a ``while True: await receive()`` loop, so a receive that
-    never blocks became a busy loop that starved the event loop. With a
-    Starlette whose ``FileResponse`` listens for disconnects, one artifact
-    download hung the whole server.
-    """
-
     @staticmethod
     def _run_through_middleware(downstream):
         import asyncio
@@ -354,7 +298,6 @@ class TestReceiveAfterBufferedBody:
 
         async def downstream(receive, disconnected):
             seen.append(await receive())
-            # No disconnect yet: this call must wait, not return at once.
             try:
                 extra = await asyncio.wait_for(receive(), timeout=0.1)
             except asyncio.TimeoutError:
@@ -370,7 +313,6 @@ class TestReceiveAfterBufferedBody:
         assert seen[2] == {"type": "http.disconnect"}
 
     def test_disconnect_listener_does_not_starve_a_concurrent_sender(self):
-        """The shape of Starlette's FileResponse on ASGI spec < 2.4."""
         import asyncio
 
         sent = []
@@ -387,7 +329,6 @@ class TestReceiveAfterBufferedBody:
             task = asyncio.ensure_future(stream())
             spins = 0
             while (await receive())["type"] != "http.disconnect":
-                # Fail fast instead of spinning until the suite timeout.
                 spins += 1
                 assert spins < 1000, "receive() returns without blocking"
             await task
@@ -397,7 +338,6 @@ class TestReceiveAfterBufferedBody:
         assert sent == [b"a", b"b", b"c"]
 
     def test_file_response_is_served_through_the_middleware(self, tmp_path):
-        """End to end with a real FileResponse; needs no Docker or database."""
         from starlette.responses import FileResponse
 
         target = tmp_path / "report.txt"

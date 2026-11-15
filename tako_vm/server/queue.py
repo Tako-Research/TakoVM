@@ -1,9 +1,3 @@
-"""
-Job queue and worker pool for Tako VM.
-
-Provides async job submission, execution, and cancellation.
-"""
-
 import asyncio
 import logging
 import uuid
@@ -32,45 +26,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Terminal ExecutionRecord statuses: a record in one of these is a final result.
-# Anything else ("queued", "running") means the job is still in flight.
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "timeout", "oom", "cancelled"})
 
 
 @dataclass
 class QueuedJob:
-    """Job waiting in or being processed by the queue."""
-
     job_id: str
-    """Unique job identifier."""
 
     job_data: Dict[str, Any]
-    """Job data including code, input_data, etc."""
 
     client_ip: Optional[str]
-    """Client IP address."""
 
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    """When the job was queued."""
 
     future: Optional[asyncio.Future] = field(default=None)
-    """Future that will hold the result (set by WorkerPool.submit)."""
 
     cancelled: bool = False
-    """Whether this job has been cancelled."""
 
     cancel_signal_sent: bool = False
-    """Whether a kill signal was successfully sent to a running container."""
 
 
 class WorkerPool:
-    """
-    Async worker pool for job execution.
-
-    Uses asyncio.Queue for pending jobs and ThreadPoolExecutor
-    for running Docker operations.
-    """
-
     def __init__(
         self,
         executor: "CodeExecutor",
@@ -79,16 +55,6 @@ class WorkerPool:
         max_queue_size: int = 100,
         queue_wait_timeout: float = 1.0,
     ):
-        """
-        Initialize worker pool.
-
-        Args:
-            executor: CodeExecutor instance for running jobs
-            storage: ExecutionStorage for persisting records
-            max_workers: Maximum concurrent workers
-            max_queue_size: Maximum pending jobs in queue
-            queue_wait_timeout: Timeout for queue wait operations in seconds
-        """
         self.executor = executor
         self.storage = storage
         self.max_workers = max_workers
@@ -99,13 +65,12 @@ class WorkerPool:
         self._workers: list[asyncio.Task] = []
         self._active_jobs: Dict[str, QueuedJob] = {}
         self._running_jobs: Dict[str, QueuedJob] = {}
-        self._jobs_lock: asyncio.Lock = asyncio.Lock()  # Protect job dictionary access
+        self._jobs_lock: asyncio.Lock = asyncio.Lock()
         self._thread_pool: Optional[ThreadPoolExecutor] = None
         self._shutdown = False
         self._started = False
 
     async def start(self) -> None:
-        """Start worker tasks."""
         if self._started:
             return
 
@@ -120,27 +85,17 @@ class WorkerPool:
         logger.info(f"Started worker pool with {self.max_workers} workers")
 
     async def stop(self, timeout: float = 30.0) -> None:
-        """
-        Graceful shutdown.
-
-        Args:
-            timeout: Maximum time to wait for workers to finish
-        """
         if not self._started:
             return
 
         self._shutdown = True
 
-        # Cancel all pending jobs, persisting a terminal record first so their
-        # DB rows don't stay stuck at 'queued' after a graceful restart/deploy.
         while not self._queue.empty():
             try:
                 job = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
-            # Best-effort: a storage failure during shutdown must not
-            # prevent shutdown (startup reconciliation covers the gap).
             try:
                 record = self._build_cancelled_record(
                     job, message="Job cancelled: server shut down before execution started"
@@ -154,17 +109,14 @@ class WorkerPool:
             if job.future and not job.future.done():
                 job.future.cancel()
 
-        # Wait for workers with timeout
         if self._workers:
             done, pending = await asyncio.wait(
                 self._workers, timeout=timeout, return_when=asyncio.ALL_COMPLETED
             )
 
-            # Cancel any still running
             for task in pending:
                 task.cancel()
 
-        # Shutdown thread pool - wait for running jobs to complete
         if self._thread_pool:
             self._thread_pool.shutdown(wait=True, cancel_futures=True)
             self._thread_pool = None
@@ -177,22 +129,8 @@ class WorkerPool:
         logger.info("Worker pool stopped")
 
     async def submit(self, job_data: Dict[str, Any], client_ip: Optional[str] = None) -> str:
-        """
-        Submit job to queue.
-
-        Args:
-            job_data: Job data dictionary
-            client_ip: Client IP address
-
-        Returns:
-            Job ID
-
-        Raises:
-            RuntimeError: If queue is full
-        """
         job_id = str(uuid.uuid4())
 
-        # Create future in async context where event loop is running
         loop = asyncio.get_running_loop()
 
         job = QueuedJob(
@@ -202,8 +140,6 @@ class WorkerPool:
             future=loop.create_future(),
         )
 
-        # Create preliminary "queued" record for idempotency tracking
-        # This ensures concurrent requests with same idempotency_key see the record
         queued_record = self._build_record(job, "queued")
 
         await self.storage.save_record(queued_record)
@@ -211,10 +147,6 @@ class WorkerPool:
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
-            # Release the idempotency key: a 503 tells the client to retry,
-            # and the retry must not collide with this dead record. save_record
-            # is an upsert that overwrites all columns, so re-saving with the
-            # key cleared frees it while keeping the failure visible.
             queued_record.status = "failed"
             queued_record.idempotency_key = None
             queued_record.idempotency_fingerprint = None
@@ -234,30 +166,10 @@ class WorkerPool:
     async def wait_for_result(
         self, job_id: str, timeout: Optional[float] = None
     ) -> ExecutionRecord:
-        """
-        Wait for job completion.
-
-        Args:
-            job_id: Job ID to wait for
-            timeout: Maximum time to wait (None = no timeout)
-
-        Returns:
-            ExecutionRecord with results
-
-        Raises:
-            KeyError: If job not found
-            asyncio.TimeoutError: If timeout exceeded
-            asyncio.CancelledError: If job was cancelled
-        """
-        # Get job reference with lock protection
         async with self._jobs_lock:
             job = self._active_jobs.get(job_id) or self._running_jobs.get(job_id)
 
         if not job:
-            # Check if already completed in storage. Only a terminal record is a
-            # final answer: a non-terminal "queued"/"running" row (e.g. the job
-            # is in-flight on another path) must not be returned as the result,
-            # so treat it as still-pending / not found here.
             record = await self.storage.get_record(job_id)
             if record and record.status in _TERMINAL_STATUSES:
                 return record
@@ -267,26 +179,11 @@ class WorkerPool:
             raise KeyError(f"Job {job_id} has no future (internal error)")
 
         if timeout:
-            # Shield the job future: asyncio.wait_for cancels the awaited
-            # future on timeout, which would make the worker loop treat the
-            # job as user-cancelled (never executing it) and surface
-            # CancelledError to any concurrent waiters. A read-only wait
-            # timing out must never affect the job itself.
             return await asyncio.wait_for(asyncio.shield(job.future), timeout=timeout)
         else:
             return await job.future
 
     async def get_job_status(self, job_id: str) -> Optional[dict]:
-        """
-        Get current job status.
-
-        Args:
-            job_id: Job ID to check
-
-        Returns:
-            Status dict or None if not found
-        """
-        # Check active/running jobs with lock protection
         async with self._jobs_lock:
             if job_id in self._running_jobs:
                 return {
@@ -298,9 +195,6 @@ class WorkerPool:
             if job_id in self._active_jobs:
                 job = self._active_jobs[job_id]
                 if job.future and job.future.done():
-                    # Derive a real terminal status from the finished future.
-                    # "completed" is not a valid QueueStatus and would fail
-                    # response validation in the API layer.
                     if job.future.cancelled():
                         status = "cancelled"
                         duration_ms = None
@@ -325,7 +219,6 @@ class WorkerPool:
                     "queue_position": queue_position,
                 }
 
-        # Check storage for completed jobs (outside lock - storage has its own lock)
         record = await self.storage.get_record(job_id)
         if record:
             return {
@@ -338,31 +231,15 @@ class WorkerPool:
         return None
 
     async def cancel(self, job_id: str) -> bool:
-        """
-        Cancel a queued or running job.
-
-        Args:
-            job_id: Job ID to cancel
-
-        Returns:
-            True if job was found and cancelled
-        """
         pending_job: Optional[QueuedJob] = None
         running_job: Optional[QueuedJob] = None
         async with self._jobs_lock:
-            # Check pending jobs
             job = self._active_jobs.get(job_id)
             if job and job.future and not job.future.done():
                 job.cancelled = True
                 pending_job = job
-                # Remove from active tracking now: the future is resolved below,
-                # so a later get_job_status must not re-report it as pending. The
-                # job still sits in the asyncio.Queue and the worker skip path
-                # (which is a no-op upsert once the future is already done) reaps
-                # it when dequeued.
                 self._active_jobs.pop(job_id, None)
 
-            # Check running jobs - send a kill to the tracked container.
             else:
                 job = self._running_jobs.get(job_id)
                 if job:
@@ -370,9 +247,6 @@ class WorkerPool:
                     running_job = job
 
         if pending_job is not None:
-            # Persist the cancelled record and resolve the waiter synchronously
-            # (mirror the worker skip path) so cancellation is observable now
-            # instead of only after a worker eventually dequeues the job.
             record = self._build_cancelled_record(pending_job)
             await self.storage.save_record(record)
             if pending_job.future and not pending_job.future.done():
@@ -409,20 +283,6 @@ class WorkerPool:
         error: Optional[ExecutionError] = None,
         queued_at: Optional[datetime] = None,
     ) -> ExecutionRecord:
-        """Build an ExecutionRecord for a job in a given terminal/queued state.
-
-        Single construction site for every record the worker pool persists, so
-        the idempotency, lineage, and content-hash fields are propagated
-        consistently. (A prior hand-rolled record in the outer-except path
-        dropped the idempotency and lineage fields; routing through here fixes
-        that.)
-
-        Args:
-            job: Job the record describes
-            status: ExecutionRecord status (e.g. "queued", "cancelled", "failed")
-            error: Optional ExecutionError to attach
-            queued_at: Override for queued_at (defaults to job.created_at)
-        """
         job_type_name = job.job_data.get("job_type") or "default"
         return ExecutionRecord(
             execution_id=job.job_id,
@@ -445,13 +305,11 @@ class WorkerPool:
     def _build_cancelled_record(
         self, job: QueuedJob, message: str = "Execution was cancelled by user"
     ) -> ExecutionRecord:
-        """Create a final cancelled record for a job."""
         return self._build_record(
             job, "cancelled", error=ExecutionError(type="cancelled", message=message)
         )
 
     def _estimate_queue_position_unlocked(self, job_id: str) -> int:
-        """Estimate position in queue (rough estimate). Must be called with _jobs_lock held."""
         position = 1
         for jid in self._active_jobs:
             if jid == job_id:
@@ -461,7 +319,6 @@ class WorkerPool:
         return position
 
     async def get_stats(self) -> dict:
-        """Get current pool statistics."""
         async with self._jobs_lock:
             running_count = len(self._running_jobs)
         return {
@@ -472,30 +329,18 @@ class WorkerPool:
         }
 
     async def _worker_loop(self, worker_id: int) -> None:
-        """
-        Worker coroutine that processes jobs.
-
-        Args:
-            worker_id: Worker identifier for logging
-        """
         logger.info(f"Worker {worker_id} started")
 
         while not self._shutdown:
-            # Initialize job to None for safe error recovery
             job: Optional[QueuedJob] = None
             try:
-                # Wait for job with timeout so we can check shutdown flag
                 try:
                     job = await asyncio.wait_for(self._queue.get(), timeout=self.queue_wait_timeout)
                 except asyncio.TimeoutError:
                     continue
 
-                # Reset correlation context before any per-job work (including
-                # the cancelled-skip path below) so logs and DLQ entries never
-                # inherit the previous job's correlation ID.
                 clear_correlation_id()
 
-                # Skip if already cancelled
                 if job.cancelled or (job.future and job.future.cancelled()):
                     await self.storage.save_record(self._build_cancelled_record(job))
                     if job.future and not job.future.done():
@@ -507,15 +352,9 @@ class WorkerPool:
                         self._active_jobs.pop(job.job_id, None)
                     continue
 
-                # Move to running
                 async with self._jobs_lock:
                     self._running_jobs[job.job_id] = job
 
-                # Persist the queued -> running transition before executing so
-                # the DB reflects in-flight work: if the server crashes mid-run,
-                # forensics see 'running' (not a misleading 'queued') and startup
-                # reconciliation marks it failed. Best-effort: execution proceeds
-                # even if this write fails.
                 try:
                     await self.storage.mark_record_running(
                         job.job_id, worker_id=f"worker-{worker_id}"
@@ -523,7 +362,6 @@ class WorkerPool:
                 except Exception as e:
                     logger.warning(f"Failed to persist running state for job {job.job_id}: {e}")
 
-                # Set correlation ID from job data for logging
                 correlation_id = job.job_data.get("correlation_id")
                 if correlation_id:
                     set_correlation_id(correlation_id)
@@ -531,7 +369,6 @@ class WorkerPool:
                 logger.info(f"Worker {worker_id} executing job {job.job_id}")
 
                 try:
-                    # Run execution in thread pool
                     record = await self._execute_job(job)
 
                     if job.cancelled and (
@@ -545,10 +382,8 @@ class WorkerPool:
                             phase=phase,
                         )
 
-                    # Save to storage
                     await self.storage.save_record(record)
 
-                    # Set result (with race condition protection)
                     if job.future:
                         try:
                             job.future.set_result(record)
@@ -556,7 +391,6 @@ class WorkerPool:
                             logger.debug(f"Future already done for job {job.job_id}")
 
                 except asyncio.CancelledError:
-                    # Job was cancelled
                     record = self._build_cancelled_record(job)
                     await self.storage.save_record(record)
 
@@ -571,7 +405,6 @@ class WorkerPool:
                         f"Worker {worker_id} error on job {job.job_id}: {e}", exc_info=True
                     )
 
-                    # Always create an ExecutionRecord for audit trail (P0 fix)
                     from tako_vm.security import sanitize_error
 
                     error_type = "internal_error"
@@ -584,10 +417,7 @@ class WorkerPool:
                     )
                     await self.storage.save_record(record)
 
-                    # Add to dead letter queue for internal errors (P3 fix)
                     try:
-                        # Redact: DLQ persists a forensic summary (hashes,
-                        # sizes, metadata), never raw code/input_data/keys.
                         dlq_entry = DeadLetterEntry(
                             job_id=job.job_id,
                             job_data=DeadLetterEntry.build_job_summary(job.job_data),
@@ -610,15 +440,10 @@ class WorkerPool:
 
             except Exception as e:
                 logger.error(f"Worker {worker_id} unexpected error: {e}", exc_info=True)
-                # Ensure job future is resolved even on unexpected errors
-                # to prevent clients from hanging indefinitely
                 if job is not None and job.future:
                     try:
                         from tako_vm.security import sanitize_error
 
-                        # Route through _build_record so this path also persists
-                        # the idempotency and lineage fields it previously
-                        # dropped (data-loss bug).
                         error_record = self._build_record(
                             job,
                             "failed",
@@ -636,13 +461,8 @@ class WorkerPool:
                             job.future.cancel()
                         except Exception:
                             pass
-                await asyncio.sleep(1)  # Prevent tight loop on errors
+                await asyncio.sleep(1)
             finally:
-                # Single cleanup site for every per-iteration exit path: even an
-                # exception raised after a job is placed in _running_jobs but
-                # before/while the inner try runs must not strand it as 'running'
-                # forever. pop() is idempotent, so this is safe regardless of how
-                # the iteration ended.
                 if job is not None:
                     async with self._jobs_lock:
                         self._active_jobs.pop(job.job_id, None)
@@ -651,23 +471,11 @@ class WorkerPool:
         logger.info(f"Worker {worker_id} stopped")
 
     async def _execute_job(self, job: QueuedJob) -> ExecutionRecord:
-        """
-        Execute job in thread pool with timeout protection.
-
-        Args:
-            job: Job to execute
-
-        Returns:
-            ExecutionRecord with results (including a terminal "timeout" record
-            if the watchdog budget is exceeded)
-        """
         loop = asyncio.get_running_loop()
 
-        # Include both startup and execution budgets, plus buffer for Docker orchestration.
         job_timeout, startup_timeout = self._resolve_timeout_budget(job)
         executor_timeout = startup_timeout + job_timeout + 60
 
-        # Run synchronous execution in thread pool with timeout protection
         try:
             record = await asyncio.wait_for(
                 loop.run_in_executor(self._thread_pool, self._run_job_sync, job),
@@ -679,29 +487,12 @@ class WorkerPool:
         return record
 
     def _resolve_timeout_budget(self, job: QueuedJob) -> tuple:
-        """
-        Resolve the (job_timeout, startup_timeout) budget for the watchdog.
-
-        Mirrors the executor's own resolution (CodeExecutor falls back to the
-        job type's timeout/startup_timeout when the job omits them), so the
-        watchdog never undercuts a legitimate job-type budget. Falls back to
-        the executor's built-in defaults when the job type is missing or the
-        registry lookup fails.
-
-        Args:
-            job: Job whose budget to resolve
-
-        Returns:
-            Tuple of (job_timeout, startup_timeout) in seconds
-        """
-        # Matches CodeExecutor's DEFAULT_JOB_TYPE (timeout=30, startup_timeout=120).
         default_timeout: float = 30
         default_startup_timeout: float = 120
 
         job_type_name = job.job_data.get("job_type")
         if job_type_name:
             try:
-                # Strip version specifier (job_type@version), like the executor does.
                 name = job_type_name.split("@", 1)[0]
                 registry = getattr(self.executor, "registry", None)
                 job_type = registry.get(name) if registry is not None else None
@@ -721,22 +512,6 @@ class WorkerPool:
     async def _handle_watchdog_timeout(
         self, job: QueuedJob, executor_timeout: float
     ) -> ExecutionRecord:
-        """
-        Handle a watchdog (wait_for) timeout for a job.
-
-        The asyncio timeout only cancels the awaiting wrapper -- the executor
-        thread keeps running. Kill the container immediately so the sandboxed
-        workload stops now instead of when the thread's subprocess backstop
-        eventually fires, and return a terminal "timeout" record (this is a
-        budget overrun, not an internal error, so it must not be DLQ'd).
-
-        Args:
-            job: Job that exceeded the watchdog budget
-            executor_timeout: Budget in seconds that was exceeded
-
-        Returns:
-            ExecutionRecord with status "timeout"
-        """
         container_name = generate_container_name("tako", job.job_id)
         killed = await asyncio.to_thread(kill_container, container_name)
         if killed:
@@ -767,15 +542,6 @@ class WorkerPool:
         )
 
     def _run_job_sync(self, job: QueuedJob) -> ExecutionRecord:
-        """
-        Synchronously execute job (runs in thread pool).
-
-        Args:
-            job: Job to execute
-
-        Returns:
-            ExecutionRecord with results
-        """
         return self.executor.execute_job_with_record(
             job_id=job.job_id,
             job=job.job_data,

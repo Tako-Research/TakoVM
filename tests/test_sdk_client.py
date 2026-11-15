@@ -1,11 +1,3 @@
-"""
-Tests for Tako VM SDK client.
-
-Tests the typed function execution client, the async job lifecycle, auth
-passthrough, execution history, and the reliability layer (retries,
-idempotency, correlation IDs, structured errors) with a mocked HTTP session.
-"""
-
 import re
 from dataclasses import dataclass
 from typing import Any, Optional, cast
@@ -34,21 +26,16 @@ from tako_vm.sdk.client import (
 
 @dataclass
 class InputData:
-    """Test input dataclass."""
-
     x: int
     y: int
 
 
 @dataclass
 class OutputData:
-    """Test output dataclass."""
-
     result: int
 
 
 def add_numbers(input: InputData) -> OutputData:
-    """Test function that adds two numbers."""
     return OutputData(result=input.x + input.y)
 
 
@@ -58,7 +45,6 @@ def _response(
     status: int = 200,
     headers: Optional[dict] = None,
 ) -> MagicMock:
-    """A canned requests.Response mock."""
     response = MagicMock()
     response.status_code = status
     response.headers = headers or {}
@@ -74,14 +60,12 @@ def _mock_session(
     status: int = 200,
     headers: Optional[dict] = None,
 ) -> MagicMock:
-    """A requests.Session mock whose .request() returns a canned response."""
     session = MagicMock()
     session.request.return_value = _response(json_value, content, status, headers)
     return session
 
 
 def _calls_for(session: MagicMock, method: str, path_suffix: str = "") -> list:
-    """Return session.request calls matching an HTTP method and URL suffix."""
     return [
         call
         for call in session.request.call_args_list
@@ -90,26 +74,20 @@ def _calls_for(session: MagicMock, method: str, path_suffix: str = "") -> list:
 
 
 class TestTakoVMClient:
-    """Tests for TakoVM client class."""
-
     def test_client_init(self):
-        """Client initializes with default values."""
         client = TakoVM()
         assert client.base_url == "http://localhost:8000"
         assert client.default_timeout == 30
 
     def test_client_custom_url(self):
-        """Client accepts custom URL."""
         client = TakoVM(base_url="http://custom:9000/")
-        assert client.base_url == "http://custom:9000"  # Trailing slash removed
+        assert client.base_url == "http://custom:9000"
 
     def test_client_custom_timeout(self):
-        """Client accepts custom timeout."""
         client = TakoVM(timeout=60)
         assert client.default_timeout == 60
 
     def test_default_session_retries_gets_only(self):
-        """The default session mounts a retry adapter for idempotent GETs only."""
         client = TakoVM()
         adapter = client._session.get_adapter("http://localhost:8000")
         retries = adapter.max_retries
@@ -118,17 +96,13 @@ class TestTakoVMClient:
         assert set(retries.status_forcelist) == {502, 503, 504}
 
     def test_custom_session_is_used_verbatim(self):
-        """A caller-supplied session is used as-is (no adapter swap)."""
         session = requests.Session()
         client = TakoVM(session=session)
         assert client._session is session
 
 
 class TestCodeGeneration:
-    """Tests for code generation."""
-
     def test_generate_code(self):
-        """Client generates valid wrapper code."""
         client = TakoVM()
         code = client._generate_code(add_numbers, InputData, OutputData)
 
@@ -140,7 +114,6 @@ class TestCodeGeneration:
         assert "/output/result.json" in code
 
     def test_generate_dataclass_source(self):
-        """Client can generate dataclass source from fields."""
         client = TakoVM()
         source = client._generate_dataclass_source(InputData)
 
@@ -151,19 +124,15 @@ class TestCodeGeneration:
 
 
 class TestValidation:
-    """Tests for input/output validation."""
-
     def test_send_requires_dataclass_input(self):
-        """send() requires dataclass input."""
         client = TakoVM()
 
         with pytest.raises(ValidationError) as exc_info:
-            client.send(add_numbers, cast(Any, {"x": 1, "y": 2}))  # dict, not dataclass
+            client.send(add_numbers, cast(Any, {"x": 1, "y": 2}))
 
         assert "must be a dataclass instance" in str(exc_info.value)
 
     def test_send_requires_return_type_hint(self):
-        """send() requires function to have return type hint."""
         client = TakoVM()
 
         def no_return_hint(input: InputData):
@@ -175,7 +144,6 @@ class TestValidation:
         assert "return type hint" in str(exc_info.value)
 
     def test_send_requires_dataclass_return_type(self):
-        """send() requires return type to be a dataclass."""
         client = TakoVM()
 
         def dict_return(input: InputData) -> dict:
@@ -187,7 +155,6 @@ class TestValidation:
         assert "must be a dataclass" in str(exc_info.value)
 
     def test_send_requires_parameter(self):
-        """send() requires function to have at least one parameter."""
         client = TakoVM()
 
         def no_params() -> OutputData:
@@ -200,8 +167,6 @@ class TestValidation:
 
 
 class TestExecution:
-    """Tests for synchronous execution (mocked HTTP session)."""
-
     def test_send_success(self):
         session = _mock_session({"success": True, "output": {"result": 15}, "execution_time": 0.5})
         client = TakoVM(session=session)
@@ -275,7 +240,6 @@ class TestExecution:
         assert "Request failed" in (result.error or "")
 
     def test_exit_code_mapped_to_result(self):
-        """send_raw() maps the server's exit_code into ExecutionResult."""
         session = _mock_session(
             {"success": True, "output": {"result": 3}, "execution_time": 0.5, "exit_code": 0}
         )
@@ -284,7 +248,6 @@ class TestExecution:
         assert result.exit_code == 0
 
     def test_malformed_json_body_returns_failed_result(self):
-        """A 2xx body that is not JSON becomes a failed result, never an exception."""
         response = _response(status=200, headers={CORRELATION_ID_HEADER: "cid-malformed"})
         response.json.side_effect = ValueError("no json")
         response.text = "<html>gateway</html>"
@@ -299,7 +262,6 @@ class TestExecution:
         assert result.correlation_id == "cid-malformed"
 
     def test_send_raw_keeps_dict_on_deserialize_mismatch(self):
-        """When the output doesn't fit the dataclass, send_raw keeps the raw dict."""
         session = _mock_session(
             {"success": True, "output": {"unexpected": 1}, "execution_time": 0.1}
         )
@@ -310,12 +272,8 @@ class TestExecution:
 
 
 class TestServerContractViolations:
-    """A 2xx response with a schema-mismatched body must surface a structured,
-    correlated MalformedResponseError (never a naked KeyError or a vague
-    "Execution failed") and must be logged loudly (verbose-on-failure)."""
-
     def test_submit_code_missing_job_id_raises_malformed(self, caplog):
-        session = _mock_session({"status": "queued", "oops": 1})  # no job_id
+        session = _mock_session({"status": "queued", "oops": 1})
         client = TakoVM(session=session)
         with caplog.at_level("ERROR"):
             with pytest.raises(MalformedResponseError) as exc:
@@ -342,9 +300,7 @@ class TestServerContractViolations:
             client.fork("job-x", "print(1)")
 
     def test_execute_missing_success_field_raises_malformed(self, caplog):
-        # Valid JSON, but not the execution-result shape. Must not be coerced
-        # into a vague "Execution failed".
-        session = _mock_session({"stdout": "", "exit_code": 0})  # no 'success'
+        session = _mock_session({"stdout": "", "exit_code": 0})
         client = TakoVM(session=session)
         with caplog.at_level("ERROR"):
             with pytest.raises(MalformedResponseError):
@@ -352,8 +308,6 @@ class TestServerContractViolations:
         assert any("missing 'success'" in r.getMessage() for r in caplog.records)
 
     def test_submit_code_all_retries_fail_raises_transport(self, caplog):
-        # Every attempt fails -> the real transport error must surface, not an
-        # UnboundLocalError from `data` never being assigned.
         session = MagicMock()
         session.request.side_effect = requests.exceptions.ConnectionError("refused")
         client = TakoVM(session=session)
@@ -364,8 +318,6 @@ class TestServerContractViolations:
 
 
 class TestAuthPassthrough:
-    """The SDK forwards caller-supplied headers and never interprets them."""
-
     def test_headers_forwarded_on_every_request(self):
         session = _mock_session({"status": "healthy"})
         client = TakoVM(session=session, headers={"X-API-Key": "secret"})
@@ -382,8 +334,6 @@ class TestAuthPassthrough:
 
 
 class TestErrorTaxonomy:
-    """Tests for the structured exception hierarchy raised by _request."""
-
     def test_connection_error_raises_transport_error(self):
         session = MagicMock()
         session.request.side_effect = requests.exceptions.ConnectionError("connection refused")
@@ -396,7 +346,6 @@ class TestErrorTaxonomy:
         assert exc_info.value.correlation_id is not None
 
     def test_503_raises_server_error_with_detail(self):
-        """A 503 with a JSON body raises ServerError carrying detail + correlation_id."""
         session = _mock_session(
             {"detail": "Queue is full", "correlation_id": "abc-123"}, status=503
         )
@@ -422,7 +371,6 @@ class TestErrorTaxonomy:
         assert exc_info.value.retryable is False
 
     def test_422_raises_client_error_with_detail(self):
-        """A 422 validation error raises ClientError with the detail preserved."""
         session = _mock_session(
             {"detail": [{"loc": ["body", "code"], "msg": "Code cannot be empty"}]}, status=422
         )
@@ -445,12 +393,10 @@ class TestErrorTaxonomy:
         assert session.request.call_count == 1
 
     def test_sync_execute_not_retried_on_transport_error(self):
-        """Sync POST /execute is never retried (it is not idempotent)."""
         session = MagicMock()
         session.request.side_effect = requests.exceptions.ConnectionError("boom")
         client = TakoVM(session=session)
 
-        # Explicit timeout avoids the job-type lookup GET
         result = client.send_raw(add_numbers, InputData(1, 2), timeout=5)
 
         assert result.success is False
@@ -458,7 +404,6 @@ class TestErrorTaxonomy:
         assert session.request.call_args.args[0] == "POST"
 
     def test_sync_execute_reports_http_error_as_failed_result(self):
-        """send_raw() keeps its legacy contract: HTTP errors become failed results."""
         session = _mock_session({"detail": "Queue is full"}, status=503)
         client = TakoVM(session=session)
 
@@ -469,7 +414,6 @@ class TestErrorTaxonomy:
         assert result.correlation_id is not None
 
     def test_exception_hierarchy(self):
-        """All SDK exceptions derive from TakoVMError."""
         assert issubclass(TransportError, TakoVMError)
         assert issubclass(APIError, TakoVMError)
         assert issubclass(ServerError, APIError)
@@ -479,8 +423,6 @@ class TestErrorTaxonomy:
 
 
 class TestCorrelation:
-    """Tests for correlation ID propagation."""
-
     def test_correlation_header_sent_on_every_request(self):
         session = _mock_session({"status": "healthy"})
         client = TakoVM(session=session, correlation_id="fixed-cid-001")
@@ -489,7 +431,6 @@ class TestCorrelation:
         assert sent[CORRELATION_ID_HEADER] == "fixed-cid-001"
 
     def test_correlation_id_generated_when_absent(self):
-        """A correlation id is auto-generated and exposed on the exception."""
         session = MagicMock()
         session.request.side_effect = requests.exceptions.ConnectionError("down")
         client = TakoVM(session=session)
@@ -498,11 +439,10 @@ class TestCorrelation:
             client.get_status("job-1")
 
         sent_cid = session.request.call_args.kwargs["headers"][CORRELATION_ID_HEADER]
-        assert sent_cid  # non-empty
+        assert sent_cid
         assert exc_info.value.correlation_id == sent_cid
 
     def test_correlation_id_read_from_response(self):
-        """The server's response correlation id is surfaced on the result."""
         session = _mock_session(
             {"success": True, "output": {"result": 3}, "execution_time": 0.5},
             headers={CORRELATION_ID_HEADER: "server-cid-9"},
@@ -533,20 +473,16 @@ class TestCorrelation:
 
 
 class TestTimeoutResolution:
-    """Tests for client-side HTTP read-timeout resolution."""
-
     def test_read_timeout_covers_exec_plus_startup(self):
-        """The HTTP read timeout outlives the server-side exec+startup window."""
         session = _mock_session({"success": True, "output": {"result": 3}, "execution_time": 0.5})
         client = TakoVM(session=session)
         client.send(add_numbers, InputData(x=1, y=2), timeout=120, startup_timeout=180)
 
         connect_timeout, read_timeout = session.request.call_args.kwargs["timeout"]
         assert connect_timeout <= 10
-        assert read_timeout >= 120 + 180  # never below exec + startup budget
+        assert read_timeout >= 120 + 180
 
     def test_omitted_timeout_resolved_from_job_type(self):
-        """When timeout is omitted, the client resolves it from GET /job-types/{name}."""
 
         def respond(method, url, **kwargs):
             if method == "GET" and "/job-types/" in url:
@@ -560,13 +496,11 @@ class TestTimeoutResolution:
 
         (post_call,) = _calls_for(session, "POST", "/execute")
         _, read_timeout = post_call.kwargs["timeout"]
-        assert read_timeout >= 120  # job-type default, not client default_timeout + 10
-        # Timeout is not sent in the payload (server resolves its own default)
+        assert read_timeout >= 120
         assert "timeout" not in post_call.kwargs["json"]
         assert len(_calls_for(session, "GET", "/job-types/default")) == 1
 
     def test_fallback_read_timeout_when_lookup_fails(self):
-        """If the job-type lookup fails, a generous fallback read timeout is used."""
 
         def respond(method, url, **kwargs):
             if method == "GET" and "/job-types/" in url:
@@ -583,7 +517,6 @@ class TestTimeoutResolution:
         assert read_timeout == FALLBACK_READ_TIMEOUT
 
     def test_job_type_timeout_lookup_is_cached(self):
-        """The job-type timeout lookup happens once per client per job type."""
 
         def respond(method, url, **kwargs):
             if method == "GET" and "/job-types/" in url:
@@ -601,8 +534,6 @@ class TestTimeoutResolution:
 
 
 class TestAsyncLifecycle:
-    """Tests for the async job lifecycle."""
-
     def test_submit_code_returns_job_id(self):
         session = _mock_session({"job_id": "job-123"})
         client = TakoVM(session=session)
@@ -680,20 +611,16 @@ class TestAsyncLifecycle:
 
 
 class TestIdempotency:
-    """Tests for retry-safe async submission via idempotency keys."""
-
     def test_submit_code_autogenerates_server_compatible_key(self):
         session = _mock_session({"job_id": "job-1"})
         client = TakoVM(session=session)
         client.submit_code("print(1)")
 
         key = session.request.call_args.kwargs["json"]["idempotency_key"]
-        # Server constraint: ^[a-zA-Z0-9_-]+$, 8-255 chars
         assert re.fullmatch(r"[a-zA-Z0-9_-]{8,255}", key)
 
     @patch("tako_vm.sdk.client.time.sleep")
     def test_submit_retries_transport_error_with_same_key(self, mock_sleep):
-        """submit_code() retries transient failures, reusing the same idempotency key."""
         session = MagicMock()
         session.request.side_effect = [
             requests.exceptions.ConnectionError("dropped"),
@@ -706,7 +633,7 @@ class TestIdempotency:
         post_calls = _calls_for(session, "POST", "/execute/async")
         assert len(post_calls) == 2
         keys = {call.kwargs["json"]["idempotency_key"] for call in post_calls}
-        assert len(keys) == 1  # same key on retry
+        assert len(keys) == 1
 
     @patch("tako_vm.sdk.client.time.sleep")
     def test_submit_retries_retryable_5xx(self, mock_sleep):
@@ -741,7 +668,6 @@ class TestIdempotency:
 
     @patch("tako_vm.sdk.client.time.sleep")
     def test_submit_typed_retry_safe(self, mock_sleep):
-        """submit() (typed) inherits retry-safe submission from submit_code()."""
         session = MagicMock()
         session.request.side_effect = [
             _response({"detail": "bad gateway"}, status=502),
@@ -752,8 +678,6 @@ class TestIdempotency:
 
 
 class TestExecutionHistory:
-    """Tests for execution listing and metadata."""
-
     def test_list_executions(self):
         session = _mock_session(
             {
@@ -797,8 +721,6 @@ class TestExecutionHistory:
 
 
 class TestExecutionResultFields:
-    """Tests for the ExecutionResult dataclass."""
-
     def test_new_traceability_fields_default_none(self):
         result = ExecutionResult(
             success=True,
@@ -815,8 +737,6 @@ class TestExecutionResultFields:
 
 
 class TestModuleLevelFunctions:
-    """Tests for module-level convenience functions."""
-
     def test_configure_with_headers(self):
         configure(base_url="http://test:9000", timeout=45, headers={"X-API-Key": "k"})
         client = _get_client()
@@ -829,7 +749,6 @@ class TestModuleLevelFunctions:
         assert _get_client() is not None
 
     def test_configure_forwards_full_client_args(self):
-        """configure() must accept the same knobs as TakoVM, not just headers."""
         sess = requests.Session()
         configure(
             base_url="http://test:9000",
@@ -845,7 +764,6 @@ class TestModuleLevelFunctions:
         assert client.correlation_id == "fixed-cid"
 
     def test_send_forwards_new_kwargs(self):
-        """Module-level send() must pass through startup_timeout/idempotency_key/correlation_id."""
         import tako_vm.sdk.client as client_mod
 
         mock_client = MagicMock()
@@ -893,12 +811,6 @@ class TestModuleLevelFunctions:
         ],
     )
     def test_module_helpers_delegate_to_default_client(self, fn_name, args, kwargs):
-        """Every module-level helper forwards to the matching default-client method.
-
-        Wrappers forward positional args verbatim and pass keyword args through
-        (filling unset ones with the method defaults), so we assert the
-        positionals match exactly and every kwarg we supplied was forwarded.
-        """
         import tako_vm.sdk.client as client_mod
 
         mock_client = MagicMock()
@@ -907,8 +819,6 @@ class TestModuleLevelFunctions:
         method = getattr(mock_client, fn_name)
         method.assert_called_once()
         call = method.call_args
-        # Positionals we supplied are forwarded as a leading prefix (some wrappers
-        # additionally pass a defaulted positional, e.g. submit_code's input_data).
         assert call.args[: len(args)] == args
         for key, value in kwargs.items():
             assert call.kwargs[key] == value

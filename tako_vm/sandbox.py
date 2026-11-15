@@ -1,17 +1,3 @@
-"""
-Direct Docker sandbox for running code without a server.
-
-This module provides a simple, library-like interface for running Python code
-in isolated Docker containers. No server required.
-
-Example:
-    from tako_vm import Sandbox
-
-    with Sandbox() as sb:
-        result = sb.run("print(1 + 1)")
-        print(result.stdout)  # "2"
-"""
-
 import json
 import logging
 import os
@@ -56,43 +42,31 @@ _SAFE_PROXY_URL_CHARS = frozenset(
 )
 
 DEFAULT_STARTUP_TIMEOUT = 120
-"""Default startup (dependency install) timeout in seconds, matching server defaults."""
 
 
 @dataclass
 class SandboxResult:
-    """Result from a sandbox execution."""
-
     stdout: str = ""
-    """Standard output from the execution."""
 
     stderr: str = ""
-    """Standard error from the execution."""
 
     exit_code: int = 0
-    """Exit code from the container (0 = success)."""
 
     success: bool = True
-    """Whether the execution succeeded."""
 
     output: Optional[Dict[str, Any]] = None
-    """Parsed JSON from /output/result.json if present."""
 
     error: Optional[str] = None
-    """Error message if execution failed."""
 
     duration_ms: Optional[int] = None
-    """Execution duration in milliseconds."""
 
 
 def _default_enable_cap_restrictions() -> bool:
-    """Get default value for enable_cap_restrictions from env var."""
     env_val = os.environ.get("TAKO_VM_ENABLE_CAP_RESTRICTIONS", "true").lower()
     return env_val in ("true", "1", "yes")
 
 
 def _validate_dependency_proxy_url(value: Optional[str]) -> Optional[str]:
-    """Validate optional dependency proxy URL for Docker env usage."""
     if value is None:
         return None
     normalized = value.strip()
@@ -114,78 +88,32 @@ def _validate_dependency_proxy_url(value: Optional[str]) -> Optional[str]:
 
 @dataclass
 class SandboxConfig:
-    """Configuration for the sandbox."""
-
     image: str = DEFAULT_IMAGE
-    """Docker image to use."""
 
     timeout: int = 30
-    """Default timeout in seconds."""
 
     startup_timeout: int = DEFAULT_STARTUP_TIMEOUT
-    """Timeout in seconds for the startup phase (runtime dependency installation)."""
 
     memory_limit: str = "512m"
-    """Memory limit for containers."""
 
     cpu_limit: float = 1.0
-    """CPU limit for containers."""
 
     network_enabled: bool = False
-    """Whether to allow network access."""
 
     allow_runtime_requirements: bool = False
-    """Whether to allow installing requirements at runtime."""
 
     dependency_proxy_url: Optional[str] = None
-    """Optional proxy URL used only during runtime dependency installs."""
 
     enable_runtime_dependency_cache: bool = False
-    """Whether to mount a shared uv cache volume for runtime dependency installs."""
 
     package_dirs: List[str] = field(default_factory=list)
-    """Local directories to mount as packages (added to PYTHONPATH)."""
 
     enable_cap_restrictions: bool = field(default_factory=_default_enable_cap_restrictions)
-    """Enable capability restrictions (--cap-drop=ALL --cap-add=...)."""
 
     cache_scope: str = "default"
-    """Sharing scope for the runtime dependency cache volume.
-
-    Mirrors the server path's per-job-type scoping. Sandboxes given different
-    scopes cannot reach each other's uv cache; see ``uv_cache_volume``."""
 
 
 class Sandbox:
-    """
-    Direct Docker sandbox for running code without a server.
-
-    This provides a simple, library-like interface for running Python code
-    in isolated Docker containers. The sandbox handles:
-
-    - Docker image management (auto-builds if needed)
-    - Container lifecycle (create, run, cleanup)
-    - Security configuration (isolation, resource limits)
-    - Package management (requirements, local packages)
-
-    Example:
-        # Basic usage
-        with Sandbox() as sb:
-            result = sb.run("print(1 + 1)")
-            print(result.stdout)  # "2"
-
-        # With dependencies
-        with Sandbox(allow_runtime_requirements=True) as sb:
-            result = sb.run(
-                "import pandas; print(pandas.__version__)",
-                requirements=["pandas"]
-            )
-
-        # With local packages
-        sb = Sandbox(package_dirs=["./my_utils"])
-        result = sb.run("from my_utils import helper; helper.do_thing()")
-    """
-
     def __init__(
         self,
         image: str = DEFAULT_IMAGE,
@@ -200,22 +128,6 @@ class Sandbox:
         auto_build: bool = True,
         startup_timeout: int = DEFAULT_STARTUP_TIMEOUT,
     ):
-        """
-        Initialize the sandbox.
-
-        Args:
-            image: Docker image to use (default: code-executor:latest)
-            timeout: Default timeout in seconds
-            memory_limit: Memory limit (e.g., "512m", "1g")
-            cpu_limit: CPU limit (e.g., 1.0 = one CPU)
-            network_enabled: Whether to allow network access
-            allow_runtime_requirements: Whether requirements may be installed at runtime
-            dependency_proxy_url: Optional proxy URL for runtime dependency installs
-            enable_runtime_dependency_cache: Whether to use a shared uv cache volume
-            package_dirs: Local directories to mount as Python packages
-            auto_build: Whether to auto-build image if missing
-            startup_timeout: Timeout in seconds for runtime dependency installation
-        """
         self.config = SandboxConfig(
             image=image,
             timeout=timeout,
@@ -232,23 +144,16 @@ class Sandbox:
         self._image_checked = False
 
     def __enter__(self) -> "Sandbox":
-        """Context manager entry."""
         self._ensure_image()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit."""
         pass
 
     def _ensure_image(self) -> None:
-        """Ensure the Docker image exists, building if necessary."""
         if self._image_checked:
             return
 
-        # Existence check goes through the shared, timeout-bounded, cached
-        # docker.image_exists so all three call sites (worker, builder, sandbox)
-        # probe the daemon identically instead of re-rolling `docker image
-        # inspect` with their own timeout/error handling.
         if image_exists(self.config.image):
             self._image_checked = True
             return
@@ -264,14 +169,11 @@ class Sandbox:
                 f"cd tako-vm && docker build -t {self.config.image} -f docker/Dockerfile.executor ."
             )
 
-        # Try to build the image
         logger.info("Docker image '%s' not found, building...", self.config.image)
         self._build_image()
         self._image_checked = True
 
     def _build_image(self) -> None:
-        """Build the executor Docker image."""
-        # Find the tako-vm package directory
         package_dir = self._find_package_dir()
         if not package_dir:
             raise RuntimeError(
@@ -319,16 +221,12 @@ class Sandbox:
         print("Image built successfully.")
 
     def _find_package_dir(self) -> Optional[Path]:
-        """Find the tako-vm package directory for building."""
-        # Try to find relative to this file
         this_file = Path(__file__).resolve()
-        package_dir = this_file.parent.parent  # tako_vm -> tako-vm
+        package_dir = this_file.parent.parent
 
-        # Check if docker/Dockerfile.executor exists
         if (package_dir / "docker" / "Dockerfile.executor").exists():
             return package_dir
 
-        # Try current working directory
         cwd = Path.cwd()
         if (cwd / "docker" / "Dockerfile.executor").exists():
             return cwd
@@ -342,42 +240,14 @@ class Sandbox:
         timeout: Optional[int] = None,
         requirements: Optional[List[str]] = None,
     ) -> SandboxResult:
-        """
-        Run Python code in the sandbox.
-
-        Args:
-            code: Python code to execute
-            input_data: Input data available as /input/data.json
-            timeout: Timeout in seconds (overrides default)
-            requirements: Python packages to install (e.g., ["pandas", "numpy>=1.20"])
-
-        Returns:
-            SandboxResult with stdout, stderr, exit_code, and output
-
-        Example:
-            result = sandbox.run('''
-            import json
-            with open('/input/data.json') as f:
-                data = json.load(f)
-            result = sum(data['numbers'])
-            with open('/output/result.json', 'w') as f:
-                json.dump({'sum': result}, f)
-            print(f"Sum: {result}")
-            ''', input_data={'numbers': [1, 2, 3, 4, 5]})
-
-            print(result.stdout)  # "Sum: 15"
-            print(result.output)  # {'sum': 15}
-        """
         self._ensure_image()
 
         timeout = timeout or self.config.timeout
         input_data = input_data or {}
 
-        # Create temporary workspace
         workspace = Path(tempfile.mkdtemp(prefix="sandbox-", dir=get_workspace_dir()))
 
         try:
-            # Prepare directories
             code_dir = workspace / "code"
             input_dir = workspace / "input"
             output_dir = workspace / "output"
@@ -387,17 +257,14 @@ class Sandbox:
             output_dir.mkdir()
             output_dir.chmod(0o777)
 
-            # Write code
             code_file = code_dir / "main.py"
             code_file.write_text(code)
             code_file.chmod(0o444)
 
-            # Write input data
             input_file = input_dir / "data.json"
             input_file.write_text(json.dumps(input_data))
             input_file.chmod(0o444)
 
-            # Build docker command
             try:
                 cmd, container_name = self._build_docker_command(
                     code_dir=code_dir,
@@ -409,23 +276,11 @@ class Sandbox:
             except ValueError as e:
                 return SandboxResult(success=False, exit_code=-1, error=str(e))
 
-            # Execute. The container enforces its own timeouts via
-            # TAKO_STARTUP_TIMEOUT / TAKO_EXECUTION_TIMEOUT; this subprocess
-            # timeout is a backstop with a grace period for container overhead.
-            # Dependency installation happens before code runs, so budget the
-            # startup phase separately when requirements are present.
             subprocess_timeout = timeout + 5
             if requirements:
                 subprocess_timeout += self.config.startup_timeout
 
             start_time = time.time()
-            # The container runs without --rm (see _build_docker_command), so
-            # this try/finally (entered only once `docker run` is attempted)
-            # owns removal on every exit path: success, failure, OOM, host
-            # timeout, and unexpected exceptions. remove_container does
-            # `docker rm -f`, which also kills a still-running container (the
-            # TimeoutExpired case, where subprocess.run killed the docker CLI
-            # but the container kept running in the daemon).
             try:
                 try:
                     proc = subprocess.run(
@@ -437,12 +292,6 @@ class Sandbox:
                     )
                     duration_ms = int((time.time() - start_time) * 1000)
 
-                    # Distinguish docker-itself failures (daemon unreachable,
-                    # image pull failure, bad flags) from container exits via
-                    # the shared classifier. The library Sandbox has no circuit
-                    # breaker, but it must still surface an infra failure
-                    # distinctly rather than presenting daemon stderr as if the
-                    # user's code had failed.
                     is_infra_failure, detail = classify_docker_run_result(
                         proc.returncode, proc.stderr or ""
                     )
@@ -461,29 +310,12 @@ class Sandbox:
                             error=f"Docker infrastructure failure: {detail}",
                         )
 
-                    # Read output (symlink-safe; surfaces an unreadable file)
-                    # via the shared helper so the library and worker paths
-                    # parse result.json identically.
                     output_data = read_result_json(output_dir, container_name)
 
-                    # The in-container timeout (TAKO_EXECUTION_TIMEOUT, enforced
-                    # by entrypoint.sh via timeout(1)) exits 124 when the code
-                    # exceeds its budget, so most timeouts return here rather
-                    # than through the TimeoutExpired backstop below. Surface
-                    # them as timeouts.
                     error = None
                     if proc.returncode == 124:
                         error = f"Execution timed out after {timeout}s"
                     elif proc.returncode == 137:
-                        # Exit 137 is SIGKILL: could be the OOM killer, but
-                        # also `docker kill` or user code calling
-                        # sys.exit(137). classify_sigkill inspects the exited
-                        # container's State.OOMKilled before the finally block
-                        # removes it. In-container timeout kills are already
-                        # remapped to 124 by the entrypoint, so a 137 seen here
-                        # is a genuine SIGKILL. None (inspect failed) falls back
-                        # to reporting OOM so a flaky inspect never loses a true
-                        # OOM (same policy as the server-side CodeExecutor).
                         oom_killed = classify_sigkill(container_name)
                         if oom_killed is False:
                             error = "Process was killed (SIGKILL) but not by the memory limit"
@@ -505,11 +337,6 @@ class Sandbox:
 
                 except subprocess.TimeoutExpired as exc:
                     duration_ms = int((time.time() - start_time) * 1000)
-                    # Reaching the host backstop means the in-container timeout
-                    # (TAKO_EXECUTION_TIMEOUT) did NOT fire: daemon hung, heavy
-                    # container overhead, or a stuck startup phase. Report the
-                    # real budget consumed (subprocess_timeout), not the inner
-                    # code timeout, and say which limit tripped.
                     logger.warning(
                         "Sandbox %s hit the host timeout backstop after %ss "
                         "(in-container timeout did not fire)",
@@ -528,9 +355,6 @@ class Sandbox:
                         duration_ms=duration_ms,
                     )
             finally:
-                # Best-effort kill+remove (`docker rm -f`). A failure here leaks
-                # a sandbox container; the labeled orphan cleanup at startup is
-                # the backstop, but surface it so the leak isn't invisible.
                 if not remove_container(container_name):
                     logger.warning(
                         "Failed to remove sandbox container %s; relying on startup orphan cleanup",
@@ -538,7 +362,6 @@ class Sandbox:
                     )
 
         finally:
-            # Cleanup
             try:
                 shutil.rmtree(workspace)
             except Exception as e:
@@ -552,14 +375,6 @@ class Sandbox:
         timeout: int,
         requirements: Optional[List[str]] = None,
     ) -> Tuple[List[str], str]:
-        """Build the docker run command with security flags.
-
-        Returns:
-            Tuple of (command, container_name) for cleanup on timeout.
-        """
-        # Validate, cap, gate, and persist requirements via the shared helper so
-        # the library path and the server worker apply identical policy (invalid
-        # requirements are rejected with ValueError, never silently skipped).
         validated_reqs = prepare_requirements_file(
             requirements,
             input_dir,
@@ -567,21 +382,8 @@ class Sandbox:
             max_requirements=MAX_REQUIREMENTS,
         )
 
-        # Generate container name for tracking (allows cleanup on timeout)
         container_name = generate_container_name("tako-sandbox")
 
-        # Shared isolation base: --init/--read-only, capability drops, the
-        # tako-vm-executor label (so startup cleanup can find orphans), and the
-        # gVisor --runtime flag, resolved via the shared resolver so the
-        # library path enforces the same posture as CodeExecutor (and fails
-        # closed in strict mode when gVisor is unavailable). Library-mode runs
-        # have no ExecutionRecord, so the unique container name doubles as the
-        # traceability ID.
-        #
-        # auto_remove=False: keep the exited container so a 137 exit can be
-        # checked against `docker inspect .State.OOMKilled` (with --rm the
-        # daemon removes the container before it can be inspected). The
-        # try/finally in run() guarantees removal on every exit path.
         cmd = base_isolation_args(
             container_name,
             runtime=resolve_runtime(get_config()),
@@ -590,31 +392,20 @@ class Sandbox:
             auto_remove=False,
         )
 
-        # Network isolation
         has_requirements = bool(validated_reqs)
         if self.config.network_enabled or has_requirements:
             cmd.append("--network=bridge")
         else:
             cmd.append("--network=none")
 
-        # Mount uv cache for faster installs
         if has_requirements:
             uv_cache_dir = UV_CACHE_TMP_DIR
             if self.config.enable_runtime_dependency_cache:
                 uv_cache_dir = UV_CACHE_VOLUME_DIR
-                # Scoped like the server path (see uv_cache_volume). Library
-                # mode has no job type, so the scope is caller-supplied and
-                # defaults to "default".
                 cache_volume = uv_cache_volume(self.config.cache_scope)
                 cmd.append(f"--mount=type=volume,source={cache_volume},target={uv_cache_dir}")
             cmd.append(f"--env=UV_CACHE_DIR={uv_cache_dir}")
 
-        # Resource limits. The pids-limit and the --ulimit set (nofile/nproc/
-        # fsize) come from the shared container_limits config so the library
-        # path enforces the same kernel rlimits the worker does. Without the
-        # --ulimit=fsize cap, untrusted code could write an arbitrarily large
-        # file to the writable /output bind-mount (host-disk-exhaustion DoS);
-        # gVisor does not impose RLIMIT_FSIZE on its own (issue #97).
         limits = get_config().container_limits
         cmd.extend(
             [
@@ -626,13 +417,6 @@ class Sandbox:
             ]
         )
 
-        # Mount directories.
-        # /tmp is noexec unless runtime dependencies are being installed (uv
-        # unpacks packages into /tmp/site-packages and some need to execute
-        # there). This mirrors CodeExecutor exactly: the library path used to
-        # mount /tmp exec unconditionally, so a control the docs describe as
-        # always-on ("writable space is limited to /output/ and a noexec /tmp/")
-        # was silently absent for every library-mode run.
         tmp_size = "300m" if has_requirements else str(limits.tmpfs_size)
         tmp_exec = "exec" if has_requirements else "noexec"
         cmd.extend(
@@ -644,11 +428,6 @@ class Sandbox:
             ]
         )
 
-        # Custom seccomp profile (native Linux only), identical to the
-        # CodeExecutor path. Without this the library path ran under Docker's
-        # default profile -- a denylist that permits ptrace and a far wider
-        # syscall surface -- while enable_seccomp appeared to be on. The
-        # shipped profile is default-deny (SCMP_ACT_ERRNO).
         cfg = get_config()
         if cfg.enable_seccomp and cfg.seccomp_profile_path:
             if is_native_linux() and cfg.seccomp_profile_path.exists():
@@ -656,20 +435,15 @@ class Sandbox:
             elif not is_native_linux():
                 logger.debug("Skipping custom seccomp profile on Docker Desktop")
 
-        # Mount local package directories
         pythonpath_parts = []
         for i, pkg_dir in enumerate(self.config.package_dirs):
             pkg_path = Path(pkg_dir).absolute()
             if not pkg_path.exists():
-                # The caller explicitly asked for this dependency; silently
-                # dropping it would surface later as a confusing in-sandbox
-                # ModuleNotFoundError instead of at the misconfiguration site.
                 raise ValueError(f"Package directory does not exist: {pkg_dir}")
             mount_target = f"/packages/pkg{i}"
             cmd.append(f"--mount=type=bind,source={pkg_path},target={mount_target},readonly")
             pythonpath_parts.append(mount_target)
 
-        # Set PYTHONPATH if we have package directories
         if pythonpath_parts:
             pythonpath = ":".join(pythonpath_parts)
             cmd.append(f"--env=PYTHONPATH={pythonpath}")
@@ -677,26 +451,17 @@ class Sandbox:
         if has_requirements and self.config.dependency_proxy_url:
             cmd.append(f"--env=TAKO_DEPENDENCY_PROXY_URL={self.config.dependency_proxy_url}")
 
-        # In-container timeout enforcement (entrypoint.sh wraps each phase in
-        # timeout(1)). Without these the container would run forever if the
-        # parent process died before its subprocess timeout fired.
         cmd.append(f"--env=TAKO_STARTUP_TIMEOUT={self.config.startup_timeout}")
         cmd.append(f"--env=TAKO_EXECUTION_TIMEOUT={timeout}")
 
-        # Image
         cmd.append(self.config.image)
 
-        # Defense-in-depth: validate the assembled argv before it is executed,
-        # mirroring the server worker (issue: library mode previously skipped
-        # this control). Raises so run() reports a failed SandboxResult instead
-        # of executing an argv that failed the safety check.
         if not validate_docker_run_args(cmd):
             raise ValueError("Unsafe Docker command rejected: arguments failed safety validation")
 
         return cmd, container_name
 
 
-# Convenience function for simple usage
 def run(
     code: str,
     input_data: Optional[Dict[str, Any]] = None,
@@ -704,27 +469,5 @@ def run(
     requirements: Optional[List[str]] = None,
     **kwargs,
 ) -> SandboxResult:
-    """
-    Run Python code in an isolated sandbox.
-
-    This is a convenience function that creates a temporary Sandbox,
-    runs the code, and returns the result.
-
-    Args:
-        code: Python code to execute
-        input_data: Input data available as /input/data.json
-        timeout: Timeout in seconds
-        requirements: Python packages to install
-        **kwargs: Additional arguments passed to Sandbox()
-
-    Returns:
-        SandboxResult with stdout, stderr, exit_code, and output
-
-    Example:
-        from tako_vm.sandbox import run
-
-        result = run("print(1 + 1)")
-        print(result.stdout)  # "2"
-    """
     with Sandbox(timeout=timeout, **kwargs) as sb:
         return sb.run(code, input_data=input_data, requirements=requirements)

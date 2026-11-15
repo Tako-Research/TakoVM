@@ -1,5 +1,3 @@
-"""Tests for docker-compose deployment hardening."""
-
 from pathlib import Path
 
 import yaml
@@ -12,7 +10,6 @@ def _compose_config() -> dict:
 
 
 def test_api_service_uses_socket_proxy_instead_of_socket_mount():
-    """The public API service should not mount the host Docker socket directly."""
     config = _compose_config()
     tako_vm = config["services"]["tako-vm"]
     volumes = tako_vm.get("volumes", [])
@@ -25,7 +22,6 @@ def test_api_service_uses_socket_proxy_instead_of_socket_mount():
 
 
 def test_socket_proxy_is_internal_and_owns_socket_mount():
-    """Only the internal proxy service should receive the Docker socket mount."""
     config = _compose_config()
     proxy = config["services"]["docker-socket-proxy"]
     volumes = proxy.get("volumes", [])
@@ -42,12 +38,6 @@ def _published_ports(service: dict) -> list[str]:
 
 
 def test_no_service_publishes_postgres_to_the_host():
-    """Postgres must stay on the compose network.
-
-    It used to be published as "5432:5432" with postgres/postgres
-    credentials, handing the database to anything that could route to the
-    host. The API reaches it by service name; the mapping bought nothing.
-    """
     config = _compose_config()
 
     for name, service in config["services"].items():
@@ -58,7 +48,6 @@ def test_no_service_publishes_postgres_to_the_host():
 
 
 def test_postgres_credentials_are_not_hardcoded_defaults():
-    """The dev credentials must be overridable and must not be postgres/postgres."""
     config = _compose_config()
     environment = config["services"]["postgres"].get("environment", [])
     settings = dict(entry.split("=", 1) for entry in environment)
@@ -66,18 +55,11 @@ def test_postgres_credentials_are_not_hardcoded_defaults():
     assert "POSTGRES_PASSWORD" in settings
     assert settings["POSTGRES_PASSWORD"] != "postgres"
     assert settings["POSTGRES_USER"] != "postgres"
-    # Interpolated from the environment, so a real deployment can override it.
     assert settings["POSTGRES_PASSWORD"].startswith("${")
     assert settings["POSTGRES_USER"].startswith("${")
 
 
 def test_api_port_is_published_on_loopback_only():
-    """The API runs with auth disabled here, so its published port stays local.
-
-    The container binds 0.0.0.0 (it has to, to be reachable at all) under an
-    explicit allow_unauthenticated_network_access opt-out; the only thing
-    keeping that off the network is this loopback-scoped host mapping.
-    """
     config = _compose_config()
     tako_vm = config["services"]["tako-vm"]
     published = _published_ports(tako_vm)

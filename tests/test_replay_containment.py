@@ -1,12 +1,6 @@
-"""
-Replay/download path containment: a poisoned/legacy storage_key must not escape
-data_dir. Exercises the shared _resolve_under_data_dir helper used by both
-download_artifact and the rerun/fork replay path. Requires the server extra.
-"""
-
 import pytest
 
-pytest.importorskip("fastapi")  # server deps; skip cleanly if not installed
+pytest.importorskip("fastapi")
 
 from fastapi import HTTPException  # noqa: E402
 
@@ -29,8 +23,6 @@ class TestResolveUnderDataDir:
             _resolve_under_data_dir(tmp_path.resolve(), "/etc/passwd")
 
     def test_symlink_escape_rejected(self, tmp_path):
-        # A symlink under data_dir pointing outside is caught: resolve() follows
-        # it, is_relative_to() sees the real (escaped) target.
         data = tmp_path.resolve()
         (data / "runs").mkdir()
         (data / "runs" / "evil").symlink_to(tmp_path.parent)

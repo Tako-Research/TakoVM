@@ -1,38 +1,3 @@
-"""
-Error plumbing tests for CodeExecutor._run_container / execute_job_with_record.
-
-Covers:
-
-1. Docker infrastructure failures (daemon down, `docker run` exit 125) were
-   recorded as circuit breaker *successes*, returned without an "error" key
-   (so the retry loop never fired), and classified against the user's code.
-
-2. Host-level subprocess timeouts returned a dict with empty output and no
-   marker, so jobs killed by the host got status "failed" instead of
-   "timeout" and the partial stdout/stderr captured before the kill was
-   discarded.
-
-3. Retry idempotency: a retry reused the exact container name of the failed
-   attempt (colliding with a not-yet-removed `--rm` container) and inherited
-   the failed attempt's leftover output dir contents; record.attempt /
-   record.max_attempts never reflected that retries happened.
-
-4. Truncation flags: cap_output truncated stdout/stderr in-band but
-   record.stdout_truncated / stderr_truncated were never set.
-
-5. OOM detection: exit code 137 was unconditionally reported as "oom", but
-   137 is just SIGKILL: `docker kill` (cancel), pids-limit kills, and user
-   sys.exit(137) looked identical, and the authoritative State.OOMKilled flag
-   was unreadable because `--rm` removed the container before inspection.
-
-6. Phase-file trust: .tako_phase lived in the 0777 /output mount, so the
-   sandbox user could unlink/re-create it and forge the timing/phase data
-   that feeds status determination. It now lives in the root-only /tako-meta
-   mount when available.
-
-All tests mock subprocess.run: no Docker required.
-"""
-
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,8 +16,6 @@ DAEMON_DOWN_STDERR = (
 
 
 class FakeCircuitBreaker:
-    """Records breaker calls; always reports available."""
-
     def __init__(self):
         self.successes = 0
         self.failures = []
@@ -75,10 +38,6 @@ def mock_gvisor_available(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_prebuilt_images(monkeypatch):
-    """Keep image resolution hermetic: behave as if no pre-built job-type
-    image exists and no image can be entrypoint-inspected (the helpers live in
-    docker.py and would otherwise hit the real daemon). TestImageResolution
-    overrides these per test."""
     monkeypatch.setattr(worker_module, "image_exists", lambda name: False)
     monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: None)
 
@@ -125,14 +84,6 @@ def _run_container(executor, io_dirs):
 
 
 def _patch_subprocess(monkeypatch, side_effect):
-    """Replace subprocess.run in the worker module; returns the call counter.
-
-    Only `docker run` invocations consume `side_effect` and increment the
-    counter: cleanup `docker rm -f` (every run now removes its own container,
-    since --rm was dropped to allow OOM inspection) and `docker inspect`
-    calls are answered with a benign failure so they stay invisible to tests
-    that only care about how often the container ran.
-    """
     calls = {"count": 0}
 
     def fake_run(cmd, *args, **kwargs):
@@ -152,11 +103,6 @@ def _patch_subprocess(monkeypatch, side_effect):
 
 
 def _mount_source_dir(cmd, target):
-    """Extract the host source dir of a bind mount from a docker run cmd.
-
-    Parses the --mount key=value fields so it also matches mounts carrying
-    trailing flags (e.g. the readonly /code and /input mounts).
-    """
     for arg in cmd:
         if not arg.startswith("--mount=type=bind,"):
             continue
@@ -169,29 +115,14 @@ def _mount_source_dir(cmd, target):
 
 
 def _output_mount_dir(cmd):
-    """Extract the host source dir of the /output bind mount from a docker run cmd."""
     return _mount_source_dir(cmd, "/output")
 
 
 def _meta_mount_dir(cmd):
-    """Extract the host source dir of the /tako-meta bind mount from a docker run cmd."""
     return _mount_source_dir(cmd, "/tako-meta")
 
 
 def _patch_docker_cli(monkeypatch, run_results, on_run=None, inspect_result=None):
-    """Fake subprocess.run that dispatches on the docker subcommand.
-
-    `docker run` invocations consume `run_results` in order (calling `on_run`
-    with (attempt_index, cmd) first, e.g. to seed stale files into the mounted
-    output dir); an item that is an exception is raised instead of returned.
-    `docker rm` / `docker kill` invocations are recorded and succeed.
-    `docker inspect` invocations are recorded and return `inspect_result`
-    (default: a "no such object" failure). Any other docker command fails
-    the test.
-
-    Returns a SimpleNamespace with `run`, `rm`, `kill`, `inspect` command
-    lists plus `all` (every command, in call order).
-    """
     cli = SimpleNamespace(run=[], rm=[], kill=[], inspect=[], all=[])
     results = iter(run_results)
 
@@ -236,13 +167,10 @@ def _exit_137(stderr=""):
 
 
 def _inspect_says(value):
-    """A successful `docker inspect --format {{.State.OOMKilled}}` result."""
     return SimpleNamespace(returncode=0, stdout=f"{value}\n", stderr="")
 
 
 class TestDockerInfraFailure:
-    """`docker run` failing (exit 125 / daemon unreachable) is an infra failure."""
-
     def test_exit_125_records_breaker_failure_and_returns_error_key(
         self, executor, breaker, io_dirs, monkeypatch
     ):
@@ -288,28 +216,22 @@ class TestDockerInfraFailure:
             "job-infra-1", {"code": "print('hi')", "input_data": {}}
         )
 
-        # Retry loop fired: both configured attempts hit Docker
         assert len(cli.run) == 2
         assert len(breaker.failures) == 2
         assert breaker.successes == 0
 
-        # Classified as an infra/service error, not the user's code
         assert record.status == "failed"
         assert record.error is not None
         assert record.error.type == "service_unavailable"
         assert "Docker infrastructure failure" in record.error.message
 
-        # The audit record shows that retries happened
         assert record.attempt == 1
         assert record.max_attempts == 2
 
 
 class TestHostTimeout:
-    """Host-level subprocess timeout must become status='timeout' with partial output."""
-
     def test_run_container_preserves_partial_output(self, executor, breaker, io_dirs, monkeypatch):
         monkeypatch.setattr(worker_module, "kill_container", lambda name: None)
-        # TimeoutExpired carries the bytes captured before the kill
         _patch_subprocess(
             monkeypatch,
             lambda: subprocess.TimeoutExpired(
@@ -324,7 +246,6 @@ class TestHostTimeout:
         assert result["stdout"] == "partial stdout"
         assert result["stderr"] == "partial stderr"
         assert "timeout" in result["error"].lower()
-        # Host timeout is not a Docker health problem
         assert breaker.failures == []
 
     def test_record_status_is_timeout_and_no_retry(self, executor, breaker, monkeypatch):
@@ -350,8 +271,6 @@ class TestHostTimeout:
 
 
 class TestUserCodeFailure:
-    """Non-zero exits from user code are not infra failures and never retry."""
-
     def test_nonzero_user_exit_records_success_no_retry(self, executor, breaker, monkeypatch):
         calls = _patch_subprocess(
             monkeypatch,
@@ -389,12 +308,9 @@ class TestUserCodeFailure:
 
 
 class TestRetryIdempotency:
-    """Retries must not collide on container names or report stale outputs."""
-
     def test_retry_uses_unique_container_name_and_removes_previous(
         self, executor, breaker, monkeypatch
     ):
-        """Attempt 2 gets a -r1 name and the attempt-1 container is force-removed first."""
         cli = _patch_docker_cli(monkeypatch, [_infra_failure(), _success()])
 
         record = executor.execute_job_with_record(
@@ -404,23 +320,16 @@ class TestRetryIdempotency:
         assert record.status == "succeeded"
         assert len(cli.run) == 2
         names = [next(a for a in cmd if a.startswith("--name=")) for cmd in cli.run]
-        # Attempt 0 keeps the deterministic name (cancel/watchdog paths match
-        # it); the retry gets a unique suffix so a lingering container from
-        # attempt 0 cannot cause a "name already in use" failure.
         assert names == ["--name=tako-job-retry-name", "--name=tako-job-retry-name-r1"]
-        # Best-effort cleanup of the previous attempt's container fired
         assert ["docker", "rm", "-f", "tako-job-retry-name"] in cli.rm
-        # The retry's own container is removed too (no --rm anymore)
         assert ["docker", "rm", "-f", "tako-job-retry-name-r1"] in cli.rm
 
     def test_stale_output_cleared_between_attempts(self, executor, breaker, monkeypatch):
-        """Leftovers from a failed attempt must not be reported as retry results."""
         seen_on_retry = {}
 
         def on_run(attempt_idx, cmd):
             out_dir = _output_mount_dir(cmd)
             if attempt_idx == 0:
-                # Simulate a failed attempt that left partial output behind
                 (out_dir / "result.json").write_text('{"stale": true}')
                 (out_dir / ".tako_phase").write_text("phase=failed\nfailed_phase=startup\n")
                 (out_dir / "stale-artifact.txt").write_text("leftover")
@@ -435,13 +344,11 @@ class TestRetryIdempotency:
 
         assert record.status == "succeeded"
         assert seen_on_retry["entries"] == [], "output dir must be empty when a retry starts"
-        # Nothing stale leaked into the record
         assert record.result_json is None
         assert record.artifacts == []
         assert record.timing is None
 
     def test_attempt_and_max_attempts_recorded_on_retry(self, executor, breaker, monkeypatch):
-        """A successful retry is visible in the audit record."""
         _patch_docker_cli(monkeypatch, [_infra_failure(), _success()])
 
         record = executor.execute_job_with_record(
@@ -453,7 +360,6 @@ class TestRetryIdempotency:
         assert record.max_attempts == 2
 
     def test_attempt_zero_when_no_retry_needed(self, executor, breaker, monkeypatch):
-        """A first-attempt success records attempt 0 with the configured ceiling."""
         cli = _patch_docker_cli(monkeypatch, [_success()])
 
         record = executor.execute_job_with_record(
@@ -464,14 +370,10 @@ class TestRetryIdempotency:
         assert record.attempt == 0
         assert record.max_attempts == 2
         assert len(cli.run) == 1
-        # No --rm anymore: the run's own container is removed exactly once,
-        # and no defensive pre-retry removal happened.
         assert cli.rm == [["docker", "rm", "-f", "tako-job-no-retry"]]
 
 
 class TestTruncationFlags:
-    """cap_output truncation must be surfaced via record.stdout/stderr_truncated."""
-
     def test_stdout_truncation_sets_flag(self, executor, breaker, monkeypatch):
         big_stdout = "x" * (executor.config.max_stdout_bytes + 1000)
         _patch_subprocess(
@@ -522,10 +424,7 @@ class TestTruncationFlags:
 
 
 class TestOomDetection:
-    """Exit 137 must be verified against State.OOMKilled, not assumed to be OOM."""
-
     def test_exit_137_with_oomkilled_true_is_oom(self, executor, breaker, monkeypatch):
-        """A genuine OOM kill (inspect says OOMKilled=true) reports status='oom'."""
         cli = _patch_docker_cli(monkeypatch, [_exit_137()], inspect_result=_inspect_says("true"))
 
         record = executor.execute_job_with_record(
@@ -536,13 +435,11 @@ class TestOomDetection:
         assert record.error is not None
         assert record.error.type == "oom"
         assert "memory" in record.error.message.lower()
-        # The right container was inspected
         assert cli.inspect == [
             ["docker", "inspect", "--format", "{{.State.OOMKilled}}", "tako-job-oom-true"]
         ]
 
     def test_exit_137_with_oomkilled_false_is_failed_killed(self, executor, breaker, monkeypatch):
-        """A non-OOM SIGKILL (docker kill, pids-limit, sys.exit(137)) is NOT 'oom'."""
         cli = _patch_docker_cli(monkeypatch, [_exit_137()], inspect_result=_inspect_says("false"))
 
         record = executor.execute_job_with_record(
@@ -553,13 +450,10 @@ class TestOomDetection:
         assert record.error is not None
         assert record.error.type == "killed"
         assert "SIGKILL" in record.error.message
-        # The message must distinguish this from an OOM kill
         assert "not by the memory limit" in record.error.message
         assert len(cli.inspect) == 1
 
     def test_exit_137_with_inspect_failure_falls_back_to_oom(self, executor, breaker, monkeypatch):
-        """A flaky/failed inspect (None) must not lose a true OOM: fall back to 'oom'."""
-        # Default inspect_result is a "No such object" failure -> None
         _patch_docker_cli(monkeypatch, [_exit_137()])
 
         record = executor.execute_job_with_record(
@@ -571,7 +465,6 @@ class TestOomDetection:
         assert record.error.type == "oom"
 
     def test_inspect_happens_before_container_removal(self, executor, breaker, monkeypatch):
-        """The container must still exist when inspected (rm -f comes after)."""
         cli = _patch_docker_cli(monkeypatch, [_exit_137()], inspect_result=_inspect_says("true"))
 
         executor.execute_job_with_record("job-oom-order", {"code": "x", "input_data": {}})
@@ -581,7 +474,6 @@ class TestOomDetection:
         assert inspect_idx < rm_idx, "inspect must run before the container is removed"
 
     def test_no_inspect_on_other_exit_codes(self, executor, breaker, monkeypatch):
-        """The inspect is kept cheap: only exit 137 triggers it."""
         cli = _patch_docker_cli(
             monkeypatch,
             [SimpleNamespace(returncode=1, stdout="", stderr="ValueError: boom")],
@@ -606,10 +498,7 @@ class TestOomDetection:
 
 
 class TestContainerRemoval:
-    """Without --rm, every exit path from _run_container must remove the container."""
-
     def test_docker_run_has_no_rm_flag(self, executor, breaker, monkeypatch):
-        """--rm would delete the container before State.OOMKilled can be read."""
         cli = _patch_docker_cli(monkeypatch, [_success()])
 
         executor.execute_job_with_record("job-norm", {"code": "print('hi')", "input_data": {}})
@@ -647,12 +536,10 @@ class TestContainerRemoval:
         )
 
         assert record.status == "failed"
-        # Both attempts' containers were removed (best-effort)
         assert ["docker", "rm", "-f", "tako-job-rm-infra"] in cli.rm
         assert ["docker", "rm", "-f", "tako-job-rm-infra-r1"] in cli.rm
 
     def test_container_killed_and_removed_on_host_timeout(self, executor, breaker, monkeypatch):
-        """Host-level timeout still kills the running container AND removes it."""
         cli = _patch_docker_cli(
             monkeypatch,
             [subprocess.TimeoutExpired(["docker", "run"], 80, output=b"partial", stderr=None)],
@@ -668,8 +555,6 @@ class TestContainerRemoval:
 
 
 class TestPhaseFileTrust:
-    """.tako_phase must come from the root-only /tako-meta mount, not 0777 /output."""
-
     META_PHASE = (
         "container_start_ms=0\n"
         "phase=startup\n"
@@ -687,7 +572,6 @@ class TestPhaseFileTrust:
 
     @pytest.fixture(autouse=True)
     def run_as_root(self, monkeypatch):
-        """Pretend the server runs as root so the meta dir is created/mounted."""
         monkeypatch.setattr(worker_module.os, "geteuid", lambda: 0, raising=False)
 
     def test_meta_dir_mounted_separately_from_output(self, executor, breaker, monkeypatch):
@@ -705,7 +589,6 @@ class TestPhaseFileTrust:
         assert seen["meta"].name == "meta"
 
     def test_meta_dir_is_not_world_writable(self, executor, breaker, monkeypatch):
-        """0755: the in-container sandbox user (uid 1000) must not be able to write."""
         seen = {}
 
         def on_run(attempt_idx, cmd):
@@ -718,12 +601,9 @@ class TestPhaseFileTrust:
         assert seen["mode"] == 0o755
 
     def test_phase_file_read_from_meta_dir_when_present(self, executor, breaker, monkeypatch):
-        """A forged /output/.tako_phase is ignored when the meta copy exists."""
 
         def on_run(attempt_idx, cmd):
-            # Entrypoint (container root) writes the real phase data to /tako-meta
             (_meta_mount_dir(cmd) / ".tako_phase").write_text(self.META_PHASE)
-            # Sandboxed user code forges a copy in the 0777 /output mount
             (_output_mount_dir(cmd) / ".tako_phase").write_text(self.FORGED_PHASE)
 
         _patch_docker_cli(monkeypatch, [_success()], on_run=on_run)
@@ -735,7 +615,6 @@ class TestPhaseFileTrust:
         assert record.timing.startup_ms == 11
 
     def test_phase_file_falls_back_to_output_dir(self, executor, breaker, monkeypatch):
-        """Old executor images write only /output/.tako_phase; it must still parse."""
 
         def on_run(attempt_idx, cmd):
             (_output_mount_dir(cmd) / ".tako_phase").write_text(self.META_PHASE)
@@ -750,8 +629,6 @@ class TestPhaseFileTrust:
         assert record.timing.execution_ms == 222
 
     def test_no_meta_mount_when_host_uid_is_sandbox_uid(self, executor, breaker, monkeypatch):
-        """Host uid 1000 == container sandbox uid: a 'trusted' meta dir would be
-        sandbox-owned (forgeable), so the mount must be skipped entirely."""
         monkeypatch.setattr(worker_module.os, "geteuid", lambda: 1000, raising=False)
 
         def on_run(attempt_idx, cmd):
@@ -764,7 +641,6 @@ class TestPhaseFileTrust:
         )
 
         assert not any("target=/tako-meta" in arg for arg in cli.run[0])
-        # Legacy behavior still works
         assert record.status == "succeeded"
         assert record.timing is not None
 
@@ -804,7 +680,6 @@ class TestPhaseFileTrust:
         assert timing.execution_ms == 222
 
     def test_parse_phase_file_ignores_symlinked_output_phase(self, tmp_path):
-        """A symlink planted at /output/.tako_phase is never followed."""
         output_dir = tmp_path / "output"
         output_dir.mkdir()
         target = tmp_path / "host-secret"
@@ -814,7 +689,6 @@ class TestPhaseFileTrust:
         assert parse_phase_file(output_dir, None) is None
 
     def test_stale_meta_phase_cleared_between_retry_attempts(self, executor, breaker, monkeypatch):
-        """A failed attempt's meta phase file must not leak into the retry's record."""
         seen_on_retry = {}
 
         def on_run(attempt_idx, cmd):
@@ -834,11 +708,6 @@ class TestPhaseFileTrust:
 
 
 class TestImageResolution:
-    """F7: images built by `tako-vm build` must actually be executed, and raw
-    base images without the executor entrypoint contract must be refused:
-    running them would execute the image's default CMD instead of
-    /code/main.py and record a bogus success for code that never ran."""
-
     def _executor(self, tmp_path, job_type):
         registry = JobTypeRegistry(config_path=tmp_path / "job_types.json")
         registry.register(job_type, persist=False)
@@ -873,8 +742,6 @@ class TestImageResolution:
         assert "max_timeout (60 seconds)" in record.error.message
 
     def test_request_without_job_type_uses_configured_default_timeout(self, tmp_path):
-        """A request naming no job type runs at default_timeout, not the
-        built-in default job type's hardcoded value."""
         registry = JobTypeRegistry(config_path=tmp_path / "job_types.json")
         config = TakoVMConfig(
             security_mode="permissive",
@@ -890,8 +757,6 @@ class TestImageResolution:
         assert resolved == 90
 
     def test_explicit_timeout_above_ceiling_is_refused(self, tmp_path):
-        """The worker is the last boundary: an explicit oversized timeout that
-        reached it without passing through the API is still refused."""
         registry = JobTypeRegistry(config_path=tmp_path / "job_types.json")
         config = TakoVMConfig(
             security_mode="permissive",
@@ -907,8 +772,6 @@ class TestImageResolution:
             )
 
     def test_built_image_preferred_and_requirements_skipped(self, tmp_path, breaker, monkeypatch):
-        """A pre-built job-type image with the executor contract is executed,
-        and its baked-in requirements are NOT reinstalled at runtime."""
         jt = JobType(name="custom", requirements=["pandas", "numpy"])
         monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
         monkeypatch.setattr(
@@ -929,19 +792,14 @@ class TestImageResolution:
         )
 
         assert record.status == "succeeded"
-        # The built image is what actually ran
         assert cli.run[0][-1] == "tako-vm-custom:latest"
-        # Requirements are baked into the image: no runtime install file...
         assert seen["requirements_file_exists"] is False
-        # ...so no bridge network was needed for dependency installation
         assert "--network=none" in cli.run[0]
         assert "--network=bridge" not in cli.run[0]
 
     def test_extra_requirements_still_installed_with_built_image(
         self, tmp_path, breaker, monkeypatch
     ):
-        """Per-job extra requirements are not baked in and still install at
-        runtime, but the job type's own requirements must not be re-listed."""
         jt = JobType(name="custom", requirements=["pandas"])
         monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
         monkeypatch.setattr(
@@ -972,10 +830,7 @@ class TestImageResolution:
         assert seen["requirements"] == "requests>=2.31\n"
 
     def test_fallback_to_default_image_when_no_built_image(self, tmp_path, breaker, monkeypatch):
-        """Without a built image, requirements install at runtime on the
-        default executor image (the legacy behavior)."""
         jt = JobType(name="custom", requirements=["pandas"])
-        # autouse fixture: image_exists -> False everywhere
 
         seen = {}
 
@@ -995,7 +850,6 @@ class TestImageResolution:
         assert seen["requirements"] == "pandas\n"
 
     def test_default_job_type_path_unchanged(self, executor, breaker, monkeypatch):
-        """The default job type keeps running the default executor image."""
         cli = _patch_docker_cli(monkeypatch, [_success()])
 
         record = executor.execute_job_with_record(
@@ -1006,9 +860,6 @@ class TestImageResolution:
         assert cli.run[0][-1] == "code-executor:latest"
 
     def test_built_image_without_contract_is_ignored(self, tmp_path, breaker, monkeypatch):
-        """A stale built image lacking /entrypoint.sh (old `tako-vm build`)
-        must not be executed: fall back to the default executor image with
-        runtime dependency installation."""
         jt = JobType(name="custom", requirements=["pandas"])
         monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
         monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: False)
@@ -1031,7 +882,6 @@ class TestImageResolution:
         assert seen["requirements_file_exists"] is True
 
     def test_executor_derived_base_image_is_allowed(self, tmp_path, breaker, monkeypatch):
-        """A base_image that carries the executor entrypoint contract runs."""
         jt = JobType(name="custom", base_image="my-executor:latest")
         monkeypatch.setattr(
             worker_module,
@@ -1050,10 +900,6 @@ class TestImageResolution:
         assert cli.run[0][-1] == "my-executor:latest"
 
     def test_raw_base_image_is_refused_not_bogus_success(self, tmp_path, breaker, monkeypatch):
-        """A raw base image (no /entrypoint.sh) must fail fast with a config
-        error. Previously python:slim's default CMD (the REPL) ran instead of
-        the user's code, exited 0 on EOF, and the job was recorded
-        'succeeded' with empty output for code that NEVER ran."""
         jt = JobType(name="custom", base_image="python:3.11-slim")
         monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: False)
 
@@ -1073,10 +919,7 @@ class TestImageResolution:
         assert "tako-vm build custom" in record.error.message
 
     def test_unverifiable_base_image_is_refused(self, tmp_path, breaker, monkeypatch):
-        """An inspect failure (image not local / daemon hiccup) is NOT a pass:
-        the contract must be positively verified before a base image runs."""
         jt = JobType(name="custom", base_image="ghcr.io/acme/runner:1")
-        # autouse fixture: image_has_executor_entrypoint -> None (inspect failed)
 
         cli = _patch_docker_cli(monkeypatch, [])
         executor = self._executor(tmp_path, jt)
@@ -1091,8 +934,6 @@ class TestImageResolution:
         assert record.error.type == "config_error"
 
     def test_built_image_preferred_over_base_image(self, tmp_path, breaker, monkeypatch):
-        """When a job type has both a built image and a base_image, the built
-        image (requirements baked in) wins."""
         jt = JobType(name="custom", base_image="my-executor:latest", requirements=["pandas"])
         monkeypatch.setattr(worker_module, "image_exists", lambda name: name == jt.image_name)
         monkeypatch.setattr(worker_module, "image_has_executor_entrypoint", lambda name: True)
@@ -1109,8 +950,6 @@ class TestImageResolution:
 
 
 class TestEntrypointScript:
-    """The entrypoint must stay valid bash and keep the dual-location phase file."""
-
     ENTRYPOINT = Path(__file__).resolve().parent.parent / "docker" / "entrypoint.sh"
 
     def test_bash_syntax_is_valid(self):
@@ -1120,7 +959,6 @@ class TestEntrypointScript:
         assert result.returncode == 0, f"bash -n failed: {result.stderr}"
 
     def test_prefers_tako_meta_with_output_fallback(self):
-        """Old hosts (no /tako-meta mount) must keep working: /output is the fallback."""
         content = self.ENTRYPOINT.read_text(encoding="utf-8")
         assert 'PHASE_FILE="/output/.tako_phase"' in content
         assert 'PHASE_FILE="/tako-meta/.tako_phase"' in content

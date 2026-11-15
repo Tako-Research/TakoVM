@@ -1,10 +1,3 @@
-"""
-Configuration management for Tako VM.
-
-Uses Pydantic for validation with strict bounds checking.
-Loads configuration from YAML file with optional env var overrides.
-"""
-
 import logging
 import os
 from importlib.resources import files as _resource_files
@@ -19,12 +12,11 @@ from tako_vm.constants import DEFAULT_IMAGE
 
 logger = logging.getLogger(__name__)
 
-# Default config file locations (searched in order)
 CONFIG_SEARCH_PATHS = [
-    Path("tako_vm.yaml"),  # Current directory
-    Path("config/tako_vm.yaml"),  # Config subdirectory
-    Path.home() / ".tako_vm" / "config.yaml",  # User home
-    Path("/etc/tako_vm/config.yaml"),  # System-wide
+    Path("tako_vm.yaml"),
+    Path("config/tako_vm.yaml"),
+    Path.home() / ".tako_vm" / "config.yaml",
+    Path("/etc/tako_vm/config.yaml"),
 ]
 
 _SAFE_PROXY_URL_CHARS = frozenset(
@@ -35,22 +27,11 @@ _LOOPBACK_HOSTS = frozenset({"localhost", "::1", "[::1]"})
 
 
 def host_is_loopback(host: str) -> bool:
-    """Whether ``host`` names only the loopback interface.
-
-    Free function so the identical test applies to a configured
-    ``server_host`` and to a host resolved later from a CLI flag.
-    """
     value = host.strip().lower()
     return value in _LOOPBACK_HOSTS or value.startswith("127.")
 
 
 def _sanitize_validation_error(e: ValidationError) -> str:
-    """
-    Format a pydantic ValidationError WITHOUT echoing input values.
-
-    Default str(ValidationError) embeds ``input_value=...``, which can leak
-    secrets (database passwords, API keys) into CLI output and logs.
-    """
     lines: List[str] = []
     for err in e.errors(include_input=False, include_url=False):
         loc = ".".join(str(part) for part in err.get("loc", ())) or "config"
@@ -59,14 +40,6 @@ def _sanitize_validation_error(e: ValidationError) -> str:
 
 
 def _parse_size_to_mb(v: str, *, allow_k_and_bytes: bool) -> int:
-    """Parse a size string ('512m', '1g', etc.) to whole megabytes.
-
-    Shared by tmpfs_size and memory_limit validation. ``v`` must already be
-    lowercased and stripped. When ``allow_k_and_bytes`` is True a 'k' suffix or
-    a bare integer (bytes) is accepted (tmpfs); otherwise only 'm'/'g' are
-    allowed (memory_limit) and anything else raises ValueError. Integer parse
-    failures propagate as ValueError so pydantic reports them.
-    """
     if v.endswith("g"):
         return int(v[:-1]) * 1024
     if v.endswith("m"):
@@ -74,57 +47,41 @@ def _parse_size_to_mb(v: str, *, allow_k_and_bytes: bool) -> int:
     if allow_k_and_bytes:
         if v.endswith("k"):
             return int(v[:-1]) // 1024
-        # Assume bytes.
         return int(v) // (1024 * 1024)
     raise ValueError("memory_limit must end with 'm' or 'g'")
 
 
 def get_default_data_dir() -> Path:
-    """Get default data directory."""
     xdg_data = os.environ.get("XDG_DATA_HOME")
     if xdg_data:
         return Path(xdg_data) / "tako_vm"
     return Path.home() / ".tako_vm"
 
 
-# =============================================================================
-# Pydantic Configuration Models with Validation
-# =============================================================================
-
-
 class ContainerLimits(BaseModel):
-    """Container resource limits with validation bounds."""
-
     model_config = {"extra": "forbid"}
 
-    # File descriptor limits
     nofile_soft: int = Field(default=256, ge=64, le=65536)
     nofile_hard: int = Field(default=256, ge=64, le=65536)
 
-    # Process limits
     nproc_soft: int = Field(default=50, ge=10, le=1000)
     nproc_hard: int = Field(default=50, ge=10, le=1000)
 
-    # Max file size in bytes (default 100MB)
     fsize: int = Field(default=104857600, ge=1048576, le=1073741824)
 
-    # tmpfs size for /tmp (e.g., "100m", "256m", "1g")
     tmpfs_size: str = Field(default="100m")
 
-    # PIDs limit
     pids_limit: int = Field(default=100, ge=10, le=1000)
 
     @field_validator("tmpfs_size")
     @classmethod
     def validate_tmpfs_size(cls, v: str) -> str:
-        """Validate tmpfs size format and bounds."""
         v = v.lower().strip()
         if not v:
             raise ValueError("tmpfs_size cannot be empty")
 
         size_mb = _parse_size_to_mb(v, allow_k_and_bytes=True)
 
-        # Validate bounds (10MB to 2GB)
         if size_mb < 10:
             raise ValueError("tmpfs_size must be at least 10m")
         if size_mb > 2048:
@@ -134,7 +91,6 @@ class ContainerLimits(BaseModel):
 
     @model_validator(mode="after")
     def validate_limits(self) -> "ContainerLimits":
-        """Ensure hard limits >= soft limits."""
         if self.nofile_hard < self.nofile_soft:
             raise ValueError("nofile_hard must be >= nofile_soft")
         if self.nproc_hard < self.nproc_soft:
@@ -143,8 +99,6 @@ class ContainerLimits(BaseModel):
 
 
 class JobTypeGPUConfig(BaseModel):
-    """GPU configuration for a job type."""
-
     model_config = {"extra": "forbid"}
 
     enabled: bool = Field(default=False)
@@ -155,7 +109,6 @@ class JobTypeGPUConfig(BaseModel):
     @field_validator("vendor")
     @classmethod
     def validate_vendor(cls, v: Optional[str]) -> Optional[str]:
-        """Validate GPU vendor."""
         if v is None:
             return None
         normalized = v.lower().strip()
@@ -166,7 +119,6 @@ class JobTypeGPUConfig(BaseModel):
     @field_validator("device_ids")
     @classmethod
     def validate_device_ids(cls, values: List[str]) -> List[str]:
-        """Validate GPU device ID list."""
         normalized: List[str] = []
         seen: set[str] = set()
         for value in values:
@@ -183,7 +135,6 @@ class JobTypeGPUConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_gpu_config(self) -> "JobTypeGPUConfig":
-        """Validate cross-field GPU settings."""
         if not self.enabled:
             if self.vendor is not None or self.count is not None or self.device_ids:
                 raise ValueError(
@@ -204,8 +155,6 @@ class JobTypeGPUConfig(BaseModel):
 
 
 class JobTypeConfig(BaseModel):
-    """Job type configuration for embedding in main config."""
-
     model_config = {"extra": "forbid"}
 
     name: str = Field(..., min_length=1, max_length=64)
@@ -217,10 +166,8 @@ class JobTypeConfig(BaseModel):
     memory_limit: str = Field(default="512m")
     cpu_limit: float = Field(default=1.0, ge=0.1, le=16.0)
     timeout: int = Field(default=30, ge=1, le=3600)
-    """Timeout for code execution phase in seconds."""
 
     startup_timeout: int = Field(default=120, ge=10, le=600)
-    """Timeout for startup phase (container init + dep install) in seconds."""
 
     network_enabled: bool = Field(default=False, description="Allow network access (security risk)")
     session_enabled: bool = Field(
@@ -232,7 +179,6 @@ class JobTypeConfig(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v: str) -> str:
-        """Validate job type name format."""
         if not v.replace("-", "").replace("_", "").isalnum():
             raise ValueError("name must contain only alphanumeric, dash, or underscore")
         return v
@@ -240,7 +186,6 @@ class JobTypeConfig(BaseModel):
     @field_validator("memory_limit")
     @classmethod
     def validate_memory_limit(cls, v: str) -> str:
-        """Validate memory limit format."""
         v = v.lower().strip()
         if not v:
             raise ValueError("memory_limit cannot be empty")
@@ -249,26 +194,21 @@ class JobTypeConfig(BaseModel):
 
         if size_mb < 64:
             raise ValueError("memory_limit must be at least 64m")
-        if size_mb > 32768:  # 32GB max
+        if size_mb > 32768:
             raise ValueError("memory_limit must be at most 32g")
 
         return v
 
 
 class TakoVMConfig(BaseModel):
-    """Tako VM configuration with full validation."""
-
-    # Mode
     production_mode: bool = Field(
         default=False, description="Strict mode requiring pre-built images"
     )
 
-    # Logging
     log_level: str = Field(
         default="INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
 
-    # Server
     server_host: str = Field(
         default="127.0.0.1",
         description=(
@@ -289,7 +229,6 @@ class TakoVMConfig(BaseModel):
     )
     server_port: int = Field(default=8000, ge=1, le=65535, description="Server port to bind to")
 
-    # API-layer request protection
     api_max_payload_bytes: int = Field(
         default=2097152, ge=1024, le=104857600, description="Maximum HTTP request payload size"
     )
@@ -316,7 +255,6 @@ class TakoVMConfig(BaseModel):
         default=60, ge=1, le=3600, description="Rate limit window duration in seconds"
     )
 
-    # Retry configuration
     max_retry_attempts: int = Field(
         default=2, ge=1, le=10, description="Maximum retry attempts for transient failures"
     )
@@ -324,18 +262,15 @@ class TakoVMConfig(BaseModel):
         default=1.0, ge=0.1, le=60.0, description="Base delay between retries in seconds"
     )
 
-    # Queue wait timeout
     queue_wait_timeout: float = Field(
         default=1.0, ge=0.1, le=30.0, description="Queue wait timeout in seconds"
     )
 
-    # Paths (stored as strings internally, exposed as Path via properties)
     data_dir_str: str = Field(default_factory=lambda: str(get_default_data_dir()), alias="data_dir")
 
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
-        """Validate log level is a valid Python logging level."""
         valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v.upper() not in valid_levels:
             raise ValueError(f"log_level must be one of: {', '.join(sorted(valid_levels))}")
@@ -344,7 +279,6 @@ class TakoVMConfig(BaseModel):
     @field_validator("api_auth_header")
     @classmethod
     def validate_api_auth_header(cls, v: str) -> str:
-        """Validate API auth header name."""
         normalized = v.strip()
         if not normalized:
             raise ValueError("api_auth_header cannot be empty")
@@ -356,7 +290,6 @@ class TakoVMConfig(BaseModel):
     @field_validator("api_keys")
     @classmethod
     def validate_api_keys(cls, values: List[str]) -> List[str]:
-        """Normalize and validate configured API keys."""
         normalized: List[str] = []
         seen: set[str] = set()
         for value in values:
@@ -374,23 +307,9 @@ class TakoVMConfig(BaseModel):
         return normalized
 
     def is_loopback_host(self) -> bool:
-        """Whether server_host binds only the loopback interface.
-
-        Single source of truth for the check, shared by the fail-closed
-        validator and ``security_warnings`` so the two can never disagree
-        about what counts as network-exposed.
-        """
         return host_is_loopback(self.server_host)
 
     def ensure_bind_host_allowed(self, host: str) -> None:
-        """Raise ``ValueError`` if binding ``host`` would expose unauthenticated RCE.
-
-        THE bind rule, expressed once. The model validator applies it to the
-        configured ``server_host``; the CLI applies it to the host it actually
-        hands uvicorn, which may have come from ``--host`` and therefore never
-        passed through pydantic. Both call here so a flag can never route
-        around the config's refusal.
-        """
         if self.api_auth_enabled or self.allow_unauthenticated_network_access:
             return
         if host_is_loopback(host):
@@ -407,15 +326,9 @@ class TakoVMConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_api_auth_config(self) -> "TakoVMConfig":
-        """Require a key when auth is on, and refuse unauthenticated network exposure."""
         if self.api_auth_enabled and not self.api_keys:
             raise ValueError("api_keys must contain at least one key when api_auth_enabled=true")
 
-        # Fail closed on the one combination that is an unauthenticated remote
-        # code-execution endpoint. This used to be a startup log line, which is
-        # the wrong control for it: a warning scrolls past, and the operator who
-        # most needs it is the one who never reads the log. An explicit opt-out
-        # keeps it possible for deployments that authenticate elsewhere.
         self.ensure_bind_host_allowed(self.server_host)
         return self
 
@@ -428,7 +341,6 @@ class TakoVMConfig(BaseModel):
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, v: str) -> str:
-        """Validate and normalize PostgreSQL database URL format."""
         parsed = urlsplit(v)
         if parsed.scheme not in {"postgresql", "postgresql+psycopg"}:
             raise ValueError("database_url must use postgresql:// or postgresql+psycopg://")
@@ -446,39 +358,25 @@ class TakoVMConfig(BaseModel):
             raise ValueError("database_url must include a database name")
         return v
 
-    # Queue & Workers
     max_workers: int = Field(default=4, ge=1, le=64)
     max_queue_size: int = Field(default=100, ge=1, le=10000)
 
-    # Output limits (with bounds)
-    max_stdout_bytes: int = Field(default=65536, ge=1024, le=104857600)  # 1KB to 100MB
-    max_stderr_bytes: int = Field(default=65536, ge=1024, le=104857600)  # 1KB to 100MB
-    max_artifact_bytes: int = Field(default=10485760, ge=1024, le=1073741824)  # 1KB to 1GB
-    max_total_artifacts_bytes: int = Field(default=52428800, ge=1024, le=10737418240)  # 1KB to 10GB
+    max_stdout_bytes: int = Field(default=65536, ge=1024, le=104857600)
+    max_stderr_bytes: int = Field(default=65536, ge=1024, le=104857600)
+    max_artifact_bytes: int = Field(default=10485760, ge=1024, le=1073741824)
+    max_total_artifacts_bytes: int = Field(default=52428800, ge=1024, le=10737418240)
 
-    # Input limits
-    max_input_bytes: int = Field(default=1048576, ge=1024, le=104857600)  # 1KB to 100MB
-    max_code_bytes: int = Field(default=102400, ge=1024, le=10485760)  # 1KB to 10MB
+    max_input_bytes: int = Field(default=1048576, ge=1024, le=104857600)
+    max_code_bytes: int = Field(default=102400, ge=1024, le=10485760)
 
-    # Execution limits
     default_timeout: int = Field(default=30, ge=1, le=3600)
-    """Default timeout for code execution phase in seconds."""
 
     default_startup_timeout: int = Field(default=120, ge=10, le=600)
-    """Default timeout for startup phase (container init + dep install) in seconds."""
 
     max_timeout: int = Field(default=300, ge=1, le=86400)
-    """Maximum allowed timeout for code execution phase.
-
-    A hard ceiling on the effective timeout, not only on request overrides:
-    ``default_timeout`` and every configured job type's ``timeout`` must stay at
-    or below it, and a request resolving to a larger value is refused.
-    """
 
     max_startup_timeout: int = Field(default=600, ge=30, le=1800)
-    """Maximum allowed timeout for startup phase (up to 30 minutes for large deps)."""
 
-    # Runtime dependency installation
     allow_runtime_requirements: bool = Field(
         default=False,
         description="Allow jobs to install Python packages at runtime",
@@ -492,13 +390,6 @@ class TakoVMConfig(BaseModel):
         description="Mount a shared uv cache volume for runtime dependency installs",
     )
 
-    # Session runtime controls.
-    #
-    # Persistence scaffolding for long-running sessions (durable, per-agent
-    # workspaces). Disabled by default: when sessions_enabled is False none of
-    # this is reachable from any execution path. The bounds mirror
-    # SessionRecord.idle_timeout_seconds / ttl_seconds so config-level defaults
-    # and per-session values stay consistent.
     sessions_enabled: bool = Field(
         default=False,
         description="Enable long-running sessions (persistence scaffolding; off by default)",
@@ -521,7 +412,6 @@ class TakoVMConfig(BaseModel):
         description="Maximum number of concurrent live sessions",
     )
 
-    # Retention
     execution_record_ttl_days: int = Field(default=30, ge=1, le=3650)
     dlq_ttl_days: int = Field(
         default=30,
@@ -534,24 +424,19 @@ class TakoVMConfig(BaseModel):
         ),
     )
 
-    # Docker
     docker_image: str = Field(default=DEFAULT_IMAGE)
     enable_seccomp: bool = Field(default=True)
     enable_cap_restrictions: bool = Field(
         default=True,
         description="Enable capability restrictions (--cap-drop=ALL --cap-add=...)",
     )
-    # Note: Disabled by default because the entrypoint uses gosu to drop privileges
-    # If you're using an image without gosu, set this to True
     enable_userns: bool = Field(default=False)
 
-    # Container runtime (gVisor by default for strong isolation)
     container_runtime: str = Field(
         default="runsc",
         description="Container runtime: 'runsc' (gVisor) for strong isolation, 'runc' for standard Docker",
     )
 
-    # Security mode
     security_mode: str = Field(
         default="strict",
         description=(
@@ -566,7 +451,6 @@ class TakoVMConfig(BaseModel):
     @field_validator("container_runtime")
     @classmethod
     def validate_container_runtime(cls, v: str) -> str:
-        """Validate container runtime."""
         valid_runtimes = {"runsc", "runc"}
         if v not in valid_runtimes:
             raise ValueError(
@@ -577,22 +461,18 @@ class TakoVMConfig(BaseModel):
     @field_validator("security_mode")
     @classmethod
     def validate_security_mode(cls, v: str) -> str:
-        """Validate security mode."""
         valid_modes = {"strict", "permissive"}
         if v not in valid_modes:
             raise ValueError(f"security_mode must be one of: {', '.join(sorted(valid_modes))}")
         return v
 
-    # Container limits (new!)
     container_limits: ContainerLimits = Field(default_factory=ContainerLimits)
 
-    # Job types (new - can be defined in main config)
     job_types: List[JobTypeConfig] = Field(default_factory=list)
 
     @field_validator("dependency_proxy_url")
     @classmethod
     def validate_dependency_proxy_url(cls, v: Optional[str]) -> Optional[str]:
-        """Validate optional dependency egress proxy URL."""
         if v is None:
             return None
         normalized = v.strip()
@@ -611,15 +491,13 @@ class TakoVMConfig(BaseModel):
             raise ValueError("dependency_proxy_url contains unsupported characters")
         return normalized
 
-    # Internal: resolved paths (set after validation)
     _resolved_data_dir: Optional[Path] = None
     _resolved_seccomp_profile_path: Optional[Path] = None
 
-    model_config = {"extra": "forbid", "populate_by_name": True}  # Reject unknown keys, allow alias
+    model_config = {"extra": "forbid", "populate_by_name": True}
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> "TakoVMConfig":
-        """Ensure every configured timeout stays within its deployment ceiling."""
         if self.default_timeout > self.max_timeout:
             raise ValueError("default_timeout must be <= max_timeout")
         oversized_job_types = [
@@ -635,23 +513,13 @@ class TakoVMConfig(BaseModel):
         return self
 
     def resolve_paths(self) -> "TakoVMConfig":
-        """Resolve all paths and create the data directory.
-
-        Pure path resolution lives in ``_resolve_path_strings``; the data
-        directory creation is the one explicit, idempotent side effect and is
-        kept in ``_ensure_data_dir`` so callers (and the ``data_dir`` property)
-        can be reasoned about clearly. Behavior is unchanged: this still
-        resolves every path and mkdir's the data dir.
-        """
         self._resolve_path_strings()
         self._ensure_data_dir()
         return self
 
     def _resolve_path_strings(self) -> None:
-        """Resolve configured path strings to Path objects (no filesystem writes)."""
         self._resolved_data_dir = Path(self.data_dir_str)
 
-        # Seccomp profile
         if self.seccomp_profile_path_str:
             self._resolved_seccomp_profile_path = Path(self.seccomp_profile_path_str)
         else:
@@ -660,19 +528,12 @@ class TakoVMConfig(BaseModel):
             )
 
     def _ensure_data_dir(self) -> None:
-        """Create the resolved data directory if missing (idempotent mkdir)."""
         if self._resolved_data_dir is None:
             self._resolve_path_strings()
         self._resolved_data_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
 
-    # Backward-compatible properties that return Path objects
     @property
     def data_dir(self) -> Path:
-        """Get data directory as Path (backward compatible).
-
-        Reading this property ensures the data directory exists, preserving the
-        historical mkdir-on-access behavior that existing callers rely on.
-        """
         if self._resolved_data_dir is None:
             self._resolve_path_strings()
         self._ensure_data_dir()
@@ -680,24 +541,14 @@ class TakoVMConfig(BaseModel):
 
     @property
     def sessions_dir(self) -> Path:
-        """Root directory every session workspace must live under.
-
-        ``build_session_run_command`` bind-mounts a session's workspace
-        read-write into its container and refuses any path that is not
-        strictly inside this directory, so this is the boundary of what a
-        session can ever be given on the host. Derived from ``data_dir`` so it
-        is always a location the operator already chose for Tako VM state.
-        """
         return self.data_dir / "sessions"
 
     @property
     def seccomp_profile_path(self) -> Path:
-        """Get seccomp profile path (backward compatible)."""
         if self._resolved_seccomp_profile_path is None:
             self.resolve_paths()
         return self._resolved_seccomp_profile_path  # type: ignore
 
-    # Aliases for new code (explicit _path suffix)
     @property
     def data_dir_path(self) -> Path:
         return self.data_dir
@@ -707,18 +558,9 @@ class TakoVMConfig(BaseModel):
         return self.seccomp_profile_path
 
     def security_warnings(self) -> List[str]:
-        """
-        Return human-readable warnings for insecure (development-default) settings.
-
-        The defaults make Tako VM easy to try locally, but combined they expose an
-        unauthenticated, network-reachable code-execution service that may silently
-        fall back from gVisor to runc. Surface that loudly.
-        """
         warnings: List[str] = []
 
         if not self.api_auth_enabled and not self.is_loopback_host():
-            # Reachable only via allow_unauthenticated_network_access; the
-            # validator refuses this combination otherwise.
             warnings.append(
                 f"API authentication is disabled (api_auth_enabled=false) while the server "
                 f"binds to non-loopback host '{self.server_host}', permitted only because "
@@ -736,28 +578,19 @@ class TakoVMConfig(BaseModel):
         return warnings
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get config value by key (for backward compatibility)."""
         try:
             return getattr(self, key)
         except AttributeError:
             return default
 
 
-# =============================================================================
-# Configuration Loading
-# =============================================================================
-
-
 def find_config_file() -> Optional[Path]:
-    """Find config file from search paths."""
-    # Check env var override first
     env_config = os.environ.get("TAKO_VM_CONFIG")
     if env_config:
         path = Path(env_config)
         if path.exists():
             return path
 
-    # Search default paths
     for path in CONFIG_SEARCH_PATHS:
         if path.exists():
             return path
@@ -766,29 +599,13 @@ def find_config_file() -> Optional[Path]:
 
 
 class ConfigurationError(Exception):
-    """Raised when configuration validation fails."""
+    pass
 
 
 def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
-    """
-    Load configuration from YAML file with validation.
-
-    Search order:
-    1. Explicit path argument
-    2. TAKO_VM_CONFIG environment variable
-    3. ./tako_vm.yaml
-    4. ./config/tako_vm.yaml
-    5. ~/.tako_vm/config.yaml
-    6. /etc/tako_vm/config.yaml
-    7. Built-in defaults
-
-    Raises:
-        ConfigurationError: If configuration validation fails
-    """
     config_dict: Dict[str, Any] = {}
 
     def parse_env_int(var_name: str) -> int:
-        """Parse integer environment variables with clear config errors."""
         value = os.environ[var_name]
         try:
             return int(value)
@@ -797,18 +614,15 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
                 f"Invalid configuration: {var_name} must be an integer (got {value!r})"
             ) from exc
 
-    # Find config file
     if config_path is None:
         config_path = find_config_file()
 
-    # Load from file if found
     if config_path and config_path.exists():
         with open(config_path, encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
             if loaded:
                 config_dict = loaded
 
-    # Apply env var overrides
     if "TAKO_VM_DATA_DIR" in os.environ:
         config_dict["data_dir"] = os.environ["TAKO_VM_DATA_DIR"]
     if "TAKO_VM_DATABASE_URL" in os.environ:
@@ -844,10 +658,6 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
             key.strip() for key in os.environ["TAKO_VM_API_KEYS"].split(",") if key.strip()
         ]
     if "TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS" in os.environ:
-        # The escape hatch has to be reachable without editing a config file
-        # baked into an image: containers must bind 0.0.0.0 to be reachable at
-        # all, so a container deployment that authenticates in front of Tako VM
-        # otherwise has no way to say so.
         config_dict["allow_unauthenticated_network_access"] = os.environ[
             "TAKO_VM_ALLOW_UNAUTHENTICATED_NETWORK_ACCESS"
         ].lower() in (
@@ -903,18 +713,12 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
         config_dict["session_max_ttl_seconds"] = parse_env_int("TAKO_VM_SESSION_MAX_TTL_SECONDS")
     if "TAKO_VM_SESSION_MAX_CONCURRENT" in os.environ:
         config_dict["session_max_concurrent"] = parse_env_int("TAKO_VM_SESSION_MAX_CONCURRENT")
-    # Validate and create config
     try:
         config = TakoVMConfig(**config_dict)
         config.resolve_paths()
     except ValidationError as e:
-        # Use sanitized formatting: str(ValidationError) embeds input values,
-        # which can leak secrets (e.g. database_url passwords) into logs/CLI output.
         raise ConfigurationError(f"Invalid configuration: {_sanitize_validation_error(e)}") from e
     except Exception as e:
-        # Do not interpolate the raw exception text: like ValidationError it can
-        # echo arbitrary config payloads (e.g. database_url passwords) into logs
-        # and CLI output. Log the type for diagnosis and surface only the type.
         logger.error("Configuration load failed with %s", type(e).__name__, exc_info=True)
         raise ConfigurationError(
             f"Invalid configuration: {type(e).__name__} (see logs for details)"
@@ -926,13 +730,11 @@ def load_config(config_path: Optional[Path] = None) -> TakoVMConfig:
     return config
 
 
-# Global config instance (lazy loaded)
 _config: Optional[TakoVMConfig] = None
 _config_path: Optional[Path] = None
 
 
 def get_config() -> TakoVMConfig:
-    """Get global configuration instance."""
     global _config
     if _config is None:
         _config = load_config(_config_path)
@@ -940,39 +742,29 @@ def get_config() -> TakoVMConfig:
 
 
 def set_config(config: TakoVMConfig) -> None:
-    """Set global configuration instance."""
     global _config
     _config = config
 
 
 def set_config_path(path: Optional[Path]) -> None:
-    """Set the config file path for lazy loading."""
     global _config_path, _config
     _config_path = path
-    _config = None  # Reset so next get_config() reloads
+    _config = None
 
 
 def get_config_path() -> Optional[Path]:
-    """Get the currently configured config file path."""
     if _config_path:
         return _config_path
     return find_config_file()
 
 
 def reset_config() -> None:
-    """Reset global config (useful for testing)."""
     global _config, _config_path
     _config = None
     _config_path = None
 
 
 def validate_config_file(path: Path) -> List[str]:
-    """
-    Validate a config file without loading it globally.
-
-    Returns:
-        List of validation errors (empty if valid)
-    """
     errors = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -984,7 +776,6 @@ def validate_config_file(path: Path) -> List[str]:
     except yaml.YAMLError as e:
         errors.append(f"Invalid YAML: {e}")
     except ValidationError as e:
-        # Sanitized: str(ValidationError) embeds input values (potential secrets).
         errors.append(_sanitize_validation_error(e))
     except Exception as e:
         errors.append(str(e))

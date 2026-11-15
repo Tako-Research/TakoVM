@@ -1,5 +1,3 @@
-"""Tests for worker-pool cancellation and timeout bookkeeping."""
-
 import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -11,7 +9,6 @@ from tako_vm.server.queue import QueuedJob, WorkerPool
 
 
 def make_record(job_id: str, status: str = "succeeded", **kwargs) -> ExecutionRecord:
-    """Build a minimal ExecutionRecord for tests."""
     return ExecutionRecord(
         execution_id=job_id,
         status=status,
@@ -25,7 +22,6 @@ def make_record(job_id: str, status: str = "succeeded", **kwargs) -> ExecutionRe
 
 @pytest.mark.asyncio
 async def test_cancel_pending_job_leaves_future_resolvable():
-    """Pending-job cancellation resolves the waiter future synchronously."""
     storage = MagicMock()
     storage.save_record = AsyncMock()
     pool = WorkerPool(executor=MagicMock(), storage=storage)
@@ -46,8 +42,6 @@ async def test_cancel_pending_job_leaves_future_resolvable():
     assert job.cancelled is True
     assert job.future is not None
     assert job.future.cancelled() is False
-    # Cancellation is now observable immediately: the cancelled record is
-    # persisted and the future is resolved without waiting for a worker.
     storage.save_record.assert_awaited_once()
     assert job.future.done()
     assert job.future.result().status == "cancelled"
@@ -55,7 +49,6 @@ async def test_cancel_pending_job_leaves_future_resolvable():
 
 @pytest.mark.asyncio
 async def test_execute_job_timeout_includes_startup_timeout(monkeypatch):
-    """Thread-pool timeout must cover startup and execution budgets."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     pool._thread_pool = MagicMock()
     job = QueuedJob(
@@ -93,7 +86,6 @@ async def test_execute_job_timeout_includes_startup_timeout(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wait_for_result_timeout_does_not_cancel_future():
-    """A wait=true poll timing out must not cancel the underlying job future."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     loop = asyncio.get_running_loop()
     job = QueuedJob(
@@ -109,12 +101,9 @@ async def test_wait_for_result_timeout_does_not_cancel_future():
     with pytest.raises(asyncio.TimeoutError):
         await pool.wait_for_result("job-123", timeout=0.05)
 
-    # The job must remain executable: future not cancelled, no cancel flag,
-    # so the worker dequeue guard would not treat it as user-cancelled.
     assert job.future.cancelled() is False
     assert job.cancelled is False
 
-    # A later result must still reach waiters.
     record = make_record("job-123")
     job.future.set_result(record)
     result = await pool.wait_for_result("job-123", timeout=1.0)
@@ -123,7 +112,6 @@ async def test_wait_for_result_timeout_does_not_cancel_future():
 
 @pytest.mark.asyncio
 async def test_wait_for_result_timeout_does_not_break_concurrent_waiters():
-    """One waiter timing out must not raise CancelledError in other waiters."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     loop = asyncio.get_running_loop()
     job = QueuedJob(
@@ -149,7 +137,6 @@ async def test_wait_for_result_timeout_does_not_break_concurrent_waiters():
 
 @pytest.mark.asyncio
 async def test_job_still_executes_after_wait_timeout():
-    """A queued job survives a timed-out wait and is executed by the worker."""
     executor = MagicMock()
     storage = AsyncMock()
     pool = WorkerPool(executor=executor, storage=storage, max_workers=1, queue_wait_timeout=0.05)
@@ -157,12 +144,9 @@ async def test_job_still_executes_after_wait_timeout():
     job_id = await pool.submit({"code": "print('hi')", "input_data": {}})
     executor.execute_job_with_record.return_value = make_record(job_id)
 
-    # Wait times out before any worker has started.
     with pytest.raises(asyncio.TimeoutError):
         await pool.wait_for_result(job_id, timeout=0.05)
 
-    # Grab the future before workers start (the job is removed from the
-    # active map once a worker finishes it).
     async with pool._jobs_lock:
         future = pool._active_jobs[job_id].future
 
@@ -172,7 +156,6 @@ async def test_job_still_executes_after_wait_timeout():
     finally:
         await pool.stop(timeout=5.0)
 
-    # The job ran (was not skipped as cancelled) and produced the real record.
     assert executor.execute_job_with_record.called
     assert result.execution_id == job_id
     assert result.status == "succeeded"
@@ -180,7 +163,6 @@ async def test_job_still_executes_after_wait_timeout():
 
 @pytest.mark.asyncio
 async def test_get_job_status_done_future_reports_record_status():
-    """A done future must surface the record's terminal status, never 'completed'."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     loop = asyncio.get_running_loop()
     job = QueuedJob(
@@ -203,7 +185,6 @@ async def test_get_job_status_done_future_reports_record_status():
 
 @pytest.mark.asyncio
 async def test_get_job_status_cancelled_future_reports_cancelled():
-    """A cancelled future must map to the 'cancelled' API status."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     loop = asyncio.get_running_loop()
     job = QueuedJob(
@@ -225,11 +206,10 @@ async def test_get_job_status_cancelled_future_reports_cancelled():
 
 @pytest.mark.asyncio
 async def test_stop_persists_terminal_records_for_drained_jobs():
-    """Graceful shutdown must persist a terminal record for each pending job."""
     storage = MagicMock()
     storage.save_record = AsyncMock()
     pool = WorkerPool(executor=MagicMock(), storage=storage)
-    pool._started = True  # simulate a started pool without real worker tasks
+    pool._started = True
 
     loop = asyncio.get_running_loop()
     job = QueuedJob(
@@ -250,13 +230,11 @@ async def test_stop_persists_terminal_records_for_drained_jobs():
     assert record.error is not None
     assert record.error.type == "cancelled"
     assert "server shut down" in record.error.message
-    # Record is persisted before the future is resolved/cancelled
     assert job.future.cancelled() is True
 
 
 @pytest.mark.asyncio
 async def test_stop_storage_failure_does_not_prevent_shutdown():
-    """Persistence errors during shutdown are best-effort: shutdown completes."""
     storage = MagicMock()
     storage.save_record = AsyncMock(side_effect=RuntimeError("db unavailable"))
     pool = WorkerPool(executor=MagicMock(), storage=storage)
@@ -280,7 +258,6 @@ async def test_stop_storage_failure_does_not_prevent_shutdown():
 
 @pytest.mark.asyncio
 async def test_worker_loop_persists_running_transition_before_execute():
-    """The worker must persist queued -> running before executing the job."""
     call_order = []
 
     storage = MagicMock()
@@ -331,7 +308,6 @@ async def test_worker_loop_persists_running_transition_before_execute():
 
 @pytest.mark.asyncio
 async def test_worker_loop_executes_even_if_running_persist_fails():
-    """A failure persisting the running state must not block execution."""
     storage = MagicMock()
     storage.save_record = AsyncMock()
     storage.mark_record_running = AsyncMock(side_effect=RuntimeError("db unavailable"))
@@ -371,7 +347,6 @@ async def test_worker_loop_executes_even_if_running_persist_fails():
 
 
 def _patch_budget_probe(monkeypatch, job_id: str) -> dict:
-    """Capture the watchdog timeout passed to asyncio.wait_for in _execute_job."""
     captured = {}
 
     class DummyLoop:
@@ -389,7 +364,6 @@ def _patch_budget_probe(monkeypatch, job_id: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_watchdog_budget_uses_job_type_defaults(monkeypatch):
-    """When job_data omits timeouts, the watchdog must use the job type's budget."""
     from tako_vm.job_types import JobType
 
     executor = MagicMock()
@@ -410,14 +384,12 @@ async def test_watchdog_budget_uses_job_type_defaults(monkeypatch):
     record = await pool._execute_job(job)
 
     assert record.execution_id == "job-jt"
-    # 180 (startup) + 120 (execution) + 60 (orchestration buffer)
     assert captured["timeout"] == 360
     executor.registry.get.assert_called_once_with("ml-inference")
 
 
 @pytest.mark.asyncio
 async def test_watchdog_budget_strips_version_specifier(monkeypatch):
-    """job_type@version must resolve the registry entry by bare name."""
     from tako_vm.job_types import JobType
 
     executor = MagicMock()
@@ -443,7 +415,6 @@ async def test_watchdog_budget_strips_version_specifier(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_watchdog_budget_explicit_timeouts_win(monkeypatch):
-    """Explicit job_data timeouts override the job type's defaults."""
     from tako_vm.job_types import JobType
 
     executor = MagicMock()
@@ -474,7 +445,6 @@ async def test_watchdog_budget_explicit_timeouts_win(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_watchdog_budget_unknown_job_type_falls_back(monkeypatch):
-    """Unknown job types fall back to the executor's built-in defaults."""
     executor = MagicMock()
     executor.registry = MagicMock()
     executor.registry.get.return_value = None
@@ -490,13 +460,11 @@ async def test_watchdog_budget_unknown_job_type_falls_back(monkeypatch):
 
     await pool._execute_job(job)
 
-    # DEFAULT_JOB_TYPE budget: 120 (startup) + 30 (execution) + 60 (buffer)
     assert captured["timeout"] == 210
 
 
 @pytest.mark.asyncio
 async def test_watchdog_timeout_kills_container_and_returns_timeout_record(monkeypatch):
-    """A watchdog timeout must kill the container and yield status='timeout'."""
     pool = WorkerPool(executor=MagicMock(), storage=MagicMock())
     pool._thread_pool = MagicMock()
     job = QueuedJob(
@@ -515,7 +483,7 @@ async def test_watchdog_timeout_kills_container_and_returns_timeout_record(monke
             return asyncio.sleep(0, result=make_record("job-wd"))
 
     async def fake_wait_for(awaitable, timeout):
-        awaitable.close()  # avoid 'coroutine never awaited' warning
+        awaitable.close()
         raise asyncio.TimeoutError()
 
     monkeypatch.setattr(asyncio, "get_running_loop", lambda: DummyLoop())
@@ -532,11 +500,6 @@ async def test_watchdog_timeout_kills_container_and_returns_timeout_record(monke
 
 @pytest.mark.asyncio
 async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
-    """End-to-end through the worker loop: watchdog timeout is not an internal error.
-
-    The persisted record must have status 'timeout' (not failed/internal_error)
-    and the job must NOT be pushed to the dead letter queue.
-    """
     storage = MagicMock()
     storage.save_record = AsyncMock()
     storage.mark_record_running = AsyncMock()
@@ -552,8 +515,6 @@ async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
     real_wait_for = asyncio.wait_for
 
     async def fake_wait_for(awaitable, timeout):
-        # The worker loop's queue wait and the test's own waits use small
-        # timeouts; only the watchdog budget is >= 60s.
         if timeout >= 60:
             if asyncio.isfuture(awaitable):
                 awaitable.cancel()
@@ -584,7 +545,6 @@ async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
     assert record.error.type == "execution_timeout"
     assert kill_calls == ["tako-job-dlq"]
 
-    # Watchdog timeouts are budget overruns, not internal errors: no DLQ entry.
     storage.add_to_dlq.assert_not_awaited()
     saved = storage.save_record.await_args.args[0]
     assert saved.status == "timeout"
@@ -592,14 +552,7 @@ async def test_watchdog_timeout_saves_timeout_record_and_skips_dlq(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_submit_queue_full_race_releases_idempotency_key():
-    """A QueueFull race must not strand the idempotency key on a failed record.
-
-    The 503 the client receives is the canonical retry signal; the retry with
-    the same key must not collide with the dead record.
-    """
     storage = MagicMock()
-    # submit() mutates and re-saves the same record object, so snapshot the
-    # fields we care about at call time instead of inspecting await_args_list.
     saves = []
 
     async def capture_save(record):
@@ -608,7 +561,6 @@ async def test_submit_queue_full_race_releases_idempotency_key():
     storage.save_record = AsyncMock(side_effect=capture_save)
     pool = WorkerPool(executor=MagicMock(), storage=storage)
 
-    # Simulate the TOCTOU race: full() pre-check passes, put_nowait raises.
     fake_queue = MagicMock()
     fake_queue.full.return_value = False
     fake_queue.put_nowait.side_effect = asyncio.QueueFull
@@ -624,13 +576,11 @@ async def test_submit_queue_full_race_releases_idempotency_key():
     with pytest.raises(RuntimeError, match="queue is full"):
         await pool.submit(job_data=job_data, client_ip="10.0.0.1")
 
-    # Two saves: the preliminary queued record, then the failed rewrite.
     assert saves == [
         ("queued", "idem-123", "f" * 64),
         ("failed", None, None),
     ]
 
-    # The final upsert keeps the failure visible for forensics.
     failed = storage.save_record.await_args_list[1].args[0]
     assert failed.error is not None
     assert failed.error.type == "service_unavailable"
@@ -638,13 +588,6 @@ async def test_submit_queue_full_race_releases_idempotency_key():
 
 @pytest.mark.asyncio
 async def test_submit_queue_full_rejects_and_cleans_up_record():
-    """A full queue is rejected solely by the put_nowait/QueueFull handler.
-
-    The redundant full() pre-check was removed (it left a TOCTOU window where a
-    queued record was persisted before the insert was attempted). The single
-    handler still cleans up: it rewrites the preliminary record as failed and
-    releases the idempotency key.
-    """
     storage = MagicMock()
     saves = []
 
@@ -669,7 +612,6 @@ async def test_submit_queue_full_rejects_and_cleans_up_record():
             client_ip=None,
         )
 
-    # Preliminary queued record, then the failed rewrite that frees the key.
     assert saves == [
         ("queued", "idem-456"),
         ("failed", None),
@@ -678,7 +620,6 @@ async def test_submit_queue_full_rejects_and_cleans_up_record():
 
 @pytest.mark.asyncio
 async def test_submit_persists_correlation_id_on_preliminary_record():
-    """submit() must persist job_data's correlation_id on the queued record."""
     storage = MagicMock()
     storage.save_record = AsyncMock()
 
@@ -701,7 +642,6 @@ async def test_submit_persists_correlation_id_on_preliminary_record():
 
 @pytest.mark.asyncio
 async def test_worker_loop_clears_correlation_id_between_jobs():
-    """A job without a correlation_id must not inherit the previous job's."""
     from tako_vm.server.correlation import get_correlation_id
 
     storage = MagicMock()
@@ -749,10 +689,6 @@ async def test_worker_loop_clears_correlation_id_between_jobs():
 
 @pytest.mark.asyncio
 async def test_cancelled_skip_path_does_not_inherit_previous_correlation_id():
-    """The pre-execution cancelled-skip path runs before the correlation_id is
-    set for the job, so it must see a cleared context (not the previous job's
-    id), and the cancelled record itself must carry the job's own (absent)
-    correlation_id."""
     from tako_vm.server.correlation import get_correlation_id
 
     storage = MagicMock()
@@ -802,19 +738,12 @@ async def test_cancelled_skip_path_does_not_inherit_previous_correlation_id():
     assert record_b.correlation_id is None
 
     contexts = dict(save_contexts)
-    # Job A's terminal save happens while its correlation id is set.
     assert contexts["job-corr-first"] == "corr-a"
-    # Job B's cancelled-skip save must NOT see job A's correlation id.
     assert contexts["job-cancelled-skip"] is None
 
 
 @pytest.mark.asyncio
 async def test_internal_error_dlq_entry_is_redacted():
-    """Internal-error DLQ entries must hold a redacted forensic summary.
-
-    The persisted entry keeps fingerprints/sizes/metadata but never the raw
-    code string, input_data values, or the idempotency key itself.
-    """
     from tako_vm.models import sha256_content, sha256_json
 
     storage = MagicMock()
@@ -864,7 +793,6 @@ async def test_internal_error_dlq_entry_is_redacted():
     entry = storage.add_to_dlq.await_args.args[0]
     summary = entry.job_data
 
-    # Forensic fingerprints, sizes, flags, and metadata are retained.
     assert summary["code_hash"] == sha256_content(secret_code)
     assert summary["input_hash"] == sha256_json(secret_input)
     assert summary["code_size_bytes"] == len(secret_code.encode("utf-8"))
@@ -877,7 +805,6 @@ async def test_internal_error_dlq_entry_is_redacted():
     assert summary["correlation_id"] == "corr-redact"
     assert summary["parent_execution_id"] == "parent-1"
 
-    # Raw payloads and the key itself never reach storage.
     assert "code" not in summary
     assert "input_data" not in summary
     assert "idempotency_key" not in summary

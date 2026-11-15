@@ -1,13 +1,3 @@
-"""
-Artifact/result collection must reject symlinks.
-
-Untrusted code in the sandbox can drop a symlink in /output pointing at a
-host-readable file (the config with api_keys, /proc/self/environ, another run's
-data). The host-side worker collects artifacts and reads result.json/.tako_phase
-*outside* any sandbox, so following such a symlink would exfiltrate host files.
-These are pure host-side file tests: no Docker required.
-"""
-
 from pathlib import Path
 
 import pytest
@@ -34,14 +24,13 @@ class TestArtifactSymlinkRejection:
         out = tmp_path / "output"
         out.mkdir()
         (out / "real.txt").write_text("ok")
-        (out / "evil.txt").symlink_to(secret)  # points at a host file
+        (out / "evil.txt").symlink_to(secret)
 
         artifacts = executor._collect_artifacts(out, "job-1")
         names = {a.name for a in artifacts}
 
         assert "real.txt" in names
-        assert "evil.txt" not in names  # symlink rejected before copy
-        # The secret content must never have been copied into permanent storage.
+        assert "evil.txt" not in names
         copied = (tmp_path / "data" / "runs" / "job-1" / "artifacts").glob("*")
         assert all("supersecret" not in p.read_text() for p in copied if p.is_file())
 

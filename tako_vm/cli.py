@@ -1,19 +1,3 @@
-"""
-Tako VM Command Line Interface.
-
-Usage:
-    tako-vm setup           Pull executor image and verify Docker is ready
-    tako-vm server          Start the Tako VM server
-    tako-vm dev up          Start local development services
-    tako-vm dev status      Show local development services status
-    tako-vm dev down        Stop local development services
-    tako-vm status          Check server health
-    tako-vm validate        Validate configuration file
-    tako-vm config          Show current configuration
-    tako-vm version         Show version
-"""
-
-# Suppress LibreSSL warnings on macOS before any other imports
 import warnings
 
 try:
@@ -41,7 +25,6 @@ MANAGED_POSTGRES_VOLUME = "tako-vm-postgres-data"
 
 
 def _mask_database_url(url: str) -> str:
-    """Mask the password in a database URL for display, keeping the username."""
     parts = urlsplit(url)
     if "@" not in parts.netloc:
         return url
@@ -54,11 +37,6 @@ def _mask_database_url(url: str) -> str:
 
 
 def _postgres_container_running() -> bool:
-    """Probe whether the managed PostgreSQL container is in the running state.
-
-    Assumes the container exists (caller has already inspected it). Returns
-    True only when `docker inspect` reports State.Running == true.
-    """
     running_proc = subprocess.run(
         ["docker", "inspect", "-f", "{{.State.Running}}", MANAGED_POSTGRES_CONTAINER],
         check=True,
@@ -74,7 +52,6 @@ def main():
         description="Tako VM - Secure Python code execution",
     )
 
-    # Global options
     parser.add_argument(
         "--config",
         "-c",
@@ -85,7 +62,6 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Server command
     server_parser = subparsers.add_parser("server", help="Start the Tako VM server")
     server_parser.add_argument(
         "--host",
@@ -123,7 +99,6 @@ def main():
         help="Disable auto-starting local PostgreSQL when using defaults",
     )
 
-    # Dev command
     dev_parser = subparsers.add_parser("dev", help="Development helpers")
     dev_subparsers = dev_parser.add_subparsers(dest="dev_command", help="Dev commands")
     dev_up_parser = dev_subparsers.add_parser("up", help="Start local PostgreSQL for development")
@@ -149,11 +124,9 @@ def main():
     dev_subparsers.add_parser("status", help="Show local PostgreSQL status")
     dev_subparsers.add_parser("down", help="Stop local PostgreSQL container")
 
-    # Status command
     status_parser = subparsers.add_parser("status", help="Check server health")
     status_parser.add_argument("--url", default="http://localhost:8000", help="Server URL")
 
-    # Validate command
     validate_parser = subparsers.add_parser("validate", help="Validate configuration file")
     validate_parser.add_argument(
         "config_file",
@@ -162,22 +135,18 @@ def main():
         help="Configuration file to validate (uses --config or default search if not specified)",
     )
 
-    # Config command
     config_parser = subparsers.add_parser("config", help="Show current configuration")
     config_parser.add_argument("--json", action="store_true", help="Output as JSON")
     config_parser.add_argument(
         "--show-defaults", action="store_true", help="Show all values including defaults"
     )
 
-    # Setup command
     subparsers.add_parser("setup", help="Pull executor image and verify Docker is ready")
 
-    # Version command
     subparsers.add_parser("version", help="Show version")
 
     args = parser.parse_args()
 
-    # Set global config path if provided
     if args.config:
         from tako_vm.config import set_config_path
 
@@ -216,7 +185,6 @@ def main():
 
 
 def run_setup(args):
-    """Pull executor image and verify Docker is ready."""
     del args
 
     from tako_vm import __version__
@@ -224,7 +192,6 @@ def run_setup(args):
 
     ghcr_image = f"ghcr.io/tako-research/takovm/executor:{__version__}"
 
-    # Check Docker is available
     print("Checking Docker...")
     try:
         subprocess.run(
@@ -242,7 +209,6 @@ def run_setup(args):
         sys.exit(1)
     print("  Docker is available")
 
-    # Check if image already exists
     result = subprocess.run(
         ["docker", "image", "inspect", DEFAULT_IMAGE],
         capture_output=True,
@@ -253,14 +219,12 @@ def run_setup(args):
         print("\nSetup complete! Ready to run jobs.")
         return
 
-    # Pull from GHCR
     print(f"Pulling {ghcr_image}...")
     result = subprocess.run(
         ["docker", "pull", ghcr_image],
         check=False,
     )
     if result.returncode != 0:
-        # Fall back to latest tag
         ghcr_latest = "ghcr.io/tako-research/takovm/executor:latest"
         print(f"Version {__version__} not found, trying latest...")
         result = subprocess.run(
@@ -277,7 +241,6 @@ def run_setup(args):
             sys.exit(1)
         ghcr_image = ghcr_latest
 
-    # Tag as the default image name
     subprocess.run(
         ["docker", "tag", ghcr_image, DEFAULT_IMAGE],
         check=True,
@@ -285,7 +248,6 @@ def run_setup(args):
     )
     print(f"  Tagged as '{DEFAULT_IMAGE}'")
 
-    # Verify with a quick test
     print("Verifying...")
     try:
         result = subprocess.run(
@@ -296,17 +258,12 @@ def run_setup(args):
             check=False,
         )
     except subprocess.TimeoutExpired:
-        # A hung verification means the image is unusable; exit non-zero so
-        # `tako-vm setup && ...` doesn't proceed on a broken image and report
-        # success.
         print("Error: Image pulled but verification failed.", file=sys.stderr)
         print("  Verification timed out after 30s.", file=sys.stderr)
         sys.exit(1)
     if result.returncode == 0 and "ok" in result.stdout:
         print("  Executor image works")
     else:
-        # The image is unusable, so exit non-zero so `tako-vm setup && ...`
-        # doesn't proceed on a broken image and report success.
         print("Error: Image pulled but verification failed.", file=sys.stderr)
         if result.stderr:
             print(f"  {result.stderr.strip()}", file=sys.stderr)
@@ -316,7 +273,6 @@ def run_setup(args):
 
 
 def run_server(args):
-    """Start the Tako VM server."""
     try:
         import uvicorn
 
@@ -327,7 +283,6 @@ def run_server(args):
         print("Install with: pip install tako-vm[server]")
         sys.exit(1)
 
-    # Validate config before starting
     try:
         config = get_config()
         auto_start_postgres = bool(vars(args).get("auto_start_postgres", False))
@@ -342,15 +297,9 @@ def run_server(args):
         print(f"Configuration error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Use CLI args if provided, otherwise fall back to config values
     host = args.host if args.host is not None else config.server_host
     port = args.port if args.port is not None else config.server_port
 
-    # --host never passed through pydantic, so re-apply the config's own
-    # fail-closed bind rule to the host we are about to hand uvicorn. Without
-    # this, `tako-vm server --host 0.0.0.0` (what docker/Dockerfile.server's
-    # CMD does) silently walks around the validator and publishes an
-    # unauthenticated /execute endpoint.
     try:
         config.ensure_bind_host_allowed(host)
     except ValueError as e:
@@ -379,10 +328,6 @@ def run_server(args):
             file=sys.stderr,
         )
 
-    # uvicorn requires the app as an import string for --reload or multiple
-    # workers (it silently disables them when given an app object). Those modes
-    # spawn subprocesses that re-import the app, so carry an explicit --config
-    # through the environment for get_config() in the child processes.
     use_import_string = args.reload or workers > 1
     if use_import_string:
         explicit_config = getattr(args, "config", None)
@@ -405,8 +350,6 @@ def _can_connect_database(database_url: str, timeout: int = 2) -> bool:
         with psycopg.connect(database_url, connect_timeout=timeout):
             return True
     except Exception as e:
-        # Log the real reason so a bad URL / missing driver / auth failure
-        # isn't indistinguishable from "database is down".
         logger.debug("Database connectivity check failed: %s", e)
         return False
 
@@ -514,7 +457,6 @@ def _auto_start_local_postgres_if_needed(config) -> None:
 
 
 def dev_up(args):
-    """Start local development services."""
     try:
         _ensure_managed_postgres()
     except subprocess.CalledProcessError as e:
@@ -534,7 +476,6 @@ def dev_up(args):
 
 
 def dev_down(args):
-    """Stop local development services."""
     del args
 
     state = _managed_postgres_state()
@@ -558,7 +499,6 @@ def dev_down(args):
 
 
 def dev_status(args):
-    """Show local development service status."""
     del args
 
     state = _managed_postgres_state()
@@ -582,14 +522,10 @@ def dev_status(args):
 
 
 def check_status(args):
-    """Check server health status."""
     import requests
 
     try:
         response = requests.get(f"{args.url}/health", timeout=5)
-        # A non-2xx /health means the server is up but unhealthy: surface the
-        # status code and body instead of blindly parsing JSON (which could
-        # raise, or worse, print a healthy-looking "unknown").
         if response.status_code >= 400:
             body = (response.text or "").strip()
             print(f"Error: server returned HTTP {response.status_code}", file=sys.stderr)
@@ -604,7 +540,6 @@ def check_status(args):
         print(f"Error: Cannot connect to {args.url}", file=sys.stderr)
         sys.exit(1)
     except ValueError as e:
-        # Reachable but the body wasn't valid JSON. Show what we got.
         print(f"Error: invalid JSON from {args.url}/health: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
@@ -613,13 +548,10 @@ def check_status(args):
 
 
 def validate_config(args):
-    """Validate a configuration file."""
     from tako_vm.config import find_config_file, validate_config_file
 
-    # Determine which file to validate
     config_file = args.config_file
     if config_file is None:
-        # Use --config if provided, otherwise search
         if hasattr(args, "config") and args.config:
             config_file = args.config
         else:
@@ -642,7 +574,6 @@ def validate_config(args):
     else:
         print("Configuration is valid!")
 
-        # Show summary
         try:
             from tako_vm.config import load_config
 
@@ -656,14 +587,10 @@ def validate_config(args):
                 for jt in config.job_types:
                     print(f"    - {jt.name}")
         except (ImportError, ValueError, AttributeError) as e:
-            # validate_config_file passed but the full loader (which also
-            # applies env overrides + resolve_paths) failed; that divergence
-            # matters, so don't hide it behind "Configuration is valid!".
             print(f"(could not render config summary: {e})", file=sys.stderr)
 
 
 def show_config(args):
-    """Show current configuration."""
     from tako_vm.config import ConfigurationError, get_config, get_config_path
 
     try:
@@ -677,7 +604,6 @@ def show_config(args):
     if args.json:
         import json
 
-        # Export as JSON
         data = config.model_dump(
             exclude={
                 "_resolved_data_dir",

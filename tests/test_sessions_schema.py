@@ -1,18 +1,3 @@
-"""
-Tests for the session persistence scaffolding (phase 0, feature-flagged off).
-
-Covers the additive, zero-runtime-change schema work:
-- SessionStatus / SessionEventDirection / SessionRecord / SessionEvent models
-- ExecutionRecord.session_id nullable FK
-- the 0005_sessions / 0006_execution_session_fk migrations (shape only)
-- the session config fields, bounds, cross-field validator, and env wiring
-- storage round-trips (Postgres-backed; skip cleanly when DB unavailable)
-
-The model, migration-shape, and config tests are pure (no DB). The storage
-round-trip tests reuse the shared ``test_storage`` fixture from conftest, which
-skips when no Postgres test database is reachable (and fails loudly in CI).
-"""
-
 from datetime import datetime, timedelta, timezone
 from typing import get_args
 
@@ -29,16 +14,9 @@ from tako_vm.models import (
 )
 from tako_vm.storage import MIGRATIONS, SESSION_TERMINAL_STATUSES
 
-# ---------------------------------------------------------------------------
-# Model unit tests (pure, no DB)
-# ---------------------------------------------------------------------------
-
 
 class TestSessionRecordModel:
-    """SessionRecord defaults, bounds, and serialization."""
-
     def test_minimal_session_defaults(self):
-        """Required fields only; everything else takes documented defaults."""
         session = SessionRecord(
             container_name="tako-session-abc",
             workspace_dir="/workspaces/abc",
@@ -53,10 +31,8 @@ class TestSessionRecordModel:
         assert session.started_at is None
         assert session.expires_at is None
         assert session.ended_at is None
-        # session_id is a uuid4 by default.
         assert isinstance(session.session_id, str)
         assert len(session.session_id) <= 64
-        # Activity/creation timestamps default to "now".
         assert isinstance(session.created_at, datetime)
         assert isinstance(session.last_activity_at, datetime)
 
@@ -70,7 +46,6 @@ class TestSessionRecordModel:
 
     @pytest.mark.parametrize("status", list(get_args(SessionStatus)))
     def test_all_seven_statuses_accepted(self, status):
-        """All 7 SessionStatus values must be accepted by the model."""
         session = SessionRecord(
             container_name="c",
             workspace_dir="/w",
@@ -114,7 +89,6 @@ class TestSessionRecordModel:
             SessionRecord(container_name="c", workspace_dir="/w", bogus="x")
 
     def test_serialization_round_trip(self):
-        """model_dump -> model_validate preserves every field."""
         session = SessionRecord(
             session_id="sess-1",
             status="running",
@@ -134,8 +108,6 @@ class TestSessionRecordModel:
 
 
 class TestSessionEventModel:
-    """SessionEvent defaults, direction enum, and serialization."""
-
     def test_defaults(self):
         event = SessionEvent(session_id="sess-1", direction="in")
         assert event.id is None
@@ -173,8 +145,6 @@ class TestSessionEventModel:
 
 
 class TestExecutionRecordSessionId:
-    """ExecutionRecord gains a nullable session_id FK."""
-
     def test_defaults_none(self):
         record = ExecutionRecord()
         assert record.session_id is None
@@ -195,14 +165,7 @@ class TestExecutionRecordSessionId:
             ExecutionRecord(session_id="x" * 65)
 
 
-# ---------------------------------------------------------------------------
-# Migration shape tests (pure, no DB)
-# ---------------------------------------------------------------------------
-
-
 class TestSessionMigrationsShape:
-    """The new migrations are present, ordered, unique, and non-empty."""
-
     def test_new_migrations_present(self):
         versions = [v for v, _ in MIGRATIONS]
         assert "0005_sessions" in versions
@@ -215,7 +178,6 @@ class TestSessionMigrationsShape:
     def test_versions_sorted_and_ordered(self):
         versions = [v for v, _ in MIGRATIONS]
         assert versions == sorted(versions)
-        # The two new migrations come last, in order.
         assert versions[-2:] == ["0005_sessions", "0006_execution_session_fk"]
 
     def test_all_sql_non_empty_strings(self):
@@ -227,7 +189,6 @@ class TestSessionMigrationsShape:
         sql = dict(MIGRATIONS)["0005_sessions"]
         assert "CREATE TABLE IF NOT EXISTS sessions" in sql
         assert "CREATE TABLE IF NOT EXISTS session_events" in sql
-        # CHECK constraint covers all 7 states (so it never needs widening).
         for status in get_args(SessionStatus):
             assert f"'{status}'" in sql
 
@@ -238,18 +199,10 @@ class TestSessionMigrationsShape:
 
     def test_session_terminal_statuses_constant(self):
         assert set(SESSION_TERMINAL_STATUSES) == {"terminated", "failed", "expired"}
-        # Every terminal status is a real SessionStatus.
         assert set(SESSION_TERMINAL_STATUSES).issubset(set(get_args(SessionStatus)))
 
 
-# ---------------------------------------------------------------------------
-# Config tests (pure, no DB)
-# ---------------------------------------------------------------------------
-
-
 class TestSessionConfig:
-    """Session config fields, defaults, bounds, validator, and env wiring."""
-
     def test_defaults(self):
         config = TakoVMConfig()
         assert config.sessions_enabled is False
@@ -279,8 +232,6 @@ class TestSessionConfig:
             TakoVMConfig(session_idle_timeout_seconds=86401)
 
     def test_max_ttl_bounds(self):
-        # Lower idle alongside ttl so the idle<=ttl cross-field validator isn't
-        # what trips; we're exercising the ttl field bounds here.
         TakoVMConfig(session_idle_timeout_seconds=60, session_max_ttl_seconds=60)
         with pytest.raises(ValidationError):
             TakoVMConfig(session_max_ttl_seconds=59)
@@ -318,20 +269,12 @@ class TestSessionConfig:
             load_config()
 
 
-# ---------------------------------------------------------------------------
-# Storage round-trip tests (Postgres-backed; skip cleanly without a DB)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def storage(test_storage):
-    """Reuse the shared Postgres-backed storage fixture from conftest."""
     return test_storage
 
 
 class TestSessionStorage:
-    """save/get/list/touch + session events round-trip through Postgres."""
-
     @staticmethod
     def _make_session(session_id: str, status: SessionStatus = "running") -> SessionRecord:
         now = datetime.now(timezone.utc)
@@ -450,7 +393,6 @@ class TestSessionStorage:
         assert later[0].id == event2.id
 
     def test_execution_record_session_id_round_trips(self, storage):
-        """ExecutionRecord.session_id persists and reloads through the upsert."""
         record = ExecutionRecord(
             execution_id="exec-with-session",
             status="succeeded",

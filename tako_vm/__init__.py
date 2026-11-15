@@ -1,35 +1,7 @@
-# Copyright 2026 Tako Research
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""
-Tako VM - Secure Code Execution System
-
-Core modules:
-- server: FastAPI HTTP server with async job queue (server/app.py, server/queue.py)
-- execution: Docker container execution orchestrator (execution/worker.py, execution/builder.py)
-- sdk: Typed Python SDK for function execution (sdk/client.py)
-- sandbox: Direct Docker execution without a server
-- job_types: Execution environment configuration
-- models: ExecutionRecord and other data models
-- config: Configuration management
-"""
-
 from importlib.metadata import version as _pkg_version
 
 __version__ = _pkg_version("tako-vm")
 
-# Suppress LibreSSL warnings on macOS (urllib3 v2 requires OpenSSL 1.1.1+)
 import warnings
 
 try:
@@ -84,15 +56,12 @@ from tako_vm.sdk.client import (
 )
 
 __all__ = [
-    # Sandbox (library-first interface)
     "Sandbox",
     "SandboxResult",
     "sandbox_run",
-    # Typed function execution
     "send",
     "send_raw",
     "configure",
-    # Async job lifecycle
     "submit",
     "submit_code",
     "get_status",
@@ -101,7 +70,6 @@ __all__ = [
     "rerun",
     "fork",
     "download_artifact",
-    # History & metadata
     "list_executions",
     "get_execution",
     "pool_stats",
@@ -110,35 +78,28 @@ __all__ = [
     "list_job_types",
     "get_job_type",
     "build_job_type",
-    # SDK Classes
     "TakoVM",
     "ExecutionResult",
-    # Job Types
     "JobType",
     "JobTypeRegistry",
-    # Production Models
     "ExecutionRecord",
     "ResourceUsage",
     "Artifact",
     "JobVersion",
-    # Configuration
     "TakoVMConfig",
     "get_config",
-    # Constants
     "DEFAULT_IMAGE",
     "UV_CACHE_VOLUME",
     "get_workspace_dir",
     "MAX_REQUIREMENTS",
-    # Exceptions
     "TakoVMError",
     "TransportError",
     "APIError",
     "ServerError",
     "ClientError",
     "SDKExecutionError",
-    "ExecutionError",  # Backward compatibility alias for SDKExecutionError
+    "ExecutionError",
     "MalformedResponseError",
     "ValidationError",
-    # Version
     "__version__",
 ]
