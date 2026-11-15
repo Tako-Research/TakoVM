@@ -11,6 +11,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes about four minutes. Without a limit, a hung test holds
+    # the runner for GitHub's six-hour default before the job is cancelled.
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
