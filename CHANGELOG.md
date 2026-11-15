@@ -5,7 +5,15 @@ All notable changes to Tako VM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-11-15
+
+A fix release. Upgrade if you serve artifacts: on a current Starlette (which is
+what a fresh install resolves on Python 3.11 and later), a single artifact
+download hangs the API server. See Fixed.
+
+The session change under Changed is marked breaking but ships in a patch
+release on purpose: the session builders are unreleased scaffolding that
+nothing calls, so no deployment can be using the old signature.
 
 ### Security
 
@@ -34,6 +42,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An artifact download could hang the whole API server.** The request
+  protection middleware buffers the request body and replays it to the app.
+  Once the replay was exhausted its `receive()` returned an empty
+  `http.request` immediately, forever, instead of blocking until the client
+  disconnects. Starlette's `FileResponse` now waits for a disconnect in a
+  `while True: await receive()` loop on ASGI spec versions below 2.4 (which is
+  what uvicorn advertises), so that loop never yielded: the file was never
+  sent, the event loop spun at 100% CPU, and every later request, including
+  `/health`, went unanswered. One `GET /jobs/{id}/artifacts/{name}` was
+  enough. Affects any install that resolves a recent Starlette (Python 3.11
+  and later); the middleware now hands over to the server's own `receive()`.
+- The CI test job has a 20-minute limit. The bug above made the Python 3.11
+  and 3.12 jobs hang for GitHub's six-hour default on every run.
 - `docs/architecture.md` said a job with runtime requirements used the bridge
   network for the install and was then isolated for code execution. It is not:
   the container stays on the bridge network for its whole run (#100).

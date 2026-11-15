@@ -255,3 +255,104 @@ class TestApiProtectionAppIntegration:
 
             assert first.status_code == 404
             assert second.status_code == 429
+
+
+class TestReceiveAfterBufferedBody:
+    @staticmethod
+    def _run_through_middleware(downstream):
+        import asyncio
+
+        async def scenario():
+            disconnected = asyncio.Event()
+            pending = [{"type": "http.request", "body": b"{}", "more_body": False}]
+
+            async def receive():
+                if pending:
+                    return pending.pop(0)
+                await disconnected.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                return None
+
+            async def app(scope, app_receive, app_send):
+                await downstream(app_receive, disconnected)
+
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/anything",
+                "headers": [],
+                "client": ("127.0.0.1", 1234),
+            }
+            config = TakoVMConfig(api_rate_limit_enabled=False)
+            middleware = ApiProtectionMiddleware(app, config_getter=lambda: config)
+            await asyncio.wait_for(middleware(scope, receive, send), timeout=5)
+
+        asyncio.run(scenario())
+
+    def test_receive_blocks_until_disconnect_after_body_is_replayed(self):
+        import asyncio
+
+        seen = []
+
+        async def downstream(receive, disconnected):
+            seen.append(await receive())
+            try:
+                extra = await asyncio.wait_for(receive(), timeout=0.1)
+            except asyncio.TimeoutError:
+                extra = None
+            seen.append(extra)
+            disconnected.set()
+            seen.append(await asyncio.wait_for(receive(), timeout=1))
+
+        self._run_through_middleware(downstream)
+
+        assert seen[0] == {"type": "http.request", "body": b"{}", "more_body": False}
+        assert seen[1] is None, f"receive() returned {seen[1]!r} instead of waiting"
+        assert seen[2] == {"type": "http.disconnect"}
+
+    def test_disconnect_listener_does_not_starve_a_concurrent_sender(self):
+        import asyncio
+
+        sent = []
+
+        async def downstream(receive, disconnected):
+            await receive()
+
+            async def stream():
+                for chunk in (b"a", b"b", b"c"):
+                    await asyncio.sleep(0)
+                    sent.append(chunk)
+                disconnected.set()
+
+            task = asyncio.ensure_future(stream())
+            spins = 0
+            while (await receive())["type"] != "http.disconnect":
+                spins += 1
+                assert spins < 1000, "receive() returns without blocking"
+            await task
+
+        self._run_through_middleware(downstream)
+
+        assert sent == [b"a", b"b", b"c"]
+
+    def test_file_response_is_served_through_the_middleware(self, tmp_path):
+        from starlette.responses import FileResponse
+
+        target = tmp_path / "report.txt"
+        target.write_text("hello artifact")
+
+        app = FastAPI()
+        config = TakoVMConfig(api_rate_limit_enabled=False)
+        app.add_middleware(ApiProtectionMiddleware, config_getter=lambda: config)
+
+        @app.get("/file")
+        async def file_endpoint():
+            return FileResponse(target)
+
+        with TestClient(app) as client:
+            response = client.get("/file")
+
+        assert response.status_code == 200
+        assert response.text == "hello artifact"
