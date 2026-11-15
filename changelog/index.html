@@ -1678,6 +1678,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1706,7 +1728,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#security_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1717,7 +1739,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1745,7 +1767,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1767,7 +1789,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_1" class="md-nav__link">
+  <a href="#security_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1806,7 +1828,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_2" class="md-nav__link">
+  <a href="#changed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1845,7 +1867,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_3" class="md-nav__link">
+  <a href="#changed_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1867,7 +1889,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_2" class="md-nav__link">
+  <a href="#security_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1959,6 +1981,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1987,7 +2031,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#security_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -1998,7 +2042,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -2026,7 +2070,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -2048,7 +2092,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_1" class="md-nav__link">
+  <a href="#security_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -2087,7 +2131,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_2" class="md-nav__link">
+  <a href="#changed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -2126,7 +2170,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_3" class="md-nav__link">
+  <a href="#changed_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -2148,7 +2192,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#security_2" class="md-nav__link">
+  <a href="#security_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Security
@@ -2263,6 +2307,31 @@
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Executor images no longer ship setuid/setgid binaries.</strong> The container
+  cannot use <code>no-new-privileges</code> (gosu needs a real <code>setuid()</code> to drop from
+  root) and the capability bounding set keeps <code>SETUID</code>/<code>SETGID</code>/<code>KILL</code> for the
+  root-side entrypoint, so a setuid-root binary (<code>su</code>, <code>mount</code>, <code>passwd</code>, ...;
+  the base image carried eleven) was the one route by which uid-1000 user code
+  could regain them. <code>docker/Dockerfile.executor</code> and every Dockerfile generated
+  by <code>tako-vm build</code> now strip the bits. Rebuild the executor image and any
+  job-type images to pick this up.</li>
+<li><strong>A session workspace must live inside a designated sessions root.</strong>
+  <code>validate_session_workspace_dir</code> relied on a denylist that only refused a
+  sensitive directory and its direct children, so <code>/etc/ssh/keys</code>,
+  <code>/var/lib/docker/volumes/&lt;x&gt;</code> and any unlisted host directory were accepted as
+  a read-write bind mount. It now requires the path to sit strictly inside
+  <code>sessions_root</code> (new <code>TakoVMConfig.sessions_dir</code>, <code>&lt;data_dir&gt;/sessions</code>),
+  textually and after resolving symlinks, and refuses system trees at any depth.
+  Not reachable in any release: nothing calls the session builders yet.</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BREAKING (internal API): <code>validate_session_workspace_dir</code> and
+  <code>build_session_run_command</code> take a required <code>sessions_root</code>.</strong> There is no
+  default, so a caller cannot mount a workspace without naming the boundary.</li>
+</ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>An artifact download could hang the whole API server.</strong> The request
@@ -2278,6 +2347,9 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
   and later); the middleware now hands over to the server's own <code>receive()</code>.</li>
 <li>The CI test job has a 20-minute limit. The bug above made the Python 3.11
   and 3.12 jobs hang for GitHub's six-hour default on every run.</li>
+<li><code>docs/architecture.md</code> said a job with runtime requirements used the bridge
+  network for the install and was then isolated for code execution. It is not:
+  the container stays on the bridge network for its whole run (#100).</li>
 </ul>
 <h2 id="030-2026-09-02">[0.3.0] - 2026-09-02<a class="headerlink" href="#030-2026-09-02" title="Permanent link">&para;</a></h2>
 <p>A security release, and the one that closes the hole the quickstart itself
@@ -2288,7 +2360,7 @@ network. Upgrade before anything else.</p>
 <p>The minor bump is the <code>max_timeout</code> ceiling below, not the security fixes: a
 deployment whose <code>job_types</code> declare a timeout above <code>max_timeout</code> is now
 refused at startup instead of quietly exceeding its own limit.</p>
-<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>--host</code> can no longer bypass the fail-closed bind guard.</strong> The config
   validator refused <code>api_auth_enabled: false</code> together with a non-loopback
@@ -2321,7 +2393,7 @@ refused at startup instead of quietly exceeding its own limit.</p>
   and returned 500 — an unauthenticated log-flood amplifier. Keys are now
   compared as UTF-8 bytes.</li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>BREAKING: a configured job type may no longer declare a <code>timeout</code> above
   <code>max_timeout</code></strong> (#146). <code>max_timeout</code> is documented as the maximum allowed
@@ -2350,7 +2422,7 @@ a container, and CI had switched the two controls off to work around that.</p>
 <p>Upgrading is not a drop-in swap. Three defaults changed in ways that will stop a
 deployment that relied on the old behavior; each has an explicit opt-out, listed
 under Changed.</p>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>BREAKING: <code>security_mode</code> now defaults to <code>strict</code></strong> (#156). It was
   <code>permissive</code>, so on a host without gVisor every job silently ran on runc while
@@ -2399,7 +2471,7 @@ under Changed.</p>
 <li>Container/image removal and build failures are logged instead of swallowed
   (#133).</li>
 </ul>
-<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
+<h3 id="security_2">Security<a class="headerlink" href="#security_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Base images are pinned by digest and the <code>docker</code> binary is verified by
   checksum (#118).</li>
@@ -2417,7 +2489,7 @@ under Changed.</p>
 <h2 id="015-2026-06-22"><a href="https://github.com/Tako-Research/TakoVM/compare/v0.1.4...v0.1.5">0.1.5</a> - 2026-06-22<a class="headerlink" href="#015-2026-06-22" title="Permanent link">&para;</a></h2>
 <p>Housekeeping release. Tako VM now lives under the Tako Research organization.
 There are no functional or API changes.</p>
-<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Moved to the Tako Research org.</strong> The repository is now
   <a href="https://github.com/Tako-Research/TakoVM">github.com/Tako-Research/TakoVM</a>,
@@ -2453,7 +2525,7 @@ end-to-end for durability, traceability, and security.</p>
   refused (#85).</li>
 <li><strong>Security policy, threat model, and vulnerability reporting process.</strong></li>
 </ul>
-<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Synchronous <code>/execute</code> now runs off the event loop and persists an
   <code>ExecutionRecord</code> (#71).</li>
@@ -2488,7 +2560,7 @@ end-to-end for durability, traceability, and security.</p>
 <li>Postgres-backed tests now actually run in CI and fail loudly when the database
   is unreachable (#80).</li>
 </ul>
-<h3 id="security_2">Security<a class="headerlink" href="#security_2" title="Permanent link">&para;</a></h3>
+<h3 id="security_3">Security<a class="headerlink" href="#security_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Runtime dependency installs are disabled by default (#51); Docker access is
   routed through a socket proxy (#52).</li>
